@@ -1,0 +1,355 @@
+# =============================================================================
+# energia_br.yaml — custo de energia elétrica no Brasil
+#                   Reproduz a fatura NA VÍRGULA e simula Convencional × Branca
+#
+# Instalação: copie para /config/packages/ e no configuration.yaml:
+#               homeassistant:
+#                 packages: !include_dir_named packages
+#
+# -----------------------------------------------------------------------------
+# COMO A FATURA SE COMPÕE — validado contra fatura Light AGO/2026, 304 kWh
+# -----------------------------------------------------------------------------
+#   Tributos são "por dentro": ICMS sobre o BRUTO, PIS/COFINS sobre o LÍQUIDO DE ICMS.
+#     fator = 1 / (1 − icms − (pis + cofins) × (1 − icms))
+#     ICMS 24,00% · PIS 1,23% · COFINS 5,67% → 1,413308
+#     fatura mediu 1,36636 ÷ 0,96678 = 1,413310   (bate na 6ª casa)
+#
+#   Reprodução linha a linha:
+#     (0,94793 + 0,01885) × 1,413308 × 304 kWh = 415,37  ✓ (fatura: 415,37)
+#     ICMS   24,00% de 415,37 =  99,69  ✓        PIS  1,23% de 315,68 =  3,88  ✓
+#     COFINS  5,67% de 315,68 =  17,90  ✓
+#     415,37 − 10,13 + 2,08 + 64,60 = 471,92  ✓ (TOTAL A PAGAR: 471,92)
+#
+#   ⚠️ A BANDEIRA está DENTRO da linha de energia. "Bandeira Amarela 8,10" é
+#      descrição do que ela contribuiu aos 415,37, não item somado à parte.
+#   ⚠️ A COSIP (64,60) é MUNICIPAL e NÃO escala com kWh. São 13,7% da conta.
+#      Modelo que só multiplica consumo × tarifa erra a fatura em R$ 56,55/mês.
+#
+# -----------------------------------------------------------------------------
+# ONDE MORA CADA COISA — e por quê
+# -----------------------------------------------------------------------------
+#   Tarifas por kWh  → sensor `Tabela Tarifária`, como ATRIBUTOS literais.
+#     Motivo: a doc do HA fixa o step mínimo do input_number em 0,001
+#     ("step: Smallest value 0.001"). Guardar 0,947927 ali vira 0,948, e a
+#     conta deixa de bater na vírgula. Literal no YAML não tem esse limite.
+#
+#   Alíquotas e encargos → input_number. Aqui 0,01 é resolução de sobra
+#     (ICMS 24,00% · COSIP 64,60) e o ajuste pela interface é desejável.
+#
+# -----------------------------------------------------------------------------
+# FONTES (lidas 2026-08-23)
+# -----------------------------------------------------------------------------
+#   ANEEL — dados abertos, tarifas homologadas (atualização semanal declarada)
+#     https://dadosabertos.aneel.gov.br/dataset/tarifas-distribuidoras-energia-eletrica
+#     resource_id fcf2906c-7c32-4b9b-a637-054e7a5234f4 · 324.629 registros
+#     filtros: NumCNPJDistribuidora + DscSubGrupo=B1 + DscClasse=Residencial
+#              + DscBaseTarifaria="Tarifa de Aplicação" + DscDetalhe="Não se aplica"
+#     tarifa = (VlrTUSD + VlrTE) ÷ 1000   (o CSV publica em R$/MWh, sem tributos)
+#
+#   ANEEL — regra da Tarifa Branca e postos tarifários
+#     gov.br/aneel/pt-br/assuntos/tarifas/entenda-a-tarifa/postos-tarifarios
+#     · Ponta: "período diário de 3h consecutivas, com exceção feita aos
+#       sábados, domingos e feriados nacionais"
+#     · Intermediário: "1h a 1h30 ANTES E DEPOIS do horário de ponta"
+#     · "Nos fins de semana e feriados nacionais, todas as horas são fora de ponta"
+#     · Janelas definidas POR DISTRIBUIDORA na revisão tarifária periódica
+#
+#   Requer a integração `workday` (core, config flow) com país BR e a subdivisão
+#   do estado — é ela que conhece feriados nacionais e estaduais.
+# =============================================================================
+
+template:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # TABELA TARIFÁRIA — valores canônicos em R$/kWh LÍQUIDOS (sem tributos)
+  #
+  # ⚠️  ESTES VALORES REFLETEM OVERRIDE REGULATÓRIO, não o CSV bruto da ANEEL.
+  #       REH 3.571/2026 (base) → Despacho ANEEL 921/2026 alterou o reajuste
+  #       anual de 2026 → Despacho 2129/2026 restaurou os efeitos.
+  #     O CSV de dados abertos ainda publica 0,88056 para o convencional.
+  #     A diferença de 0,067367 R$/kWh foi confirmada contra fatura real.
+  #
+  #     → CONSEQUÊNCIA PARA O ATUALIZADOR AUTOMÁTICO: baixar o CSV e publicar
+  #       direto produz tarifa ERRADA. É obrigatória uma camada de override
+  #       que consulte atos posteriores antes de sobrescrever este bloco.
+  # ═══════════════════════════════════════════════════════════════════════════
+  - sensor:
+      - name: "Tabela Tarifária"
+        unique_id: tabela_tarifaria
+        icon: mdi:table-large
+        state: "LIGHT SESA"
+        attributes:
+          cnpj: "60444437000146"
+          subgrupo: "B1 Residencial"
+          vigencia_inicio: "2026-03-15"
+          vigencia_fim: "2027-03-14"
+          ato: "REH 3.571/2026 + Despacho 921/2026, restaurado por 2129/2026"
+          convencional: 0.94793
+          ponta: 1.73992
+          intermediaria: 1.20499
+          fora_ponta: 0.83447
+          bandeira: 0.01885
+          bandeira_nome: "Amarela"
+
+      # ── Fator de tributos, DERIVADO das alíquotas
+      - name: "Fator de Tributos"
+        unique_id: fator_tributos
+        icon: mdi:calculator-variant
+        state: >
+          {% set i = states('input_number.aliquota_icms')|float(0) / 100 %}
+          {% set p = states('input_number.aliquota_pis')|float(0) / 100 %}
+          {% set c = states('input_number.aliquota_cofins')|float(0) / 100 %}
+          {% set d = 1 - i - (p + c) * (1 - i) %}
+          {{ (1 / d) | round(6) if d > 0 else 0 }}
+
+      # ── Preço final por posto = (tarifa líquida + bandeira) × fator
+      - name: "Preço Convencional"
+        unique_id: preco_convencional
+        unit_of_measurement: "BRL/kWh"
+        state: >
+          {% set t = states.sensor.tabela_tarifaria.attributes %}
+          {{ ((t.convencional + t.bandeira) * states('sensor.fator_tributos')|float(1)) | round(6) }}
+
+      - name: "Preço Ponta"
+        unique_id: preco_ponta
+        unit_of_measurement: "BRL/kWh"
+        state: >
+          {% set t = states.sensor.tabela_tarifaria.attributes %}
+          {{ ((t.ponta + t.bandeira) * states('sensor.fator_tributos')|float(1)) | round(6) }}
+
+      - name: "Preço Intermediário"
+        unique_id: preco_intermediario
+        unit_of_measurement: "BRL/kWh"
+        state: >
+          {% set t = states.sensor.tabela_tarifaria.attributes %}
+          {{ ((t.intermediaria + t.bandeira) * states('sensor.fator_tributos')|float(1)) | round(6) }}
+
+      - name: "Preço Fora Ponta"
+        unique_id: preco_fora_ponta
+        unit_of_measurement: "BRL/kWh"
+        state: >
+          {% set t = states.sensor.tabela_tarifaria.attributes %}
+          {{ ((t.fora_ponta + t.bandeira) * states('sensor.fator_tributos')|float(1)) | round(6) }}
+
+      # ── Encargos fixos do mês (independem do consumo)
+      - name: "Encargos Fixos do Mês"
+        unique_id: encargos_fixos_mes
+        unit_of_measurement: BRL
+        device_class: monetary
+        state: >
+          {{ (states('input_number.encargo_cosip')|float(0)
+            + states('input_number.encargo_complementos')|float(0)
+            - states('input_number.encargo_bonus')|float(0)) | round(2) }}
+
+      # ── Energia do mês em cada modalidade
+      - name: "Energia Mensal Convencional"
+        unique_id: energia_mensal_convencional
+        unit_of_measurement: BRL
+        device_class: monetary
+        state: >
+          {% set p = states('sensor.monthly_energy_peak')|float(0) %}
+          {% set s = states('sensor.monthly_energy_shoulder')|float(0) %}
+          {% set o = states('sensor.monthly_energy_offpeak')|float(0) %}
+          {{ ((p + s + o) * states('sensor.preco_convencional')|float(0)) | round(2) }}
+
+      - name: "Energia Mensal Branca"
+        unique_id: energia_mensal_branca
+        unit_of_measurement: BRL
+        device_class: monetary
+        state: >
+          {% set p = states('sensor.monthly_energy_peak')|float(0) %}
+          {% set s = states('sensor.monthly_energy_shoulder')|float(0) %}
+          {% set o = states('sensor.monthly_energy_offpeak')|float(0) %}
+          {{ (p * states('sensor.preco_ponta')|float(0)
+            + s * states('sensor.preco_intermediario')|float(0)
+            + o * states('sensor.preco_fora_ponta')|float(0)) | round(2) }}
+
+      # ── FATURA COMPLETA — é o que se paga
+      - name: "Fatura Mensal Convencional"
+        unique_id: fatura_mensal_convencional
+        unit_of_measurement: BRL
+        device_class: monetary
+        icon: mdi:file-document-outline
+        state: >
+          {{ (states('sensor.energia_mensal_convencional')|float(0)
+            + states('sensor.encargos_fixos_mes')|float(0)) | round(2) }}
+
+      - name: "Fatura Mensal Branca"
+        unique_id: fatura_mensal_branca
+        unit_of_measurement: BRL
+        device_class: monetary
+        icon: mdi:file-document-outline
+        state: >
+          {{ (states('sensor.energia_mensal_branca')|float(0)
+            + states('sensor.encargos_fixos_mes')|float(0)) | round(2) }}
+
+      # ── Veredito da simulação
+      - name: "Economia com Tarifa Branca"
+        unique_id: economia_tarifa_branca
+        unit_of_measurement: BRL
+        device_class: monetary
+        icon: mdi:swap-horizontal
+        state: >
+          {{ (states('sensor.fatura_mensal_convencional')|float(0)
+            - states('sensor.fatura_mensal_branca')|float(0)) | round(2) }}
+        attributes:
+          melhor_modalidade: >
+            {{ 'Tarifa Branca' if states('sensor.fatura_mensal_convencional')|float(0)
+                                > states('sensor.fatura_mensal_branca')|float(0)
+               else 'Convencional' }}
+
+      # ── Cerca do package: digite o total da fatura, isto deve ficar em zero
+      - name: "Desvio da Conferência"
+        unique_id: desvio_conferencia
+        unit_of_measurement: BRL
+        device_class: monetary
+        icon: mdi:scale-balance
+        state: >
+          {{ (states('sensor.fatura_mensal_convencional')|float(0)
+            - states('input_number.fatura_conferencia')|float(0)) | round(2) }}
+
+      # ── Alerta de fim de vigência (a virada é conhecida, não é surpresa)
+      - name: "Dias até Reajuste Tarifário"
+        unique_id: dias_ate_reajuste
+        unit_of_measurement: d
+        icon: mdi:calendar-clock
+        state: >
+          {% set fim = states.sensor.tabela_tarifaria.attributes.vigencia_fim %}
+          {{ ((fim | as_datetime).date() - now().date()).days }}
+
+      - name: "Posto Tarifário Atual"
+        unique_id: posto_tarifario_atual
+        icon: mdi:clock-outline
+        state: >
+          {% set m = states('select.monthly_energy') %}
+          {{ {'peak':'Ponta','shoulder':'Intermediário','offpeak':'Fora Ponta'}.get(m, m) }}
+
+input_number:
+  # ── Alíquotas — copie do quadro "Tributo" da sua fatura
+  aliquota_icms:
+    name: "Alíquota ICMS"
+    initial: 24.0
+    min: 0
+    max: 40
+    step: 0.01
+    unit_of_measurement: "%"
+    icon: mdi:percent
+    mode: box
+  aliquota_pis:
+    name: "Alíquota PIS/PASEP"
+    initial: 1.23
+    min: 0
+    max: 10
+    step: 0.01
+    unit_of_measurement: "%"
+    icon: mdi:percent
+    mode: box
+  aliquota_cofins:
+    name: "Alíquota COFINS"
+    initial: 5.67
+    min: 0
+    max: 20
+    step: 0.01
+    unit_of_measurement: "%"
+    icon: mdi:percent
+    mode: box
+
+  # ── Encargos fixos do mês (R$) — NÃO escalam com consumo
+  encargo_cosip:
+    name: "Contrib. Custeio Iluminação Pública"
+    initial: 0
+    min: 0
+    max: 1000
+    step: 0.01
+    unit_of_measurement: "BRL"
+    icon: mdi:lightbulb-on-outline
+    mode: box
+  encargo_complementos:
+    name: "Complementos e outros débitos"
+    initial: 0
+    min: -1000
+    max: 1000
+    step: 0.01
+    unit_of_measurement: "BRL"
+    icon: mdi:plus-box-outline
+    mode: box
+  encargo_bonus:
+    name: "Bônus e créditos (positivo, será subtraído)"
+    initial: 0
+    min: 0
+    max: 1000
+    step: 0.01
+    unit_of_measurement: "BRL"
+    icon: mdi:minus-box-outline
+    mode: box
+
+  # ── Conferência — total da última fatura, para validar o modelo
+  fatura_conferencia:
+    name: "Total da última fatura (conferência)"
+    initial: 0
+    min: 0
+    max: 100000
+    step: 0.01
+    unit_of_measurement: "BRL"
+    icon: mdi:file-document-check-outline
+    mode: box
+
+utility_meter:
+  # Roda mesmo no Convencional: sem a quebra por posto não existe simulação.
+  daily_energy:
+    source: sensor.energy_total          # ← troque pela sua fonte de kWh acumulado
+    cycle: daily
+    tariffs: [peak, shoulder, offpeak]
+  monthly_energy:
+    source: sensor.energy_total          # ← troque pela sua fonte de kWh acumulado
+    cycle: monthly
+    tariffs: [peak, shoulder, offpeak]
+
+automation:
+  # ⚠️ AS JANELAS SÃO POR DISTRIBUIDORA, não universais.
+  #    A ANEEL fixa a ESTRUTURA (ponta 3h; intermediário 1h–1h30 antes E depois);
+  #    as janelas saem da revisão tarifária de cada distribuidora. Os horários
+  #    abaixo são exemplo coerente com a regra — confirme na sua antes de usar.
+  - id: energia_br_posto_tarifario
+    alias: "Energia BR — seleciona o posto tarifário"
+    description: >
+      Chaveia o utility_meter entre os postos. Em dia não útil força fora ponta
+      o dia inteiro, conforme regra da ANEEL. Recalcula no start do HA e quando
+      o workday muda, para não ficar preso no posto errado após reinício.
+    mode: single
+    trigger:
+      - platform: time
+        at: "16:30:00"
+        variables: {posto: shoulder}
+      - platform: time
+        at: "17:30:00"
+        variables: {posto: peak}
+      - platform: time
+        at: "20:30:00"
+        variables: {posto: shoulder}
+      - platform: time
+        at: "21:30:00"
+        variables: {posto: offpeak}
+      - platform: state
+        entity_id: binary_sensor.workday_sensor
+        variables: {posto: recalcular}
+      - platform: homeassistant
+        event: start
+        variables: {posto: recalcular}
+    action:
+      - variables:
+          util: "{{ is_state('binary_sensor.workday_sensor','on') }}"
+          agora: "{{ now().strftime('%H:%M') }}"
+          alvo: >
+            {% if not util %}offpeak
+            {% elif posto != 'recalcular' %}{{ posto }}
+            {% elif '17:30' <= agora < '20:30' %}peak
+            {% elif '16:30' <= agora < '17:30' or '20:30' <= agora < '21:30' %}shoulder
+            {% else %}offpeak
+            {% endif %}
+      - service: select.select_option
+        target:
+          entity_id:
+            - select.daily_energy
+            - select.monthly_energy
+        data:
+          option: "{{ alvo | trim }}"

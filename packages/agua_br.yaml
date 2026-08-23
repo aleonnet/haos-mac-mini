@@ -1,0 +1,203 @@
+# =============================================================================
+# agua_br.yaml — água e esgoto: simula o que você pagaria como cliente DIRETO
+#                da concessionária e compara com o rateio do condomínio
+#
+# Instalação: copie para /config/packages/ e no configuration.yaml:
+#               homeassistant:
+#                 packages: !include_dir_named packages
+#
+# -----------------------------------------------------------------------------
+# POR QUE ESTE PACKAGE É DIFERENTE DOS DE ENERGIA E GÁS
+# -----------------------------------------------------------------------------
+#   Nos outros dois a fatura vem da concessionária e o modelo reproduz a conta.
+#   Aqui a fatura vem do CONDOMÍNIO, que faz rateio próprio. Então o package
+#   NÃO tenta reproduzir o rateio — ele calcula o que a REGRA DA CONCESSIONÁRIA
+#   cobraria de um cliente direto e mostra a DIFERENÇA.
+#
+#   Essa diferença é o dado útil: revela se o rateio do prédio favorece ou
+#   penaliza a sua unidade.
+#
+#   ⚠️ ESPERE DIVERGÊNCIA, e ela não é defeito do modelo.
+#      Prédio é faturado como uma ligação com N "economias". Nas tarifas
+#      brasileiras de água os LIMITES das faixas escalam com o número de
+#      economias — então o prédio inteiro entra numa curva diferente da de uma
+#      residência isolada. O rateio interno depois divide isso por critério
+#      próprio (medição individual, fração ideal, etc).
+#
+# -----------------------------------------------------------------------------
+# CONCESSIONÁRIA
+# -----------------------------------------------------------------------------
+#   Exemplo preenchido: a ÁGUAS DO RIO — BLOCO 1, que atende parte da capital.
+#   A própria concessionária publica a lista de distritos do Bloco 1:
+#     https://aguasdorio.com.br/quem-somos/
+#   Troque `bairro` e a tabela pela sua concessionária — a estrutura é a mesma.
+#
+#   ⚠️ ÁREA A ou ÁREA B: **confirme a sua**.
+#      A referência encontrada diz que a Área B reúne bairros da AP5/zona oeste
+#      e da zona norte — o que por EXCLUSÃO colocaria a Zona Sul na Área A.
+#      Isso é INFERÊNCIA, não fonte. Por isso a área é selecionável e o padrão
+#      vem marcado como não confirmado. Confirme na sua conta ou na AGENERSA:
+#        https://www.rj.gov.br/agenersa/tarifas-em-vigor
+#
+#   ⚠️ VALORES COM DATA DE REFERÊNCIA 01/12/2025.
+#      Podem estar desatualizados. Confirme antes de usar como verdade:
+#        https://www.rj.gov.br/agenersa/sites/default/files/arquivos_paginas_basicas/AGUASDORIOBL%201.pdf
+#
+#   Estrutura: cascata progressiva por faixas de 0–15, 16–30, 31–45, 46–60, >60 m³.
+#   Esgoto: a estrutura consultada indica cobrança EQUIVALENTE à água (100%).
+#   ⚠️ NUNCA aplicar percentual de esgoto de um prestador a outro.
+# =============================================================================
+
+template:
+  - sensor:
+      # ═══════════════════════════════════════════════════════════════════════
+      # TABELA — R$/m³ de ÁGUA. Literais no YAML: input_number não guarda 6 casas.
+      # ═══════════════════════════════════════════════════════════════════════
+      - name: "Tabela Água"
+        unique_id: tabela_agua
+        icon: mdi:table-large
+        state: "Águas do Rio 1"
+        attributes:
+          concessionaria: "Águas do Rio — Bloco 1"
+          municipio: "Rio de Janeiro"
+          bairro: ""            # preencha com o seu
+          area_confirmada: false
+          data_referencia: "2025-12-01"
+          esgoto_percentual: 1.00
+          limites: [15, 30, 45, 60]
+          area_a: [7.436291, 16.359841, 22.308872, 44.617747, 59.490329]
+          area_b: [6.523050, 14.350710, 19.569152, 39.138304, 52.184405]
+
+      # ── Cascata da água, pela área escolhida
+      - name: "Água Custo Simulado"
+        unique_id: agua_custo_simulado
+        unit_of_measurement: BRL
+        device_class: monetary
+        icon: mdi:water
+        state: >
+          {% set t = states.sensor.tabela_agua.attributes %}
+          {% set tar = t.area_a if is_state('input_select.agua_area','Área A') else t.area_b %}
+          {% set lim = t.limites %}
+          {% set c = states('input_number.agua_consumo_m3')|float(0) %}
+          {% set u1 = [c, lim[0]] | min %}
+          {% set u2 = [[c, lim[1]] | min - lim[0], 0] | max %}
+          {% set u3 = [[c, lim[2]] | min - lim[1], 0] | max %}
+          {% set u4 = [[c, lim[3]] | min - lim[2], 0] | max %}
+          {% set u5 = [c - lim[3], 0] | max %}
+          {{ ( u1*tar[0] + u2*tar[1] + u3*tar[2] + u4*tar[3] + u5*tar[4] ) | round(2) }}
+        attributes:
+          area: "{{ states('input_select.agua_area') }}"
+          detalhe_faixas: >
+            {% set t = states.sensor.tabela_agua.attributes %}
+            {% set tar = t.area_a if is_state('input_select.agua_area','Área A') else t.area_b %}
+            {% set lim = t.limites %}
+            {% set c = states('input_number.agua_consumo_m3')|float(0) %}
+            {% set u1 = [c, lim[0]] | min %}
+            {% set u2 = [[c, lim[1]] | min - lim[0], 0] | max %}
+            {{ '%.0f m³ × %.6f = %.2f | %.0f m³ × %.6f = %.2f'
+               | format(u1, tar[0], u1*tar[0], u2, tar[1], u2*tar[1]) }}
+
+      - name: "Esgoto Custo Simulado"
+        unique_id: esgoto_custo_simulado
+        unit_of_measurement: BRL
+        device_class: monetary
+        icon: mdi:pipe-disconnected
+        state: >
+          {% set t = states.sensor.tabela_agua.attributes %}
+          {{ (states('sensor.agua_custo_simulado')|float(0) * t.esgoto_percentual) | round(2) }}
+
+      - name: "Água e Esgoto Simulado"
+        unique_id: agua_esgoto_simulado
+        unit_of_measurement: BRL
+        device_class: monetary
+        icon: mdi:calculator
+        state: >
+          {{ (states('sensor.agua_custo_simulado')|float(0)
+            + states('sensor.esgoto_custo_simulado')|float(0)) | round(2) }}
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # O DADO ÚTIL: quanto o rateio do condomínio diverge da regra
+      # ═══════════════════════════════════════════════════════════════════════
+      - name: "Água Diferença vs Condomínio"
+        unique_id: agua_diferenca_condominio
+        unit_of_measurement: BRL
+        device_class: monetary
+        icon: mdi:scale-balance
+        state: >
+          {{ (states('input_number.agua_valor_condominio')|float(0)
+            - states('sensor.agua_esgoto_simulado')|float(0)) | round(2) }}
+        attributes:
+          leitura: >
+            {% set d = states('input_number.agua_valor_condominio')|float(0)
+                     - states('sensor.agua_esgoto_simulado')|float(0) %}
+            {{ 'condomínio cobra A MAIS que a regra da concessionária' if d > 0
+               else ('condomínio cobra A MENOS' if d < 0 else 'idêntico') }}
+          percentual: >
+            {% set s = states('sensor.agua_esgoto_simulado')|float(0) %}
+            {% set c = states('input_number.agua_valor_condominio')|float(0) %}
+            {{ ((c/s - 1) * 100) | round(1) if s > 0 else 0 }}
+
+      - name: "Água Preço Efetivo Condomínio"
+        unique_id: agua_preco_efetivo_condominio
+        unit_of_measurement: "BRL/m³"
+        icon: mdi:currency-usd
+        state: >
+          {% set c = states('input_number.agua_consumo_m3')|float(0) %}
+          {{ (states('input_number.agua_valor_condominio')|float(0) / c) | round(4) if c > 0 else 0 }}
+
+      - name: "Água Preço Efetivo Concessionária"
+        unique_id: agua_preco_efetivo_concessionaria
+        unit_of_measurement: "BRL/m³"
+        icon: mdi:currency-usd
+        state: >
+          {% set c = states('input_number.agua_consumo_m3')|float(0) %}
+          {{ (states('sensor.agua_esgoto_simulado')|float(0) / c) | round(4) if c > 0 else 0 }}
+
+input_select:
+  agua_area:
+    name: "Água — área tarifária"
+    options:
+      - "Área A"
+      - "Área B"
+    initial: "Área A"
+    icon: mdi:map-marker-radius
+
+input_number:
+  # ── Consumo do ciclo, em m³. Da linha da fatura do condomínio:
+  #    "Água - Esgoto - Individual M³: 4 219,0000(Jul) − 4 198,0000(Jun) = 21,0000"
+  agua_consumo_m3:
+    name: "Água — consumo do ciclo"
+    initial: 21
+    min: 0
+    max: 500
+    step: 0.001
+    unit_of_measurement: "m³"
+    icon: mdi:water-outline
+    mode: box
+
+  # ── O que o condomínio repassou, para a comparação
+  agua_valor_condominio:
+    name: "Água — valor repassado pelo condomínio"
+    initial: 356.39
+    min: 0
+    max: 100000
+    step: 0.01
+    unit_of_measurement: "BRL"
+    icon: mdi:home-city-outline
+    mode: box
+
+# -----------------------------------------------------------------------------
+# COMO LER O RESULTADO
+#
+#   `Água e Esgoto Simulado`          o que a regra da concessionária cobraria
+#   `Água Diferença vs Condomínio`    positivo = o prédio cobra a mais
+#   os dois `Preço Efetivo`           R$/m³ de cada lado, para comparação direta
+#
+#   Divergência de alguns por cento é ESPERADA — o prédio é faturado como uma
+#   ligação com N economias, numa curva de faixas diferente. Divergência grande
+#   e persistente é que merece pergunta ao síndico.
+#
+#   ⚠️ Este package NÃO reproduz a conta do condomínio e não deve ser usado
+#      para contestar cobrança sem antes obter a fatura completa do prédio,
+#      com prestador, área de concessão e número de economias.
+# -----------------------------------------------------------------------------

@@ -1,0 +1,224 @@
+# =============================================================================
+# gas_br.yaml — custo de gás canalizado no Brasil (modelo RJ / Naturgy)
+#               Reproduz a fatura NA VÍRGULA
+#
+# Instalação: copie para /config/packages/ e no configuration.yaml:
+#               homeassistant:
+#                 packages: !include_dir_named packages
+#
+# -----------------------------------------------------------------------------
+# QUATRO CAMADAS — validadas contra fatura Naturgy CEG, JUL/2026, cliente residencial
+# -----------------------------------------------------------------------------
+#
+# 1) VOLUME CORRIGIDO — gás NÃO é faturado no volume medido
+#      medido × fator P,T,Z × fator PCS, arredondado ao m³ inteiro
+#      Fatura: 19 m³ × 1,02146 × 1,012 = 19,64 → cobra 20 m³  (+5,3%)
+#      P,T,Z = pressão, temperatura e compressibilidade · PCS = poder calorífico
+#      Um modelo que use o volume do medidor erra sistematicamente PARA BAIXO.
+#
+# 2) CASCATA POR FAIXA — cada parcela do consumo na sua faixa
+#      Fatura imprime o cálculo:
+#        0–7  :  7,00 m³ × 9,5319  =  66,72
+#        8–23 : 13,00 m³ × 12,4840 = 162,29
+#        total                     = 229,01  ✓
+#      ⚠️ A fatura ARREDONDA CADA LINHA antes de somar. Somar e arredondar
+#         no fim dá 229,02 — um centavo de diferença.
+#      ⚠️ Consumo na primeira faixa cobra TAXA MÍNIMA (o volume cheio da faixa).
+#
+# 3) TARIFA JÁ VEM COM TRIBUTOS
+#      "Impostos incluídos no total do faturamento" — a cascata produz o valor
+#      final. Diferente da energia, onde a tarifa é líquida e se aplica fator.
+#
+# 4) TRIBUTOS — estrutura própria, NÃO é a da energia
+#      ICMS: BASE REDUZIDA a 60% do total (Decreto RJ 25.941/1999), alíquota 20%
+#            → efetivo 12% do total, não 20%
+#            Fatura: base 137,41 de 229,01 = exatamente 60,00%
+#                    137,41 × 20% = 27,48  ✓
+#      PIS+COFINS: 9,25% (1,65 + 7,60) sobre o valor LÍQUIDO DE ICMS
+#            Fatura: (229,01 − 27,48) × 9,25% = 18,64  (fatura: 18,65)
+#      Total dos tributos: 46,13  ✓
+#
+# -----------------------------------------------------------------------------
+# FONTES (lidas 2026-08-23)
+# -----------------------------------------------------------------------------
+#   AGENERSA — tarifas em vigor .... https://www.rj.gov.br/agenersa/tarifas-em-vigor
+#   Naturgy CEG ..... https://www.naturgy.com.br/wp-content/uploads/2026/07/PB85USD_Tarifa-CEG-01.08.26.pdf
+#   Naturgy CEG Rio . https://www.naturgy.com.br/wp-content/uploads/2026/07/PB85USD_Tarifa-CRIO-01.08.26.pdf
+#
+#   ⚠️ CEG e CEG Rio são distribuidoras DIFERENTES com tabelas DIFERENTES.
+#      Identifique pelo CNPJ na sua fatura:
+#        CEG      33.938.119/0002-40
+#      Os PDFs trazem `valid_from` mas frequentemente NÃO trazem `valid_until`.
+#      Não invente data de fim: monitore a mudança do arquivo na página índice.
+# =============================================================================
+
+template:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # TABELA TARIFÁRIA — R$/m³ JÁ COM TRIBUTOS
+  # Literais no YAML e não input_number: o step mínimo do input_number é 0,001
+  # e a tarifa tem 4 casas decimais.
+  #
+  # Valores desta fatura (JUL/2026). O PDF vigente a partir de 01/08/2026 traz
+  # 9,7235 e 12,6756 — a virada de tarifa está capturada aqui.
+  # ═══════════════════════════════════════════════════════════════════════════
+  - sensor:
+      - name: "Tabela Gás"
+        unique_id: tabela_gas
+        icon: mdi:table-large
+        state: "CEG"
+        attributes:
+          distribuidora: "Naturgy CEG"
+          cnpj: "33938119000240"
+          classe: "Residencial"
+          vigencia_inicio: "2026-07-01"
+          vigencia_fim: null          # PDF não publica fim — monitorar a fonte
+          # faixas: [limite_superior_m3, tarifa_R$/m3_com_tributos]
+          # a última faixa usa limite null = sem teto
+          faixa_1_ate: 7
+          faixa_1_tarifa: 9.5319
+          faixa_2_ate: 23
+          faixa_2_tarifa: 12.4840
+          faixa_3_ate: 83
+          faixa_3_tarifa: 15.3462
+          faixa_4_ate: null
+          faixa_4_tarifa: 16.1928
+          volume_minimo_m3: 7         # consumo na 1ª faixa cobra a faixa cheia
+          icms_reducao_base: 0.60     # Decreto RJ 25.941/1999
+          icms_aliquota: 0.20
+          pis_cofins_aliquota: 0.0925 # 1,65 + 7,60, sobre líquido de ICMS
+
+      # ── Volume corrigido: medido × fator, arredondado ao m³ inteiro
+      - name: "Gás Volume Corrigido"
+        unique_id: gas_volume_corrigido
+        unit_of_measurement: "m³"
+        icon: mdi:gas-cylinder
+        state: >
+          {% set m = states('sensor.gas_consumo_medido')|float(0) %}
+          {% set f = states('input_number.gas_fator_correcao')|float(1) %}
+          {{ (m * f) | round(0) | int }}
+        attributes:
+          medido: "{{ states('sensor.gas_consumo_medido') }}"
+          fator: "{{ states('input_number.gas_fator_correcao') }}"
+
+      # ── Cascata, arredondando CADA faixa como a fatura faz
+      - name: "Gás Custo Fornecimento"
+        unique_id: gas_custo_fornecimento
+        unit_of_measurement: BRL
+        device_class: monetary
+        icon: mdi:fire
+        state: >
+          {% set t = states.sensor.tabela_gas.attributes %}
+          {% set v = states('sensor.gas_volume_corrigido')|float(0) %}
+          {% set vmin = t.volume_minimo_m3 | float(0) %}
+          {% set c = [v, vmin] | max %}
+          {% set l1 = t.faixa_1_ate | float(0) %}
+          {% set l2 = t.faixa_2_ate | float(0) %}
+          {% set l3 = t.faixa_3_ate | float(0) %}
+          {% set u1 = [c, l1] | min %}
+          {% set u2 = [[c, l2] | min - l1, 0] | max %}
+          {% set u3 = [[c, l3] | min - l2, 0] | max %}
+          {% set u4 = [c - l3, 0] | max %}
+          {{ ( (u1 * t.faixa_1_tarifa) | round(2)
+             + (u2 * t.faixa_2_tarifa) | round(2)
+             + (u3 * t.faixa_3_tarifa) | round(2)
+             + (u4 * t.faixa_4_tarifa) | round(2) ) | round(2) }}
+        attributes:
+          faixa_1_m3: >
+            {% set t = states.sensor.tabela_gas.attributes %}
+            {% set c = [states('sensor.gas_volume_corrigido')|float(0), t.volume_minimo_m3|float(0)] | max %}
+            {{ [c, t.faixa_1_ate|float(0)] | min }}
+          faixa_2_m3: >
+            {% set t = states.sensor.tabela_gas.attributes %}
+            {% set c = [states('sensor.gas_volume_corrigido')|float(0), t.volume_minimo_m3|float(0)] | max %}
+            {{ [[c, t.faixa_2_ate|float(0)] | min - t.faixa_1_ate|float(0), 0] | max }}
+
+      # ── Decomposição dos tributos (informativa; já estão no valor acima)
+      - name: "Gás ICMS"
+        unique_id: gas_icms
+        unit_of_measurement: BRL
+        device_class: monetary
+        state: >
+          {% set t = states.sensor.tabela_gas.attributes %}
+          {% set v = states('sensor.gas_custo_fornecimento')|float(0) %}
+          {{ (v * t.icms_reducao_base * t.icms_aliquota) | round(2) }}
+        attributes:
+          base_reduzida: >
+            {% set t = states.sensor.tabela_gas.attributes %}
+            {{ (states('sensor.gas_custo_fornecimento')|float(0) * t.icms_reducao_base) | round(2) }}
+          fundamento: "Decreto RJ 25.941/1999 — base de cálculo reduzida"
+
+      - name: "Gás PIS COFINS"
+        unique_id: gas_pis_cofins
+        unit_of_measurement: BRL
+        device_class: monetary
+        state: >
+          {% set t = states.sensor.tabela_gas.attributes %}
+          {% set v = states('sensor.gas_custo_fornecimento')|float(0) %}
+          {% set icms = states('sensor.gas_icms')|float(0) %}
+          {{ ((v - icms) * t.pis_cofins_aliquota) | round(2) }}
+
+      - name: "Gás Tributos Total"
+        unique_id: gas_tributos_total
+        unit_of_measurement: BRL
+        device_class: monetary
+        state: >
+          {{ (states('sensor.gas_icms')|float(0)
+            + states('sensor.gas_pis_cofins')|float(0)) | round(2) }}
+
+      # ── Cerca do package: digite o total da fatura, isto deve ficar em zero
+      - name: "Gás Desvio da Conferência"
+        unique_id: gas_desvio_conferencia
+        unit_of_measurement: BRL
+        device_class: monetary
+        icon: mdi:scale-balance
+        state: >
+          {{ (states('sensor.gas_custo_fornecimento')|float(0)
+            - states('input_number.gas_fatura_conferencia')|float(0)) | round(2) }}
+
+input_number:
+  # ── Fator de correção COMBINADO = P,T,Z × PCS, lido da sua fatura
+  #    Fatura JUL/2026: 1,02146 × 1,012 = 1,03372
+  #    ⚠️ step mínimo do input_number é 0,001, então guarda 1,034.
+  #       Verificado: 19 × 1,03372 = 19,6407 e 19 × 1,034 = 19,646 — os dois
+  #       arredondam para 20. A perda só importaria a ~0,05% de uma fronteira
+  #       de arredondamento. Se a sua fatura divergir, ajuste este valor.
+  gas_fator_correcao:
+    name: "Gás — fator de correção (P,T,Z × PCS)"
+    initial: 1.034
+    min: 0.9
+    max: 1.2
+    step: 0.001
+    icon: mdi:tune-variant
+    mode: box
+
+  # ── Conferência: total de fornecimento da última fatura
+  gas_fatura_conferencia:
+    name: "Gás — total da última fatura (conferência)"
+    initial: 229.01
+    min: 0
+    max: 100000
+    step: 0.01
+    unit_of_measurement: "BRL"
+    icon: mdi:file-document-check-outline
+    mode: box
+
+# -----------------------------------------------------------------------------
+# FONTE DE CONSUMO
+#
+# `sensor.gas_consumo_medido` é o volume do MEDIDOR no ciclo, em m³.
+# Sem medidor conectado ao HA, crie um input_number e digite a diferença de
+# leituras da fatura (ex.: 4218 − 4199 = 19).
+#
+# Com medidor, use utility_meter sobre o sensor de volume acumulado:
+#
+#   utility_meter:
+#     gas_mensal:
+#       source: sensor.gas_volume_total
+#       cycle: monthly
+#
+# e aponte `sensor.gas_consumo_medido` para ele com um template sensor.
+#
+# O painel de Energia do HA tem aba própria de Gás (Settings → Dashboards →
+# Energy → Gas consumption) — aponte para o sensor de volume acumulado, não
+# para o corrigido, para não contar a correção duas vezes.
+# -----------------------------------------------------------------------------

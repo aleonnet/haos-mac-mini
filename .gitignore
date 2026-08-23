@@ -1,0 +1,28 @@
+# Segredos e dados da instância — nunca versionar
+.ha_token
+*.token
+secrets.yaml
+# dump da instância pessoal (states, config_entries) — comentário em linha PRÓPRIA:
+# no .gitignore o "#" só inicia comentário no início da linha; no meio é literal,
+# e o padrão inteiro deixa de casar.
+inventario/
+INVENTARIO.md
+
+# Artefatos grandes
+*.vdi
+*.vdi.zip
+*.qcow2
+*.img.xz
+
+# macOS
+.DS_Store
+INVENTARIO.md
+lib/haos-splash.*
+lib/__pycache__/
+catalog/*.psv
+tools/
+
+# Documentos internos de trabalho — não vão para o repositório público
+PLANO.md
+ESTADO.md
+docs/API-REFERENCE.md
