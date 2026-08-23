@@ -1,0 +1,147 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Diário. O ponto não é o nosso código mudar — é o Home Assistant mudar.
+    # O arnês contra `stable` fica vermelho no dia em que o HA publica algo que
+    # quebra a superfície de que dependemos, em vez de quando um usuário reclama.
+    - cron: "17 6 * * *"
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # Sintaxe, lint e o catálogo. Barato, roda sempre, falha rápido.
+  # ---------------------------------------------------------------------------
+  shell:
+    name: shell e catálogo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck --version
+          # o catálogo é fragmento sourceado, não script: SC2034 é esperado
+          shellcheck -e SC2034 verify.sh
+          shellcheck -e SC2034 lib/*.sh extras/*.sh
+
+      - name: bash -n em tudo que é shell
+        run: |
+          for f in $(git ls-files '*.sh' 'catalog/*.bash'); do
+            bash -n "$f" && echo "  OK  $f"
+          done
+
+      - name: verify.sh — schema e conteúdo do catálogo
+        run: ./verify.sh
+
+      - name: python — sintaxe
+        run: |
+          for f in $(git ls-files '*.py'); do
+            python3 -m py_compile "$f" && echo "  OK  $f"
+          done
+
+  # ---------------------------------------------------------------------------
+  # bash 3.2 é o que o macOS traz. Ubuntu tem 5.x e esconde incompatibilidade.
+  # Este job é a única forma honesta de provar que o catálogo carrega no alvo.
+  # ---------------------------------------------------------------------------
+  bash32:
+    name: bash 3.2 (macOS) e execução por stdin
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: versão do bash do sistema
+        run: /bin/bash --version | head -1
+
+      - name: catálogo carrega em bash 3.2
+        run: |
+          /bin/bash -c 'source catalog/catalog.bash
+            echo "  itens: ${#ITEM_DB[@]}"
+            echo "  categorias: ${#CATEGORY_DB[@]}"
+            [ ${#ITEM_DB[@]} -gt 0 ] || exit 1'
+
+      - name: verify.sh sob bash 3.2
+        run: /bin/bash ./verify.sh --quiet
+
+      # O produto é distribuído por `curl | bash`. Vindo de stdin o array
+      # BASH_SOURCE é VAZIO, e com `set -u` qualquer ${BASH_SOURCE[0]} sem
+      # default aborta na primeira linha. bash -n e shellcheck NÃO pegam isso.
+      - name: execução por stdin (o caminho do curl | bash)
+        run: |
+          if [ -f haos-install.sh ]; then
+            cat haos-install.sh | /bin/bash -s -- --help >/dev/null
+            echo "  OK  o instalador roda por stdin"
+          else
+            echo "  haos-install.sh ainda não existe — teste pulado"
+          fi
+
+      # Biblioteca sourceada não pode instalar trap, set ou mexer no cursor:
+      # trap é global do shell, e quem chama por último vence. Um trap no topo
+      # de uma lib APAGA o cleanup do chamador, em silêncio.
+      - name: contaminação de biblioteca
+        run: |
+          /bin/bash -c '
+            cleanup() { :; }
+            trap cleanup EXIT
+            antes="$(trap -p EXIT)"
+            for lib in lib/*.sh; do source "$lib" >/dev/null 2>&1 || true; done
+            depois="$(trap -p EXIT)"
+            if [ "$antes" != "$depois" ]; then
+              echo "[ERRO] uma lib trocou o trap EXIT"
+              echo "  antes : $antes"
+              echo "  depois: $depois"
+              exit 1
+            fi
+            echo "  OK  nenhuma lib mexeu no trap EXIT"
+          '
+
+  # ---------------------------------------------------------------------------
+  # O arnês de contrato contra Home Assistant de verdade, em container limpo.
+  # Duas versões: a fixada e a `stable`. A fixada falhando é regressão nossa;
+  # a stable falhando é aviso de que o HA mudou sob nossos pés.
+  # ---------------------------------------------------------------------------
+  contrato:
+    name: contrato @ ${{ matrix.ha }}
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.ha == 'stable' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        ha: ["2026.8.3", "stable"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install --quiet pyyaml websockets
+
+      - name: sobe o Home Assistant ${{ matrix.ha }}
+        run: |
+          docker run -d --name ha -p 8123:8123 \
+            ghcr.io/home-assistant/home-assistant:${{ matrix.ha }}
+          echo "esperando o Core responder..."
+          for i in $(seq 1 90); do
+            if curl -sf http://localhost:8123/ >/dev/null 2>&1; then
+              echo "  de pé em ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "[ERRO] o Core não respondeu em 90s"
+          docker logs ha | tail -40
+          exit 1
+
+      # --bootstrap cria o primeiro admin pelo onboarding, que é a única janela
+      # em que as rotas de onboarding existem. É assim que o CI cobre as
+      # dependências de escopo instancia_nova, que uma instância viva não cobre.
+      - name: arnês de contrato
+        run: python3 contract/check.py --url http://localhost:8123 --bootstrap
+
+      - name: log do container em caso de falha
+        if: failure()
+        run: docker logs ha | tail -60

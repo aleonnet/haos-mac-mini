@@ -87,7 +87,12 @@ HA_MARK=(
 
 _hide() { [[ "$HAOS_UI_ANIM" == 1 ]] && tput civis 2>/dev/null || true; }
 _show() { [[ "$HAOS_UI_ANIM" == 1 ]] && tput cnorm 2>/dev/null || true; }
-trap _show EXIT INT TERM
+
+# Library must not install a trap. `trap` is global to the shell and the last
+# caller wins: a trap here would silently REPLACE the caller's cleanup handler,
+# leaking temp files and skipping the rollback of a half-created VM on Ctrl-C.
+# The caller invokes ha_show_cursor from its own cleanup instead.
+ha_show_cursor() { _show; }
 
 # ── banner: sweep-reveal, then three breathing pulses ───────────────────────
 ha_banner() {
@@ -206,21 +211,5 @@ ha_bar() { # ha_bar <done> <total> "label"
   (( d >= t )) && printf '\n'
 }
 
-# ── demo ────────────────────────────────────────────────────────────────────
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  [[ "${1:-}" == "--no-anim" ]] && HAOS_UI_ANIM=0
-  clear 2>/dev/null || true
-  ha_banner "Home Assistant OS" "instalador para Mac mini M4 · ABHOME"
-  ha_phase "Pré-voo"
-  ha_ok "VirtualBox 7.2.16 encontrado"
-  ha_info "imagem haos_generic-aarch64-18.2.vdi.zip — 380 MiB, SHA conferido"
-  ha_warn "bridge exige a interface Ethernet (en0 é Wi-Fi)"
-  ha_skip "Raspberry Pi Power Supply Checker — não migra"
-  ha_phase "Integrações"
-  for i in $(seq 0 22); do ha_bar "$i" 22 "config flow"; sleep 0.05; done
-  ( sleep 1.4 ) & ha_spin "autenticando Tuya via config flow API" $!
-  ( sleep 1.0 ) & ha_spin "aguardando botão da Hue Bridge" $!
-  printf '\n'; ha_rule
-  ha_shimmer "  22 integrações · 0 falhas · rollback disponível"
-  printf '\n'
-fi
+# A demonstração vive em tools/ui-demo.sh. Biblioteca é biblioteca:
+# ela não desenha sozinha, não instala trap e não afirma fatos.

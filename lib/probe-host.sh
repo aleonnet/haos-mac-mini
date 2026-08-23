@@ -63,23 +63,38 @@ probe_cpu() {
 # macOS não expõe "disponível" direto — calcula-se por vm_stat.
 # Usado real = (active + wired + compressed) * pagesize   [modelo do Activity Monitor]
 # Fonte: sysctl hw.memsize · hw.pagesize · vm_stat · sysctl vm.swapusage
+# ⚠️ CUIDADO COM O QUE "DISPONÍVEL" SIGNIFICA.
+# A primeira versão calculava disponível = total - (active + wired + compressed),
+# o que EXCLUI todo o cache reclamável. Medido num Mac de 36 GB: dava 4,6 GB, e
+# duas execuções minutos depois davam 4673 e 5841 MiB — número volátil demais
+# para servir de portão que aborta, e que ainda fazia o perfil "Recomendado"
+# ficar MENOR que o "Equilibrado".
+#
+# O macOS devolve inactive, speculative e purgeable sob demanda. Elas contam.
 probe_memory() {
-  local total pagesize vs active wired compressed used avail
+  local total pagesize vs active wired compressed inactive spec purge free used avail
   total="$(_sysctl hw.memsize)"
   pagesize="$(_sysctl hw.pagesize)"; pagesize="${pagesize:-4096}"
   _kv mem.total_mib "$(_mib "${total:-0}")"
 
   vs="$(vm_stat 2>/dev/null)"
   if [ -n "$vs" ]; then
-    active="$(printf '%s\n'     "$vs" | awk '/Pages active/            {gsub(/\./,"",$3); print $3}')"
-    wired="$(printf '%s\n'      "$vs" | awk '/Pages wired down/        {gsub(/\./,"",$4); print $4}')"
-    compressed="$(printf '%s\n' "$vs" | awk '/Pages occupied by compressor/ {gsub(/\./,"",$5); print $5}')"
-    active="${active:-0}"; wired="${wired:-0}"; compressed="${compressed:-0}"
+    _pg() { printf '%s\n' "$vs" | awk -v pat="$1" '$0 ~ pat {for(i=1;i<=NF;i++) if($i ~ /^[0-9]+\.?$/){gsub(/\./,"",$i); print $i; exit}}'; }
+    free="$(_pg 'Pages free')";                       free="${free:-0}"
+    active="$(_pg 'Pages active')";                   active="${active:-0}"
+    inactive="$(_pg 'Pages inactive')";               inactive="${inactive:-0}"
+    spec="$(_pg 'Pages speculative')";                spec="${spec:-0}"
+    wired="$(_pg 'Pages wired down')";                wired="${wired:-0}"
+    compressed="$(_pg 'Pages occupied by compressor')"; compressed="${compressed:-0}"
+    purge="$(_pg 'Pages purgeable')";                  purge="${purge:-0}"
+
     used=$(( (active + wired + compressed) * pagesize ))
-    avail=$(( ${total:-0} - used ))
+    # reclamável: o sistema entrega isto sem swap
+    avail=$(( (free + inactive + spec + purge) * pagesize ))
     [ "$avail" -lt 0 ] && avail=0
     _kv mem.used_mib      "$(_mib "$used")"
     _kv mem.available_mib "$(_mib "$avail")"
+    _kv mem.reclaimable_mib "$(_mib $(( (inactive + spec + purge) * pagesize )))"
     [ "${total:-0}" -gt 0 ] && _kv mem.used_pct $(( used * 100 / total )) || _kv mem.used_pct 0
   fi
 
@@ -130,12 +145,29 @@ probe_network() {
         dev="${line#Device: }"
         ip="$(ipconfig getifaddr "$dev" 2>/dev/null)"
         status="$(ifconfig "$dev" 2>/dev/null | awk '/status:/{print $2}')"
-        if [ -n "$ip" ]; then
+        # Meio físico pelo `media` do ifconfig, NUNCA pelo nome do port: a
+        # interface cabeada desta máquina chama-se "USB 10/100/1000 LAN", e em
+        # outras "Thunderbolt Ethernet Slot 1" ou o modelo do chip. Casar por
+        # substring "Ethernet" rejeita cabo de verdade.
+        media="$(ifconfig "$dev" 2>/dev/null | awk '/media:/{print; exit}')"
+        wired=0
+        case "$media" in
+          *autoselect*|*baseT*|*baseTX*|*1000baseT*|*10Gbase*) wired=1 ;;
+        esac
+        case "$media" in *"IEEE 802.11"*|*none*) wired=0 ;; esac
+        # Wi-Fi não tem `media: ... baseT`; o port do 802.11 é reportado como
+        # "Wi-Fi" e o media vem vazio ou como autoselect sem tipo de par.
+        [ "$port" = "Wi-Fi" ] && wired=0
+        # Listamos TAMBÉM interface sem IP: cabo plugado sem lease é invisível
+        # se filtrarmos por IP, e aí o portão acusa "sem interface cabeada" com
+        # o cabo na mão.
+        if [ -n "$ip" ] || [ "${status:-}" = "active" ]; then
           n=$(( n + 1 ))
           _kv "net.${n}.device" "$dev"
           _kv "net.${n}.port"   "$port"
-          _kv "net.${n}.ip"     "$ip"
+          _kv "net.${n}.ip"     "${ip:-}"
           _kv "net.${n}.status" "${status:-unknown}"
+          _kv "net.${n}.wired"  "$wired"
         fi
         ;;
     esac
@@ -211,7 +243,7 @@ _table() {
   printf '\n  Ligado há %s\n\n' "$(_g load.uptime)"
 }
 
-if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+if [ "${BASH_SOURCE[0]:-$0}" = "${0}" ]; then
   case "${1:-}" in
     --table) _table ;;
     --help|-h) sed -n '2,14p' "$0" ;;

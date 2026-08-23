@@ -6,13 +6,16 @@
 # CONFERIDA — o CI compara o que está no script com o que está aqui, e deriva
 # vira erro detectável em vez de bug silencioso.
 #
-# Sintaxe: fragmento bash, mesmo padrão do mac_env_install.sh. Sem parser,
-# sem formato inventado. `source` este arquivo e as tabelas estão na mão.
+# Sintaxe: fragmento bash, compatível com bash 3.2 (o que o macOS traz).
+# Sem parser, sem formato inventado: `source` este arquivo e as tabelas estão
+# na mão. Sem arrays associativos, sem namerefs.
 #
+# -----------------------------------------------------------------------------
 # Verificado em 2026-08-23 contra:
-#   Home Assistant Core 2026.8.3 · HAOS 18.2 · VirtualBox 7.2.16
-#   doc oficial de default_config · analytics.home-assistant.io (532.394 bases)
-#   config_entries.py (SOURCE_* — 18 constantes)
+#   Home Assistant Core 2026.8.3 (source na tag) · HAOS 18.2 · VirtualBox 7.2.16
+#   doc oficial de default_config · analytics.home-assistant.io
+#   manifest.json e config_flow.py de cada domínio, lidos na tag 2026.8.3
+#   store do Supervisor de uma instância real (80 apps, 5 repositórios)
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -20,108 +23,173 @@
 # -----------------------------------------------------------------------------
 CATEGORY_DB=(
     "vanilla|Vanilla|piso do produto — o que o HAOS instala sozinho; remover é opção, não escolha"
-    "consenso|Consenso|acima de 75% de adoção na telemetria oficial e ausentes de fábrica"
-    "conectado|Conectado|faixa de 27% a 51% de adoção — protocolos e ecossistemas"
-    "casa|Casa|dispositivos desta instalação"
-    "ferramentas|Ferramentas|apps oficiais de manutenção do HAOS"
-    "custos|Custos de utilidades|packages de energia, gás e água com regras brasileiras"
-    "cameras|Câmeras|extras das Tapo C210"
+    "conectado|Conectado|infraestrutura e protocolos de conectividade com adoção relevante"
+    "casa|Casa|integrações de hardware ou serviço presente na casa"
+    "ferramentas|Ferramentas|apps de manutenção e observabilidade do HAOS"
+    "casa_abhome|Casa ABHOME|packages de custo com regras brasileiras — específicos desta casa"
     "extensoes|Extensões de terceiros|HACS — só a instalação, nada de dentro dele"
 )
 
-# -----------------------------------------------------------------------------
-# VANILLA_DB — o que o HAOS instala sozinho. NÃO é escolha: é o piso.
-# Os 24 do default_config conferidos na DOC OFICIAL (a doc lista 3 a mais que o
-# manifest: backup, config e image_upload — dependências transitivas), mais os
-# três que nascem com source system/onboarding numa instalação real.
-# -----------------------------------------------------------------------------
-VANILLA_DB=(
+# =============================================================================
+# O PISO — três partes, com procedência. O instalador precisa conhecê-lo para
+# NÃO DUPLICAR o que a própria instalação já cria.
+# =============================================================================
+
+# 24 itens. Fonte: doc oficial de default_config.
+DEFAULT_CONFIG_DB=(
     assist_pipeline backup bluetooth cloud config conversation dhcp
     energy file go2rtc history homeassistant_alerts image_upload
     logbook media_source mobile_app my ssdp stream sun
     usage_prediction usb webhook zeroconf
-    hassio analytics met
+)
+
+# Intrínsecos do HAOS. Medidos com source=system numa instância real.
+# `analytics`: o COMPONENTE é piso; o ENVIO de telemetria é consentimento,
+# perguntado no onboarding. Nunca assumir habilitado.
+HAOS_INTRINSIC_DB=(
+    "hassio|integração com o Supervisor"
+    "analytics|componente presente; envio = consentimento do usuário"
+)
+
+# Criados pelo onboarding. Fonte: components/onboarding/views.py @ 2026.8.3 —
+# POST /api/onboarding/core_config inicia os flows destes quatro.
+ONBOARDING_DB=(
+    "google_translate|texto para voz"
+    "met|previsão do tempo"
+    "radio_browser|catálogo de rádios"
+    "shopping_list|lista de compras"
+)
+
+# =============================================================================
+# ITEM_DB — 20 itens
+#
+# id|cat|rotulo|origem|slug|padrao|discovery|setup|preferred|requires|flags|desc
+#
+#  origem    core     = homeassistant/components/
+#            oficial  = repositório home-assistant/addons
+#            community= repositório de terceiro (exige adicionar o repositório)
+#            proprio  = deste projeto
+#            custom   = fora dos anteriores
+#
+#  slug      identificador do app no Supervisor. É `<repositório>_<app>`, NUNCA
+#            o nome curto. `-` quando não é app.
+#            ⚠️ O prefixo de repositório de terceiro é HASH DA URL (ex.: a0d7b954)
+#            — descobrir depois de adicionar o repositório, jamais fixar.
+#
+#  padrao    1 pré-marcado · 0 só por escolha explícita · cond avaliado em runtime
+#
+#  discovery os matchers declarados no manifest. `-` = o manifest não declara
+#            nenhum. NÃO é o mesmo que setup.
+#
+#  setup     como uma entry pode NASCER. É CERCA DE CONJUNTO: cria, lê de volta,
+#            e confere se o source lido PERTENCE a esta lista. NUNCA igualdade —
+#            um domínio guarda legitimamente entries com sources diferentes.
+#
+#  requires  dependências. Sufixo `:ha` = o próprio config flow do HA instala e
+#            gerencia; o instalador NÃO deve instalar por fora, duplicaria.
+#
+#  flags     single_entry  o manifest declara single_config_entry: true — não
+#                          tentar criar a segunda
+#            schema_flow   usa SchemaConfigFlowHandler: os passos são DADOS
+#                          (`CONFIG_FLOW = {"user": ...}`), não métodos
+#                          `async def`. Procurar só por método dá falso negativo
+#            repo_terceiro exige adicionar repositório antes de instalar
+# =============================================================================
+ITEM_DB=(
+    # ── conectado ────────────────────────────────────────────────────────────
+    "cast|conectado|Google Cast|core|-|0|zeroconf|zeroconf user|zeroconf|-|single_entry|Chromecast e telas — 50,9% de adoção"
+    "mqtt|conectado|MQTT|core|-|0|-|user hassio|user|mosquitto:ha|single_entry|broker para Zigbee2MQTT, ESPHome e sensores DIY — 48,6%"
+    "matter|conectado|Matter|core|-|0|zeroconf|zeroconf user|zeroconf|matter_server:ha|-|padrão aberto — 39,8%; comissionamento costuma exigir rádio"
+    "thread|conectado|Thread|core|-|0|zeroconf|zeroconf user|zeroconf|openthread_border_router|single_entry|37,1%; exige border router, que NÃO é gerenciado pelo flow"
+    "esphome|conectado|ESPHome|core|-|0|zeroconf dhcp mqtt|zeroconf user|zeroconf|-|-|firmware para ESP32/ESP8266 — 27,0%"
+
+    # ── casa ─────────────────────────────────────────────────────────────────
+    "hue|casa|Philips Hue|core|-|1|zeroconf homekit|user zeroconf homekit|user|-|-|iluminação — o passo 'link' pede o botão da bridge"
+    "tuya|casa|Tuya|core|-|1|dhcp|user dhcp|user|-|-|SmartLife — credencial de nuvem; o flow tem passo de QR"
+    "broadlink|casa|Broadlink|core|-|1|dhcp|user dhcp|dhcp|-|-|infravermelho — passos auth e unlock; exige modo de pareamento"
+    "shelly|casa|Shelly|core|-|1|zeroconf bluetooth|user zeroconf bluetooth|zeroconf|-|-|medição de energia — base dos packages de custo"
+    "tplink|casa|TP-Link Smart Home|core|-|1|dhcp|user dhcp integration_discovery|dhcp|-|-|câmeras Tapo — exige Camera Account criada no app do celular"
+    "smartthings|casa|SmartThings|core|-|1|dhcp|user dhcp|user|application_credentials|-|aparelhos Samsung — OAuth, não token pessoal"
+
+    # ── ferramentas ──────────────────────────────────────────────────────────
+    "advanced_ssh|ferramentas|SSH & Web Terminal|community|DESCOBRIR_ssh|1|-|-|-|-|repo_terceiro|terminal com Docker API; 33,7% — repositório hassio-addons"
+    "file_editor|ferramentas|File editor|oficial|core_configurator|1|-|-|-|-|-|editor ciente das entidades da instância — 63,6%"
+    "samba|ferramentas|Samba share|oficial|core_samba|1|-|-|-|-|-|/config montável no Finder por smb:// — 26,8%"
+    "systemmonitor|ferramentas|System Monitor|core|-|0|-|user|user|-|single_entry schema_flow|CPU, memória e disco do host; schema VAZIO — cria com {}"
+
+    # ── casa_abhome ──────────────────────────────────────────────────────────
+    "workday|casa_abhome|Workday|core|-|1|-|user|user|-|schema_flow|feriados nacionais e estaduais — o energia_br NÃO funciona sem isto"
+    "energia_br|casa_abhome|Custo de energia (BR)|proprio|-|1|-|-|-|shelly workday samba|-|reproduz a fatura na vírgula; simula Convencional x Branca"
+    "gas_br|casa_abhome|Custo de gás canalizado (BR)|proprio|-|1|-|-|-|samba|-|cascata por faixa, volume corrigido por P,T,Z e PCS"
+    "agua_br|casa_abhome|Custo de água e esgoto (BR)|proprio|-|1|-|-|-|samba|-|simula a concessionária e compara com o rateio do condomínio"
+
+    # ── extensoes ────────────────────────────────────────────────────────────
+    "hacs|extensoes|HACS|custom|-|0|-|user|user|samba|repo_terceiro|só a instalação; nunca por perfil, nunca em --all"
 )
 
 # -----------------------------------------------------------------------------
-# ITEM_DB — id|categoria|rótulo|padrão|origem|source|descrição
-#
-#   padrão : 1 marcado · 0 só por escolha explícita · cond avaliado em runtime
-#   origem : core    = homeassistant/components/
-#            oficial = home-assistant/addons
-#            custom  = fora dos dois
-#            proprio = deste projeto
-#   source : valor de config_entries.py que a entry deve ter DEPOIS de criada.
-#            É CERCA, não rótulo: cria, lê de volta, compara. "-" quando não se aplica.
+# ITEM_META_DB — id|quality_scale|analytics_pct
+# Informativo. Fica FORA do ITEM_DB de propósito: nada no caminho quente consome
+# isto hoje, e inchar a tabela operacional é como se erra a ordem de um campo.
+# quality_scale do manifest; adoção da telemetria oficial.
 # -----------------------------------------------------------------------------
-ITEM_DB=(
-    "google_translate|consenso|Google Translate TTS|1|core|user|texto para voz — 92,6% da base"
-    "radio_browser|consenso|Radio Browser|1|core|user|catálogo de rádios para o media player — 82,1%"
-
-    "cast|conectado|Google Cast|0|core|zeroconf|Chromecast e telas — 50,9%"
-    "mqtt|conectado|MQTT|0|core|user|broker para Zigbee2MQTT, ESPHome e sensores DIY — 48,6%"
-    "matter|conectado|Matter|0|core|zeroconf|padrão aberto; comissionamento pelo app do celular — 39,8%"
-    "esphome|conectado|ESPHome|0|core|zeroconf|firmware para ESP32/ESP8266 — 27,0%"
-
-    "hue|casa|Philips Hue|1|core|user|iluminação — apertar o botão da bridge durante o fluxo"
-    "tuya|casa|Tuya|1|core|user|SmartLife, inclui as persianas — credencial de nuvem"
-    "broadlink|casa|Broadlink|1|core|dhcp|infravermelho — exige o aparelho em modo de pareamento"
-    "shelly|casa|Shelly|1|core|zeroconf|medição de energia — base dos packages de custo"
-    "tplink|casa|TP-Link Smart Home|1|core|user|câmeras Tapo — pré-requisito do overlay PTZ"
-    "smartthings|casa|SmartThings|1|core|dhcp|aparelhos Samsung — credencial de nuvem"
-    "systemmonitor|casa|System Monitor|1|core|user|CPU, memória e disco — na VM a interface é eth0"
-
-    "terminal_ssh|ferramentas|Terminal & SSH|1|oficial|-|o instalador usa para levar os .sh ao /config"
-    "file_editor|ferramentas|File editor|1|oficial|-|editor que insere entidades e serviços da instância"
-    "samba_share|ferramentas|Samba share|1|oficial|-|/config montável no Finder por smb://"
-
-    "energia_br|custos|Custo de energia (BR)|1|proprio|-|reproduz a fatura na vírgula; simula Convencional x Branca"
-    "gas_br|custos|Custo de gás canalizado (BR)|1|proprio|-|cascata por faixa, volume corrigido, ICMS de base reduzida"
-    "agua_br|custos|Custo de água e esgoto (BR)|1|proprio|-|simula a concessionária e compara com o rateio do condomínio"
-
-    "tapo_ptz_overlay|cameras|Overlay PTZ Tapo C210|1|proprio|-|PTZ sobre os cartões PADRÃO do HA, sem HACS"
-    "tapo_tls_fix|cameras|Correção TLS ECDHE|cond|proprio|-|só se o log acusar SSLV3_ALERT_HANDSHAKE_FAILURE"
-
-    "hacs|extensoes|HACS|0|custom|user|só a instalação; nunca por perfil; nada de dentro dele"
+ITEM_META_DB=(
+    "mqtt|platinum|48.6"
+    "esphome|platinum|27.0"
+    "shelly|platinum|25.0"
+    "smartthings|bronze|-"
+    "cast|-|50.9"
+    "matter|-|39.8"
+    "thread|-|37.1"
+    "tuya|-|29.5"
+    "file_editor|-|63.6"
+    "samba|-|26.8"
+    "advanced_ssh|-|33.7"
 )
 
 # -----------------------------------------------------------------------------
 # VM_PROFILE_DB — id|rótulo|RAM MiB|vCPU|origem do número
 #
-# "derivado" é calculado pela sonda no momento da execução:
-#     RAM  = min(50% da RAM DISPONÍVEL, 8192)
-#     vCPU = hw.perflevel0.logicalcpu   (núcleos de performance)
+# "derivado" é calculado pela sonda no momento da execução, e NUNCA pode ficar
+# abaixo do vm_equilibrado — senão o perfil chamado "Recomendado" fica menor que
+# o "Equilibrado" e o rótulo mente.
 # Se a sonda falhar, o perfil NÃO é ofertado — nunca cai num valor inventado.
 #
-# Disco não é dimensão: o .vdi do HAOS traz 32 GiB de capacidade virtual (lido
-# do cabeçalho VDI) e o banco de uma instância de anos tem 885 MB.
+# Disco não é dimensão: o .vdi do HAOS traz 32 GiB de capacidade virtual.
 # -----------------------------------------------------------------------------
 VM_PROFILE_DB=(
     "vm_minimo|Mínimo|2048|2|documentação oficial do HA"
     "vm_equilibrado|Equilibrado|4096|2|medido — cobre os 2,5 GB de uma instância real"
-    "vm_recomendado|Recomendado|derivado|derivado|calculado da sonda do hospedeiro"
+    "vm_recomendado|Recomendado|derivado|derivado|calculado da sonda, com piso no equilibrado"
 )
 
 # -----------------------------------------------------------------------------
-# HAOS_PROFILE_DB — id|rótulo|categorias
-# ESCADA: cada degrau SOMA ao anterior.
+# HAOS_PROFILE_DB — id|rótulo|categorias.  A ESCADA SOMA. Só isto é escada.
+# As demais categorias são ORTOGONAIS: marcam-se à parte, em qualquer degrau.
 # -----------------------------------------------------------------------------
 HAOS_PROFILE_DB=(
     "haos_vanilla|Vanilla|vanilla"
-    "haos_consenso|Consenso|vanilla consenso"
-    "haos_conectado|Conectado|vanilla consenso conectado"
-    "haos_casa|Casa|vanilla consenso conectado casa ferramentas"
-    "haos_abhome|ABHOME|vanilla consenso conectado casa ferramentas custos cameras"
+    "haos_conectado|Conectado|vanilla conectado"
+    "haos_casa|Casa|vanilla conectado casa"
 )
 
+ORTOGONAL_DB=(ferramentas casa_abhome extensoes)
+
 # -----------------------------------------------------------------------------
-# NÃO_APLICA_DB — id|motivo estrutural
-# Nunca ofertado, nunca sugerido pelo --sync-catalog. O motivo é da plataforma,
-# não preferência, e por isso vive fora do ITEM_DB — não polui o seletor.
+# NAO_APLICA_DB — id|motivo
+#
+# REGRA: preferir o oficial QUANDO O OFICIAL COBRE A NECESSIDADE.
+# Não é "sem repositório de terceiro" — essa formulação não se sustentava, e era
+# ela que criava a contradição com o advanced_ssh.
+#
+# Serve para o gerador de proposta não sugerir para sempre o que já foi
+# decidido, e para registrar o MOTIVO — senão uma sessão futura "conserta" a
+# ausência. Fica fora do ITEM_DB para não poluir o seletor.
 # -----------------------------------------------------------------------------
 NAO_APLICA_DB=(
     "raspberry_pi|não existe hardware Raspberry Pi numa VM em Mac"
     "rpi_power|mede a fonte do Raspberry Pi"
     "smartir|é pacote de dentro do HACS — a regra é não instalar nada de lá"
-    "studio_code_server|exige adicionar repositório de terceiro; Samba entrega drag-and-drop sendo oficial"
+    "studio_code_server|file_editor e samba, ambos oficiais, cobrem edição"
+    "core_ssh|oficial, mas NÃO cobre: o config.yaml não declara docker_api, e Protection mode só libera o que o app declara"
 )

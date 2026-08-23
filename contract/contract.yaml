@@ -1,0 +1,237 @@
+# =============================================================================
+# contract.yaml — o que o instalador depende do Home Assistant, e como provar.
+#
+# Formato conforme docs/API-REFERENCE_20260823_verificado.md §23.
+#
+# A razão de existir: metade da superfície que o instalador usa é SOURCE-PINNED
+# — existe no Core, não consta das referências públicas de External API, e não
+# tem promessa formal de janela de compatibilidade. A verificação de
+# pós-condição depois de cada chamada é o único contrato que temos desse lado.
+#
+# O CI roda isto contra DUAS versões: a fixada e a `latest`. É o que troca
+# "descobrimos quando um usuário reclama" por "o CI fica vermelho no dia em que
+# o Home Assistant publica".
+#
+# REGRA (§24.1): status HTTP não é prova. A pós-condição é.
+# =============================================================================
+
+reference_version: "2026.8.3"
+
+# escopo: onde a dependência pode ser verificada
+#   qualquer        — instância viva serve
+#   instancia_nova  — só antes do onboarding terminar. Depois as views somem e
+#                     a rota devolve 404. Medido em 23/08: GET /api/onboarding
+#                     dá 404 numa instância já onboardada. Isso NÃO é quebra de
+#                     contrato; é o ciclo de vida do componente.
+#                     Só o CI, que sobe um container limpo, cobre estas.
+
+dependencies:
+
+  # ── Authentication API — PÚBLICA e documentada ────────────────────────────
+  - id: auth_token_exchange
+    product: home_assistant_core
+    stability: public_documented
+    protocol: http
+    method: POST
+    path: /auth/token
+    content_type: application/x-www-form-urlencoded
+    required:
+      grant_type: authorization_code
+      code: string
+      client_id: url
+    source:
+      type: official_docs
+      url: https://developers.home-assistant.io/docs/auth_api/
+    verify:
+      - response_has: access_token
+      - response_has: token_type
+    failure_behavior: abortar — sem token não há fase seguinte
+
+  # ── Login flow interno ────────────────────────────────────────────────────
+  - id: auth_login_flow_start
+    product: home_assistant_core
+    stability: source_pinned
+    protocol: http
+    method: POST
+    path: /auth/login_flow
+    required:
+      client_id: url
+      handler: list
+      redirect_uri: url
+    source:
+      type: github_tag
+      url: https://github.com/home-assistant/core/blob/2026.8.3/homeassistant/components/auth/login_flow.py
+    verify:
+      - response_has: flow_id
+      - response_has: step_id
+    nota: >
+      É login flow de auth provider/MFA, não "login por usuário e senha".
+      Com o provider local o formulário é usuário/senha; outro provider ou MFA
+      produz passos diferentes.
+    failure_behavior: abortar
+
+  # ── Config entries ────────────────────────────────────────────────────────
+  - id: config_entries_list
+    product: home_assistant_core
+    stability: source_pinned
+    protocol: http
+    method: GET
+    path: /api/config/config_entries/entry
+    auth: admin
+    source:
+      type: github_tag
+      url: https://github.com/home-assistant/core/blob/2026.8.3/homeassistant/components/config/config_entries.py
+    verify:
+      - response_is_list: true
+      - each_item_has: [entry_id, domain, source, state]
+    nota: >
+      É também o teste de que o token é administrador: sem admin, 401.
+    failure_behavior: abortar — a cerca da F8 depende desta leitura
+
+  - id: config_entries_start_flow
+    product: home_assistant_core
+    stability: source_pinned
+    protocol: http
+    method: POST
+    path: /api/config/config_entries/flow
+    auth: admin
+    required:
+      handler: string
+    source:
+      type: github_tag
+      url: https://github.com/home-assistant/core/blob/2026.8.3/homeassistant/components/config/config_entries.py
+    verify:
+      - response_has: type
+      - response_has_any: [flow_id, result]
+    postcondition: >
+      Se type=create_entry, a entry tem de aparecer em config_entries_list com
+      source PERTENCENTE ao conjunto setup_sources do item. Pertinência a
+      conjunto, nunca igualdade — um domínio guarda legitimamente entries com
+      sources diferentes.
+    failure_behavior: falhar o item, seguir os demais
+
+  # ── Supervisor: a rota que existe ─────────────────────────────────────────
+  - id: supervisor_api_ws
+    product: home_assistant_core
+    stability: source_pinned
+    protocol: websocket
+    type: supervisor/api
+    auth: admin
+    required:
+      endpoint: string
+      method: string
+    source:
+      type: github_tag
+      url: https://github.com/home-assistant/core/blob/2026.8.3/homeassistant/components/hassio/websocket_api.py
+    verify:
+      - response_has: success
+      - success_is: true
+      - response_has: result
+    medido:
+      data: "2026-08-23"
+      resultado: >
+        GET /addons, /supervisor/info e /store responderam com sucesso usando
+        token de usuário administrador.
+    failure_behavior: abortar a F7 — não há rota alternativa conhecida
+
+  # ── Supervisor: a rota que NÃO existe, e precisa continuar não existindo ──
+  - id: hassio_rest_proxy_negativo
+    product: home_assistant_core
+    stability: source_pinned
+    protocol: http
+    method: GET
+    path: /api/hassio/supervisor/info
+    auth: admin
+    source:
+      type: github_tag
+      url: https://github.com/home-assistant/core/blob/2026.8.3/homeassistant/components/hassio/http.py
+    expect_status: 401
+    medido:
+      data: "2026-08-23"
+      resultado: >
+        9 caminhos testados com token administrador — supervisor/info, core/info,
+        addons, store, store/addons, host/info, os/info, network/info e
+        addons/core_ssh/info. Todos 401.
+    nota: >
+      Checagem NEGATIVA de propósito. Se um dia devolver 200, o instalador ganha
+      um caminho mais simples e o CI deve avisar — não falhar em silêncio.
+      Um 401 num caminho não prova recusa geral; por isso a medição enumera.
+    failure_behavior: avisar, não abortar
+
+  # ── Onboarding ────────────────────────────────────────────────────────────
+  - id: onboarding_status
+    escopo: instancia_nova
+    product: home_assistant_core
+    stability: source_pinned
+    protocol: http
+    method: GET
+    path: /api/onboarding
+    source:
+      type: github_tag
+      url: https://github.com/home-assistant/core/blob/2026.8.3/homeassistant/components/onboarding/views.py
+    verify:
+      - response_is_list: true
+      - each_item_has: [step, done]
+    failure_behavior: abortar a F6
+
+  - id: onboarding_create_user
+    escopo: instancia_nova
+    product: home_assistant_core
+    stability: source_pinned
+    protocol: http
+    method: POST
+    path: /api/onboarding/users
+    required:
+      name: string
+      username: string
+      password: string
+      client_id: url
+      language: string
+    source:
+      type: github_tag
+      url: https://github.com/home-assistant/core/blob/2026.8.3/homeassistant/components/onboarding/views.py
+    verify:
+      - response_has: auth_code
+    postcondition: >
+      O passo "user" passa a done=true em onboarding_status.
+    nota: >
+      É de uma vez só: cria o primeiro administrador. Não tem inverso — o
+      rollback desta fase é destruir a VM.
+    failure_behavior: abortar
+
+  - id: onboarding_core_config
+    escopo: instancia_nova
+    product: home_assistant_core
+    stability: source_pinned
+    protocol: http
+    method: POST
+    path: /api/onboarding/core_config
+    auth: admin
+    source:
+      type: github_tag
+      url: https://github.com/home-assistant/core/blob/2026.8.3/homeassistant/components/onboarding/views.py
+    postcondition: >
+      Cria as entries de google_translate, met, radio_browser e shopping_list, e
+      garante o setup de analytics. O instalador NÃO deve criar esses quatro —
+      é a razão de o piso existir como tabela.
+    failure_behavior: abortar a F6
+
+  # ── Ignorar descoberta ────────────────────────────────────────────────────
+  - id: config_entries_ignore_flow
+    product: home_assistant_core
+    stability: source_pinned
+    protocol: websocket
+    type: config_entries/ignore_flow
+    auth: admin
+    required:
+      flow_id: string
+      title: string
+    preconditions:
+      - flow em progresso
+      - contexto do flow com unique_id
+    source:
+      type: github_tag
+      url: https://github.com/home-assistant/core/blob/2026.8.3/homeassistant/components/config/config_entries.py
+    verify:
+      - response_has: success
+    failure_behavior: avisar — descoberta não ignorada só polui a interface

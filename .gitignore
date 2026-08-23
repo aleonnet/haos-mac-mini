@@ -18,9 +18,18 @@ INVENTARIO.md
 .DS_Store
 INVENTARIO.md
 lib/haos-splash.*
-lib/__pycache__/
 catalog/*.psv
-tools/
+
+# Python
+__pycache__/
+*.pyc
+
+# Descartados em 23/08 — movidos para cá em vez de apagados
+.lixo-*/
+
+# tools/ É versionado: o ui-demo.sh mora lá de propósito, fora da biblioteca.
+# A máscara ASCII de origem desconhecida continua fora:
+tools/haos-mask.txt
 
 # Documentos internos de trabalho — não vão para o repositório público
 PLANO.md
