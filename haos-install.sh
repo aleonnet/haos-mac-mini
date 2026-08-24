@@ -488,8 +488,10 @@ HA_BY=(47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 46 46 45 4
 # CONTORNO da casa, como uma caneta desenhando o perímetro.
 
 HA_MIN_COLS=50
-HA_ATRASO=0.018
-HA_COMETA=44        # comprimento do traço — ~30%% do perímetro, como na referência
+HA_ATRASO=0.016
+HA_QUADROS=44       # quadros da volta: metade desenha, metade retrai. 44 x ~55ms
+                    # = ~2,4 s — o vídeo de referência leva ~4,2 s por ciclo, mas
+                    # numa abertura que roda UMA vez isso é tempo demais parado.
 
 # Escapes pré-computados: montar cor por célula com $(...) seria um subshell
 # por pixel — 1152 por quadro. Aqui o laço interno é só concatenação.
@@ -507,30 +509,36 @@ ha_logo_init() {
   HA_LOGO_PRONTO=1
 }
 
-# ha_logo_quadro <n> — pinta o logo com o traço na posição n do contorno.
-# n < 0 desenha sem traço (o logo parado).
+# ha_logo_quadro <n> — pinta o logo no quadro n de HA_QUADROS.
+# n < 0 desenha o logo parado, sem traço.
+#
+# O movimento é o do logo oficial, conferido quadro a quadro no vídeo que ele
+# mandou: NÃO é um cometa de comprimento fixo dando voltas. A cabeça sai de
+# baixo, no centro, e corre o perímetro INTEIRO; só então a cauda a persegue e
+# o traço se retrai até sumir. É o stroke-dashoffset de sempre — e a diferença
+# aparece na tela: com comprimento fixo o desenho nunca fecha, e fechar é o que
+# dá a sensação de conclusão.
 ha_logo_quadro() {
-  local n="$1" r y1 y2 x c1 c2 saida chave
-  local -a aceso
+  local n="$1" y1 y2 x c1 c2 saida chave
   ha_logo_init
-
-  # marca os pixels do contorno que estão sob o cometa neste quadro
-  if [ "$n" -ge 0 ]; then
-    local total=${#HA_BX[@]} i idx
-    for (( i = 0; i < HA_COMETA; i++ )); do
-      idx=$(( (n - i + total * 2) % total ))
-      aceso[idx]=1
-    done
-  fi
 
   # Índice POR LINHA. A primeira versão guardava um conjunto único "x,y" e
   # buscava nele a cada pixel: 2.300 buscas de substring em string de 140
   # elementos por quadro, e o quadro levava 51 ms. Indexando por linha, cada
   # busca varre só os poucos pixels de contorno daquela linha.
+  # Índice POR LINHA. A primeira versão guardava um conjunto único "x,y" e
+  # buscava nele a cada pixel: 2.300 buscas de substring por quadro, e o quadro
+  # levava 51 ms. Por linha, cada busca varre só os poucos pixels daquela linha.
   local -a linha_acesa
   if [ "$n" -ge 0 ]; then
-    local k by
-    for k in "${!aceso[@]}"; do
+    local total=${#HA_BX[@]} meio=$(( HA_QUADROS / 2 )) cabeca cauda i k by
+    if [ "$n" -lt "$meio" ]; then
+      cabeca=$(( n * total / meio )); cauda=0                  # desenha
+    else
+      cabeca=$total; cauda=$(( (n - meio) * total / meio ))    # retrai
+    fi
+    for (( i = cauda; i < cabeca; i++ )); do
+      k=$(( i % total ))
       by=${HA_BY[k]}
       linha_acesa[by]="${linha_acesa[by]:- } ${HA_BX[k]} "
     done
@@ -574,7 +582,7 @@ HA_LINHAS=$(( 48 / 2 ))
 
 # ha_banner [título] [subtítulo]
 ha_banner() {
-  local title="${1:-Home Assistant OS}" sub="${2:-}" n cols total
+  local title="${1:-Home Assistant OS}" sub="${2:-}" n cols
   cols="$(tput cols 2>/dev/null || echo 0)"
   case "$cols" in ''|*[!0-9]*) cols=0 ;; esac
   HA_LINHAS=$(( HA_H / 2 ))
@@ -600,8 +608,7 @@ ha_banner() {
   # Sem trap aqui: a lib não instala trap, e o cursor volta pelo cleanup de
   # quem chama, via ha_show_cursor.
   _hide
-  total=${#HA_BX[@]}
-  for (( n = 0; n < total; n += 4 )); do
+  for (( n = 0; n < HA_QUADROS; n++ )); do
     (( n > 0 )) && { tput cuu "$HA_LINHAS" 2>/dev/null || break; }
     ha_logo_quadro "$n"
     sleep "$HA_ATRASO"
