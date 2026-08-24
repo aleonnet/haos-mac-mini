@@ -85,8 +85,8 @@ HA_MARK=(
 '   ██████████████████████████████████████ '
 )
 
-_hide() { [[ "$HAOS_UI_ANIM" == 1 ]] && tput civis 2>/dev/null || true; }
-_show() { [[ "$HAOS_UI_ANIM" == 1 ]] && tput cnorm 2>/dev/null || true; }
+_hide() { if [[ "$HAOS_UI_ANIM" == 1 ]]; then tput civis 2>/dev/null || true; fi; }
+_show() { if [[ "$HAOS_UI_ANIM" == 1 ]]; then tput cnorm 2>/dev/null || true; fi; }
 
 # Library must not install a trap. `trap` is global to the shell and the last
 # caller wins: a trap here would silently REPLACE the caller's cleanup handler,

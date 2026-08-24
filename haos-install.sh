@@ -40,8 +40,10 @@ limpar() {
     local rc=$?
     local f
     for f in "${TMPFILES[@]:-}"; do [ -n "$f" ] && rm -rf "$f" 2>/dev/null || true; done
-    if declare -F ha_show_cursor >/dev/null 2>&1; then ha_show_cursor; else
-        [ -t 1 ] && tput cnorm 2>/dev/null || true
+    if declare -F ha_show_cursor >/dev/null 2>&1; then
+        ha_show_cursor
+    elif [ -t 1 ]; then
+        tput cnorm 2>/dev/null || true
     fi
     if [ "$rc" != "0" ] && [ -n "$FASE_ATUAL" ]; then
         printf '\n[!] interrompido na fase %s. Nada além dela foi alterado.\n' "$FASE_ATUAL" >&2
