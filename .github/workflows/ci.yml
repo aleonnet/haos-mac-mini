@@ -21,14 +21,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: shellcheck
+      # Versão FIXADA. O shellcheck do apt varia com a imagem do runner, e o
+      # resultado do lint não pode depender de qual Ubuntu o GitHub serviu hoje:
+      # a 0.9.0 acusa SC2317 no corpo do trap onde a 0.11 acusa SC2329.
+      - name: shellcheck ${{ env.SHELLCHECK_VERSION }}
+        env:
+          SHELLCHECK_VERSION: v0.10.0
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          curl -fsSL --proto '=https' --tlsv1.2 \
+            "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" \
+            | tar -xJf - --strip-components=1 -C /usr/local/bin "shellcheck-${SHELLCHECK_VERSION}/shellcheck"
           shellcheck --version
-          # SC2034: IFS='|' read descompacta campos que nem sempre se usam
-          # SC1090/SC1091: source de caminho computado
-          # SC2329: funções das fases ainda não chamadas nesta versão
-          shellcheck -e SC2034,SC1090,SC1091,SC2329 \
+          # SC2034        IFS='|' read descompacta campos que nem sempre se usam
+          # SC1090/SC1091 source de caminho computado
+          # SC2317/SC2329 corpo de trap e funções das fases ainda não chamadas —
+          #               o código do aviso mudou entre versões do shellcheck
+          shellcheck -e SC2034,SC1090,SC1091,SC2317,SC2329 \
             haos-install.sh verify.sh tools/*.sh lib/*.sh extras/*.sh
 
       - name: bash -n em tudo que é shell
