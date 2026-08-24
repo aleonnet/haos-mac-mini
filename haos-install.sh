@@ -64,13 +64,27 @@ limpar() {
     elif [ -t 1 ]; then
         tput cnorm 2>/dev/null || true
     fi
+    # O espelho da execução sai AQUI, no trap: uma execução que morre no meio é
+    # exatamente a que mais precisa de registro. Dry-run e os modos que só leem
+    # nunca chegam a MAIN_INICIADO=1, então não escrevem nada.
+    if [ "${MAIN_INICIADO:-0}" = "1" ] && [ "${OP_DRYRUN:-0}" != "1" ]; then
+        escrever_last_run "$rc" || true
+    fi
     if [ "$rc" != "0" ] && [ -n "$FASE_ATUAL" ]; then
-        printf '\n[!] interrompido na fase %s. Nada além dela foi alterado.\n' "$FASE_ATUAL" >&2
-        printf '    Para desfazer: %s --uninstall\n' "${0##*/}" >&2
+        printf '\n%s\n' "$(msg interrompido "$FASE_ATUAL")" >&2
+        printf '%s\n' "$(msg reexecutar_seguro)" >&2
+        if [ -n "${LOG_FILE:-}" ] && [ -s "${LOG_FILE:-/nonexistent}" ]; then
+            printf '%s\n' "$(msg log_em "$LOG_FILE")" >&2
+        fi
+    fi
+    # Sucesso limpa o log; falha o preserva — ele acabou de ser nomeado acima.
+    if [ "$rc" = "0" ] && [ -n "${LOG_FILE:-}" ]; then
+        rm -f "$LOG_FILE" 2>/dev/null || true
     fi
     exit "$rc"
 }
-trap limpar EXIT INT TERM
+# O trap é REGISTRADO lá embaixo, depois da guarda de biblioteca: instalar um
+# trap de EXIT aqui vazaria para quem faz `source` deste arquivo (a bancada).
 
 mktempfile() { local f; f="$(mktemp)"; TMPFILES+=("$f"); printf '%s' "$f"; }
 mktempdir()  { local d; d="$(mktemp -d)"; TMPFILES+=("$d"); printf '%s' "$d"; }
@@ -112,7 +126,7 @@ MSG_DB=(
 "sem_python|python3 não encontrado. É dependência real: instalar app no Home Assistant exige o comando WebSocket supervisor/api, e bash não fala WebSocket.|python3 not found. This is a hard dependency: installing add-ons requires the supervisor/api WebSocket command, and bash cannot speak WebSocket."
 "sem_python_como|  Instale as Command Line Tools:  xcode-select --install|  Install the Command Line Tools:  xcode-select --install"
 "disco_curto|Espaço livre insuficiente em %s: %s MiB. A imagem do HAOS precisa de pelo menos %s MiB.|Not enough free space on %s: %s MiB. The HAOS image needs at least %s MiB."
-"sem_rede|Sem acesso à internet. O primeiro boot do HAOS baixa o Core, e os fluxos de nuvem falham sem rede — e falham de um jeito indistinguível de credencial errada.|No internet access. The first HAOS boot downloads Core, and cloud flows fail without network — in a way indistinguishable from a wrong credential."
+"sem_rede|Sem acesso à internet. O primeiro boot do HAOS baixa o Core, e os fluxos de nuvem falham sem rede — e falham de um jeito indistinguível de credencial errada.|No internet access. The first HAOS boot downloads Core, and cloud flows fail without network - in a way indistinguishable from a wrong credential."
 "aviso_ram|Memória disponível agora: %s MiB. O perfil escolhido pede %s MiB. Pode faltar sob carga.|Memory available right now: %s MiB. The chosen profile asks for %s MiB. It may fall short under load."
 "aviso_wifi|Só há interface Wi-Fi. A VM usa bridge, e sobre 802.11 o quadro com MAC de origem alheio costuma ser descartado: a VM pode não obter endereço. Se falhar, use um adaptador USB-Ethernet.|Only Wi-Fi interfaces found. The VM uses bridged networking, and over 802.11 a frame with a foreign source MAC is usually dropped: the VM may not get an address. If it fails, use a USB-Ethernet adapter."
 "sem_interface|Nenhuma interface de rede utilizável.|No usable network interface."
@@ -132,7 +146,7 @@ MSG_DB=(
 "cancelado|Cancelado.|Cancelled."
 "confirmar|Instalar agora? [s/N] |Install now? [y/N] "
 "portoes_pendentes|%s pré-requisito(s) não atendido(s). O plano acima é o que aconteceria depois de resolvê-los.|%s prerequisite(s) not met. The plan above is what would happen once they are resolved."
-"piso_sempre|Piso: %s componentes que a própria instalação cria — não são escolha.|Floor: %s components the installation creates by itself — not a choice."
+"piso_sempre|Piso: %s componentes que a própria instalação cria — não são escolha.|Floor: %s components the installation creates by itself - not a choice."
 "nada_alem_do_piso|(nada além do piso; os itens deste degrau são opt-in)|(nothing beyond the floor; this tier is opt-in)"
 "sem_sudo|sudo não encontrado.|sudo not found."
 "pede_senha|O próximo passo instala o VirtualBox e precisa da senha de administrador. Quem pergunta é o sudo; o instalador não guarda nem repassa a senha.|The next step installs VirtualBox and needs the administrator password. sudo is what asks; this installer never stores or forwards it."
@@ -141,7 +155,7 @@ MSG_DB=(
 "vbox_instalar|Baixar e instalar o VirtualBox %s da Oracle?|Download and install Oracle VirtualBox %s?"
 "vbox_baixando|Baixando VirtualBox %s (~153 MB)...|Downloading VirtualBox %s (~153 MB)..."
 "vbox_download_falhou|Falha ao baixar o VirtualBox.|Failed to download VirtualBox."
-"vbox_sem_sha|Não consegui obter o SHA256SUMS da Oracle — sem ele não instalo.|Could not fetch Oracle SHA256SUMS — refusing to install without it."
+"vbox_sem_sha|Não consegui obter o SHA256SUMS da Oracle — sem ele não instalo.|Could not fetch Oracle SHA256SUMS - refusing to install without it."
 "vbox_sha_diverge|O SHA-256 do arquivo baixado NÃO confere com o publicado pela Oracle.|The downloaded file SHA-256 does NOT match the one Oracle publishes."
 "vbox_sha_ok|SHA-256 confere com o publicado pela Oracle|SHA-256 matches the one Oracle publishes"
 "vbox_mount_falhou|Não consegui montar a imagem.|Could not mount the disk image."
@@ -150,15 +164,15 @@ MSG_DB=(
 "vbox_installer_falhou|O installer(8) falhou. Rode com --verbose para ver a saída.|installer(8) failed. Run with --verbose to see the output."
 "vbox_ok|VirtualBox %s instalado|VirtualBox %s installed"
 "vbox_bloqueado|VirtualBox instalado, mas o VBoxManage não responde. O macOS costuma BLOQUEAR a extensão de sistema da Oracle na primeira instalação: abra Ajustes do Sistema, Privacidade e Segurança, e Permitir o software da Oracle. Pode exigir reinício. Depois rode este instalador de novo.|VirtualBox installed, but VBoxManage does not respond. macOS usually BLOCKS the Oracle system extension on first install: open System Settings, Privacy & Security, and Allow the Oracle software. A restart may be required. Then run this installer again."
-"vbox_nao_desmontou|Não consegui desmontar %s — algum processo ainda a segura. Desmonte com: hdiutil detach -force %s|Could not unmount %s — some process still holds it. Unmount with: hdiutil detach -force %s"
-"subtitulo|numa VM VirtualBox no Mac · v%s|on a VirtualBox VM on Mac · v%s"
+"vbox_nao_desmontou|Não consegui desmontar %s — algum processo ainda a segura. Desmonte com: hdiutil detach -force %s|Could not unmount %s - some process still holds it. Unmount with: hdiutil detach -force %s"
+"subtitulo|numa VM VirtualBox no Mac|on a VirtualBox VM on Mac"
 "nao_implementado|As fases de execução ainda não estão implementadas nesta versão (%s).|Execution phases are not implemented yet in this version (%s)."
 "imagem|Imagem|Image"
 "img_sem_tabela|Não há imagem catalogada para a versão %s do HAOS.|No image catalogued for HAOS version %s."
-"img_ja|Imagem %s já está em %s — nada a baixar.|Image %s already at %s — nothing to download."
+"img_ja|Imagem %s já está em %s — nada a baixar.|Image %s already at %s - nothing to download."
 "img_local|Encontrei o arquivo local %s e o hash confere: não vou baixar de novo.|Found local file %s and the hash matches: not downloading again."
 "img_local_descartado|O arquivo local %s não confere com a tabela e foi ignorado.|Local file %s does not match the table and was ignored."
-"img_baixando|Baixando a imagem do HAOS %s — %s MiB.|Downloading the HAOS %s image — %s MiB."
+"img_baixando|Baixando a imagem do HAOS %s — %s MiB.|Downloading the HAOS %s image - %s MiB."
 "img_download_falhou|Falhou o download da imagem do HAOS.|HAOS image download failed."
 "img_sem_baixador|Nem curl nem wget estão disponíveis para baixar a imagem.|Neither curl nor wget is available to download the image."
 "img_sem_unzip|O comando unzip não está disponível, e a imagem vem compactada.|The unzip command is unavailable, and the image ships compressed."
@@ -168,25 +182,41 @@ MSG_DB=(
 "img_descompactando|Descompactando a imagem.|Extracting the image."
 "img_sem_vdi|O arquivo compactado não contém nenhum .vdi.|The archive contains no .vdi file."
 "img_pronta|Imagem pronta: %s|Image ready: %s"
+"interrompido|Interrompido na fase %s. Nada além dela foi alterado.|Interrupted during phase %s. Nothing beyond it was changed."
+"reexecutar_seguro|Reexecutar é seguro: o instalador continua de onde parou.|Re-running is safe: the installer continues from where it stopped."
+"log_em|Saída das ferramentas desta execução: %s|Tool output of this run: %s"
+"log_ultimas|últimas linhas do log (%s):|last log lines (%s):"
+"rede_titulo|Isto parece problema de REDE, não da sua máquina:|This looks like a NETWORK problem, not a problem with your machine:"
+"rede_dica1|verifique a conexão — VPN, proxy e firewall são os suspeitos de sempre|check your connection - VPN, proxy or firewall are the usual suspects"
+"rede_dica2|nada ficou pela metade: rodar o mesmo comando de novo continua de onde parou|nothing was left half-done: running the same command again continues from where it stopped"
+"flag_sem_valor|%s exige um valor|%s requires a value"
+"opcao_desconhecida|opção desconhecida: %s|unknown option: %s"
+"python3_versao|python3 %s|python3 %s"
+"fase_vm|VM|VM"
+"relatorio_salvo|Relatório da execução: %s|Run report: %s"
 )
 
 # ── saída ────────────────────────────────────────────────────────────────────
-# Prefixos textuais são o contrato. Cor é enfeite: some sem TTY e com NO_COLOR,
-# e nenhuma informação vive só na cor.
-if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != "dumb" ]; then
-    C_AZUL=$'\033[38;5;39m'; C_VERDE=$'\033[38;5;42m'; C_AMBAR=$'\033[38;5;214m'
-    C_VERM=$'\033[38;5;203m'; C_FRACO=$'\033[38;5;245m'; C_ZERO=$'\033[0m'
-else
-    C_AZUL=''; C_VERDE=''; C_AMBAR=''; C_VERM=''; C_FRACO=''; C_ZERO=''
-fi
+# UMA gramática visual: a calha da camada embutida (ha_ok · ha_info · ha_warn ·
+# ha_err · ha_skip), a mesma dos dois instaladores irmãos. Os glifos degradam
+# para ASCII sob locale não-UTF-8 e a cor some sem TTY/NO_COLOR — nenhuma
+# informação vive só na cor. A voz antiga, de prefixos textuais em funções
+# próprias, era uma segunda gramática no mesmo produto, e o verify.sh agora
+# reprova a volta dela. As definições vivem na camada visual embutida, mais
+# abaixo; bash resolve função em runtime, então a ordem no arquivo não importa.
 
-ok()    { printf '%s[OK]%s     %s\n'  "$C_VERDE" "$C_ZERO" "$*"; }
-info()  { printf '%s[*]%s      %s\n'  "$C_FRACO" "$C_ZERO" "$*"; }
-aviso() { printf '%s[AVISO]%s  %s\n'  "$C_AMBAR" "$C_ZERO" "$*"; }
-erro()  { printf '%s[ERRO]%s   %s\n'  "$C_VERM"  "$C_ZERO" "$*" >&2; }
-fase()  { FASE_ATUAL="$1"; printf '\n%s── %s %s%s\n' "$C_AZUL" "$1" "$(printf '─%.0s' $(seq 1 $((60 - ${#1}))))" "$C_ZERO"; }
+# ha_fase <título> — cabeçalho de fase que também alimenta o estado global:
+# FASE_ATUAL é o que a mensagem de interrupção do limpar() imprime, e a barra
+# de fase da calha anda junto. A camada visual não conhece esse estado — é o
+# instalador que o mantém (achado da banca: mover fase() para a lib perderia
+# FASE_ATUAL em silêncio).
+ha_fase() {
+    FASE_ATUAL="$1"
+    HA_BAR_N=$(( ${HA_BAR_N:-0} + 1 ))
+    ha_phase "$1"
+}
 
-morrer() { local code="$1"; shift; erro "$*"; exit "$code"; }
+morrer() { local code="$1"; shift; ha_err "$*"; exit "$code"; }
 
 # Em --dry-run, portão duro não aborta: reporta e segue, para o operador
 # conseguir VER o plano numa máquina que ainda não tem tudo. Achado R5 da banca:
@@ -196,11 +226,11 @@ PORTOES_ABERTOS=0
 portao() {
     local code="$1"; shift
     if [ "$OP_DRYRUN" = "1" ]; then
-        aviso "$*"
+        ha_warn "$*"
         PORTOES_ABERTOS=$(( PORTOES_ABERTOS + 1 ))
         return 0
     fi
-    erro "$*"; exit "$code"
+    ha_err "$*"; exit "$code"
 }
 
 # ── terminal interativo ──────────────────────────────────────────────────────
@@ -230,10 +260,10 @@ TTY_DEV="${TTY_DEV:-/dev/tty}"
 
 garantir_sudo() {
     [ "$(id -u)" = "0" ] && return 0
-    command -v sudo >/dev/null 2>&1 || { erro "$(msg sem_sudo)"; return 1; }
+    command -v sudo >/dev/null 2>&1 || { ha_err "$(msg sem_sudo)"; return 1; }
     if sudo -n true 2>/dev/null; then return 0; fi
     if [ -r "$TTY_DEV" ]; then
-        info "$(msg pede_senha)"
+        ha_info "$(msg pede_senha)"
         # shellcheck disable=SC2024
         # O aviso é sobre redirecionar SAÍDA com sudo. Aqui o redirecionamento é
         # de ENTRADA, e é o ponto: o sudo tem de ler a senha do terminal real,
@@ -241,7 +271,7 @@ garantir_sudo() {
         sudo -v < "$TTY_DEV" || return 1
         return 0
     fi
-    erro "$(msg sudo_sem_tty)"
+    ha_err "$(msg sudo_sem_tty)"
     return 1
 }
 
@@ -280,7 +310,7 @@ desmontar() {
         i=$(( i + 1 )); sleep 1
     done
     if hdiutil detach -force -quiet "$ponto" 2>/dev/null; then VBOX_PONTO=""; return 0; fi
-    aviso "$(msg vbox_nao_desmontou "$ponto")"
+    ha_warn "$(msg vbox_nao_desmontou "$ponto")"
     VBOX_PONTO=""
     return 1
 }
@@ -293,54 +323,56 @@ VBOX_BASE="https://download.virtualbox.org/virtualbox/${VBOX_VERSAO}"
 garantir_virtualbox() {
     command -v VBoxManage >/dev/null 2>&1 && return 100
 
-    aviso "$(msg vbox_ausente)"
+    ha_warn "$(msg vbox_ausente)"
     confirmar_dep "$(msg vbox_instalar "$VBOX_VERSAO")" || return 1
     garantir_sudo || return 1
 
     local dir dmg sha_arq esperado obtido ponto pkg
     dir="$(mktempdir)"; dmg="$dir/$VBOX_DMG"
 
-    info "$(msg vbox_baixando "$VBOX_VERSAO")"
-    curl -fL --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2          -o "$dmg" "$VBOX_BASE/$VBOX_DMG" || { erro "$(msg vbox_download_falhou)"; return 1; }
+    ha_run_step "$(msg vbox_baixando "$VBOX_VERSAO")" \
+        curl -fL -sS --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2 \
+        -o "$dmg" "$VBOX_BASE/$VBOX_DMG" || { ha_err "$(msg vbox_download_falhou)"; return 1; }
 
     # Hash SEMPRE. --force não pula isto: montar imagem não verificada é
     # executar binário de origem não confirmada.
     sha_arq="$dir/SHA256SUMS"
-    curl -fsSL --proto '=https' -o "$sha_arq" "$VBOX_BASE/SHA256SUMS"         || { erro "$(msg vbox_sem_sha)"; return 1; }
+    curl -fsSL --proto '=https' -o "$sha_arq" "$VBOX_BASE/SHA256SUMS" 2>/dev/null         || { ha_err "$(msg vbox_sem_sha)"; return 1; }
     esperado="$(awk -v f="$VBOX_DMG" '$0 ~ f {print $1; exit}' "$sha_arq")"
     obtido="$(shasum -a 256 "$dmg" | awk '{print $1}')"
     if [ -z "$esperado" ] || [ "$esperado" != "$obtido" ]; then
-        erro "$(msg vbox_sha_diverge)"
+        ha_err "$(msg vbox_sha_diverge)"
         printf '    esperado: %s\n    obtido  : %s\n' "${esperado:-<ausente>}" "$obtido" >&2
         return 1
     fi
-    ok "$(msg vbox_sha_ok)"
+    ha_ok "$(msg vbox_sha_ok)"
 
     ponto="$(hdiutil attach -nobrowse -readonly -quiet "$dmg" 2>/dev/null              | awk -F'\t' '/Volumes/{print $NF}' | tail -1)"
-    [ -n "$ponto" ] || { erro "$(msg vbox_mount_falhou)"; return 1; }
+    [ -n "$ponto" ] || { ha_err "$(msg vbox_mount_falhou)"; return 1; }
     # desmonta aconteça o que acontecer, inclusive em erro no meio
     VBOX_PONTO="$ponto"
 
     pkg="$(find "$ponto" -maxdepth 1 -name '*.pkg' | head -1)"
     if [ -z "$pkg" ]; then
         desmontar "$ponto"
-        erro "$(msg vbox_sem_pkg)"; return 1
+        ha_err "$(msg vbox_sem_pkg)"; return 1
     fi
 
-    info "$(msg vbox_instalando)"
+    # sudo já foi primado no topo desta função — o installer roda com -n
+    # implícito no cache; nenhum prompt pode cair dentro do spinner.
     local rc_inst=0
-    sudo installer -pkg "$pkg" -target / >/dev/null 2>&1 || rc_inst=$?
+    ha_run_step "$(msg vbox_instalando)" sudo installer -pkg "$pkg" -target / || rc_inst=$?
     desmontar "$ponto"
-    if [ "$rc_inst" != "0" ]; then erro "$(msg vbox_installer_falhou)"; return 1; fi
+    if [ "$rc_inst" != "0" ]; then ha_err "$(msg vbox_installer_falhou)"; return 1; fi
 
     # Re-sonda: instalado não é o mesmo que utilizável. Se o macOS bloqueou a
     # extensão de sistema, o binário existe e não funciona — e dizer isso aqui
     # é melhor que falhar na criação da VM com erro incompreensível.
     if command -v VBoxManage >/dev/null 2>&1 && VBoxManage --version >/dev/null 2>&1; then
-        ok "$(msg vbox_ok "$(VBoxManage --version 2>/dev/null | tr -d '\r')")"
+        ha_ok "$(msg vbox_ok "$(VBoxManage --version 2>/dev/null | tr -d '\r')")"
         return 0
     fi
-    erro "$(msg vbox_bloqueado)"
+    ha_err "$(msg vbox_bloqueado)"
     return 1
 }
 
@@ -349,6 +381,104 @@ baixador() {
     if command -v curl >/dev/null 2>&1; then printf 'curl'; return 0; fi
     if command -v wget >/dev/null 2>&1; then printf 'wget'; return 0; fi
     return 1
+}
+
+# ── log da execução ──────────────────────────────────────────────────────────
+# Um arquivo por execução, criado SÓ quando o primeiro passo real roda — assim
+# o --dry-run continua não escrevendo nada, nem em /tmp. Fica FORA de TMPFILES
+# de propósito: o limpar() apagaria exatamente o arquivo que a mensagem de erro
+# acabou de nomear. Sucesso limpa; falha preserva e imprime o caminho.
+LOG_FILE=""
+garantir_log() {
+    [ -n "$LOG_FILE" ] && return 0
+    LOG_FILE="$(mktemp "${TMPDIR:-/tmp}/haos-install-XXXXXX" 2>/dev/null)" \
+        || LOG_FILE="${TMPDIR:-/tmp}/haos-install-$$.log"
+    return 0
+}
+
+# Assina uma falha de REDE a partir do que a ferramenta escreveu no log. As
+# frases são as que curl/wget realmente emitem — não um palpite.
+falha_de_rede() {
+    [ -n "$LOG_FILE" ] && [ -s "$LOG_FILE" ] || return 1
+    LC_ALL=C tail -40 "$LOG_FILE" | LC_ALL=C grep -qiE \
+        'could not resolve host|failed to connect|connection refused|connection timed out|network is unreachable|no route to host|ssl|tls|operation timed out|temporary failure in name resolution'
+}
+
+# Depois de um passo falhar: diz se parece rede (em vez de despejar stack de
+# ferramenta como se fosse culpa da máquina) e mostra as últimas linhas do log.
+# NÃO sai do script — o chamador mantém o próprio código de erro (contrato
+# 0/100/1 das funções de fase; achado B-6 da banca).
+diagnostico_log() {
+    if falha_de_rede; then
+        ha_warn "$(msg rede_titulo)"
+        ha_info "$(msg rede_dica1)"
+        ha_info "$(msg rede_dica2)"
+    fi
+    if [ -n "$LOG_FILE" ] && [ -s "$LOG_FILE" ]; then
+        printf '   %s\n' "$(msg log_ultimas "$LOG_FILE")" >&2
+        tail -12 "$LOG_FILE" | sed 's/^/    | /' >&2
+    fi
+    return 0
+}
+
+# ── ha_run_step: um passo com spinner, tempo e log ──────────────────────────
+# REGRA DA BANCA (B-6): só embrulha COMANDO EXTERNO FOLHA (curl, unzip, shasum,
+# installer, VBoxManage) — nunca função de fase. O comando roda em background, e
+# num subshell qualquer variável global gravada se perde: foi assim que o .dmg
+# ficaria montado para sempre. Prompt nenhum pode acontecer aqui dentro: sudo e
+# confirmações são primados ANTES, pelos chamadores.
+# HA_STEP_OK lista os códigos aceitos (padrão "0"); volta ao padrão a cada uso.
+RUN_STEPS=""
+HA_STEP_OK="0"
+ha_run_step() { # <rótulo já traduzido> <cmd...>
+    local rotulo="$1"; shift
+    garantir_log
+    local t0="$SECONDS" rc=0 aceitos="$HA_STEP_OK"
+    HA_STEP_OK="0"
+    if [ "$OP_VERBOSE" = "1" ]; then
+        # Verbose = ver a ferramenta crua, na tela. É o modo de diagnóstico;
+        # essas linhas não vão para o log (tee num pipeline sob pipefail
+        # esconderia o rc do comando — bash 3.2 não dá as duas coisas).
+        ha_info "$rotulo"
+        "$@" || rc=$?
+    else
+        "$@" >>"$LOG_FILE" 2>&1 &
+        ha_spin "$rotulo" "$!" || rc=$?
+    fi
+    RUN_STEPS="${RUN_STEPS}${rotulo}|$(( SECONDS - t0 ))
+"
+    if tem_na_lista "$rc" "$aceitos"; then return "$rc"; fi
+    diagnostico_log
+    return "$rc"
+}
+
+# ── estado local: ~/.config/haos-mac-mini ────────────────────────────────────
+# Derivado de $HOME NO MOMENTO DA CHAMADA, nunca congelado no topo: é o que
+# permite à bancada apontar um $HOME sintético (achado B-7). HAOS_STATE_DIR é a
+# costura de teste documentada.
+haos_state_dir() { printf '%s' "${HAOS_STATE_DIR:-$HOME/.config/haos-mac-mini}"; }
+
+# Espelho da execução, no espírito do last-run.log dos irmãos: o log guarda a
+# saída das ferramentas; ISTO guarda o que o instalador fez. Best-effort —
+# escrituração nunca derruba uma instalação.
+escrever_last_run() { # <rc>
+    local rc="$1" d linha
+    d="$(haos_state_dir)"
+    mkdir -p "$d" 2>/dev/null || return 0
+    {
+        printf 'haos-install.sh %s — %s\n' "$HAOS_INSTALL_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')"
+        printf 'rc=%s' "$rc"
+        [ -n "${FASE_ATUAL:-}" ] && printf ' · fase=%s' "$FASE_ATUAL"
+        [ -n "${SEL_DEGRAU:-}" ] && printf ' · degrau=%s' "$SEL_DEGRAU"
+        [ -n "${SEL_EXTRAS:-}" ] && printf ' · extras=%s' "$SEL_EXTRAS"
+        printf '\n\n'
+        printf '%s' "$RUN_STEPS" | while IFS='|' read -r linha segs; do
+            [ -n "$linha" ] && printf '  %-52s %ss\n' "$linha" "$segs"
+        done
+        [ -n "${LOG_FILE:-}" ] && [ -s "${LOG_FILE:-/nonexistent}" ] \
+            && printf '\nlog das ferramentas: %s\n' "$LOG_FILE"
+    } > "$d/last-run.log" 2>/dev/null || true
+    return 0
 }
 
 
@@ -363,14 +493,14 @@ baixador() {
 HAOS_VDI=""
 
 fase_imagem() {
-    fase "$(msg imagem)"
+    ha_fase "$(msg imagem)"
 
     local ver="$HAOS_REF_OS" r rv url sha bytes achou=0
     for r in "${HAOS_IMAGE_DB[@]}"; do
         IFS='|' read -r rv url sha bytes <<< "$r"
         [ "$rv" = "$ver" ] && { achou=1; break; }
     done
-    if [ "$achou" != "1" ]; then erro "$(msg img_sem_tabela "$ver")"; return 1; fi
+    if [ "$achou" != "1" ]; then ha_err "$(msg img_sem_tabela "$ver")"; return 1; fi
 
     local destdir vdi origem nome
     destdir="$HOME/VirtualBox VMs/$OP_VM_NOME"
@@ -385,7 +515,7 @@ fase_imagem() {
         IFS='|' read -r ov osha otam < "$origem"
         tam_atual="$(wc -c < "$vdi" 2>/dev/null | tr -d ' ')"
         if [ "$ov" = "$ver" ] && [ "$osha" = "$sha" ] && [ "$otam" = "$tam_atual" ]; then
-            ok "$(msg img_ja "$ver" "$vdi")"
+            ha_ok "$(msg img_ja "$ver" "$vdi")"
             return 100
         fi
     fi
@@ -401,21 +531,21 @@ fase_imagem() {
     for cand in "$cache/$zipnome" "./$zipnome"; do
         [ -f "$cand" ] || continue
         tam="$(wc -c < "$cand" 2>/dev/null | tr -d ' ')"
-        [ "$tam" = "$bytes" ] || { aviso "$(msg img_local_descartado "$cand")"; continue; }
+        [ "$tam" = "$bytes" ] || { ha_warn "$(msg img_local_descartado "$cand")"; continue; }
         if [ "$(shasum -a 256 "$cand" | awk '{print $1}')" = "$sha" ]; then
-            ok "$(msg img_local "$cand")"; zip="$cand"; break
+            ha_ok "$(msg img_local "$cand")"; zip="$cand"; break
         fi
-        aviso "$(msg img_local_descartado "$cand")"
+        ha_warn "$(msg img_local_descartado "$cand")"
     done
 
     # ── baixar ──────────────────────────────────────────────────────────────
     if [ -z "$zip" ]; then
         baixamos=1
         local dl
-        dl="$(baixador)" || { erro "$(msg img_sem_baixador)"; return 1; }
+        dl="$(baixador)" || { ha_err "$(msg img_sem_baixador)"; return 1; }
         mkdir -p "$cache" || return 1
         zip="$cache/$zipnome"
-        info "$(msg img_baixando "$ver" "$(( bytes / 1048576 ))")"
+        ha_info "$(msg img_baixando "$ver" "$(( bytes / 1048576 ))")"
         # O parcial vai para um nome à parte: interrompido no meio, um arquivo
         # com o nome final e o tamanho errado seria "encontrado" na próxima
         # execução e reprovado no hash — ruído em vez de retomada.
@@ -424,17 +554,33 @@ fase_imagem() {
         # Barra de progresso só quando há terminal. Em log, CI ou pipe, o curl
         # escreve dezenas de linhas de estatística em stderr e afoga a saída
         # útil — medido: 87 s de download viraram uma linha ilegível de 8 KB.
-        local prog="-sS"
-        [ -t 2 ] && prog="--progress-bar"
-        case "$dl" in
-            curl) curl -fL "$prog" --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2 \
-                       -o "$parcial" "$url" || { rm -f "$parcial"; erro "$(msg img_download_falhou)"; return 1; } ;;
-            wget) wget -q --https-only -O "$parcial" "$url" \
-                       || { rm -f "$parcial"; erro "$(msg img_download_falhou)"; return 1; } ;;
-        esac
+        # Com TTY o download fica FORA do ha_run_step de propósito: para
+        # 380 MiB a barra nativa do curl informa mais que um spinner. Sem TTY,
+        # o stderr vai para o log e uma falha ganha o diagnóstico de rede.
+        local rc_dl=0
+        if [ -t 2 ]; then
+            case "$dl" in
+                curl) curl -fL --progress-bar --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2 \
+                           -o "$parcial" "$url" || rc_dl=$? ;;
+                wget) wget -q --https-only -O "$parcial" "$url" || rc_dl=$? ;;
+            esac
+        else
+            garantir_log
+            case "$dl" in
+                curl) curl -fL -sS --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2 \
+                           -o "$parcial" "$url" >>"$LOG_FILE" 2>&1 || rc_dl=$? ;;
+                wget) wget -q --https-only -O "$parcial" "$url" >>"$LOG_FILE" 2>&1 || rc_dl=$? ;;
+            esac
+        fi
+        if [ "$rc_dl" != "0" ]; then
+            rm -f "$parcial"
+            ha_err "$(msg img_download_falhou)"
+            diagnostico_log
+            return 1
+        fi
         tam="$(wc -c < "$parcial" 2>/dev/null | tr -d ' ')"
         if [ "$tam" != "$bytes" ]; then
-            erro "$(msg img_tamanho_diverge "$tam" "$bytes")"; rm -f "$parcial"; return 1
+            ha_err "$(msg img_tamanho_diverge "$tam" "$bytes")"; rm -f "$parcial"; return 1
         fi
         mv "$parcial" "$zip"
     fi
@@ -444,15 +590,14 @@ fase_imagem() {
     local obtido
     obtido="$(shasum -a 256 "$zip" | awk '{print $1}')"
     if [ "$obtido" != "$sha" ]; then
-        erro "$(msg img_sha_diverge)"
+        ha_err "$(msg img_sha_diverge)"
         printf '    esperado: %s\n    obtido  : %s\n' "$sha" "$obtido" >&2
         return 1
     fi
-    ok "$(msg img_sha_ok)"
+    ha_ok "$(msg img_sha_ok)"
 
     # ── descompactar ────────────────────────────────────────────────────────
-    command -v unzip >/dev/null 2>&1 || { erro "$(msg img_sem_unzip)"; return 1; }
-    info "$(msg img_descompactando)"
+    command -v unzip >/dev/null 2>&1 || { ha_err "$(msg img_sem_unzip)"; return 1; }
 
     # Descompacta DENTRO do destino, num diretório temporário irmão: o mv final
     # fica no mesmo sistema de arquivos e é atômico. Extrair em /var/folders e
@@ -460,12 +605,12 @@ fase_imagem() {
     # — que interrompida deixa um .vdi truncado com o nome definitivo.
     local tmpx="$destdir/.haos-extraindo.$$"
     rm -rf "$tmpx"; mkdir -p "$tmpx" || return 1
-    if ! unzip -o -q "$zip" -d "$tmpx"; then
-        rm -rf "$tmpx"; erro "$(msg img_descompactando)"; return 1
+    if ! ha_run_step "$(msg img_descompactando)" unzip -o -q "$zip" -d "$tmpx"; then
+        rm -rf "$tmpx"; return 1
     fi
     local extraido
     extraido="$(find "$tmpx" -maxdepth 2 -name '*.vdi' | head -1)"
-    if [ -z "$extraido" ]; then rm -rf "$tmpx"; erro "$(msg img_sem_vdi)"; return 1; fi
+    if [ -z "$extraido" ]; then rm -rf "$tmpx"; ha_err "$(msg img_sem_vdi)"; return 1; fi
 
     mv -f "$extraido" "$vdi" || { rm -rf "$tmpx"; return 1; }
     rm -rf "$tmpx"
@@ -475,7 +620,7 @@ fase_imagem() {
     # diretório é dele: encontrá-lo e apagá-lo em seguida seria cobrar 380 MiB
     # de download pelo favor de ter reaproveitado o arquivo.
     if [ "$baixamos" = "1" ] && [ "$OP_KEEP_IMAGE" != "1" ]; then rm -f "$zip"; fi
-    ok "$(msg img_pronta "$vdi")"
+    ha_ok "$(msg img_pronta "$vdi")"
     return 0
 }
 
@@ -530,6 +675,25 @@ HA_DEEP_R=1;    HA_DEEP_G=87;  HA_DEEP_B=155    # #01579B  deep
 if [[ "$HAOS_UI_DEPTH" == 0 ]]; then NC=''; BOLD=''; DIM=''
 else NC=$'\033[0m'; BOLD=$'\033[1m'; DIM=$'\033[2m'; fi
 
+# ── glifos, com fallback ASCII ───────────────────────────────────────────────
+# UMA fonte para todo caractere multibyte das linhas de status. Sob locale
+# não-UTF-8 o terminal recebe os bytes crus de "✔" — medido num Mac mini por
+# SSH com LC_CTYPE=C. A cerca do portão exercita ESTAS funções sob LC_ALL=C,
+# não só o banner (achado B-3 da banca).
+if [[ "$HAOS_UI_UTF8" == 1 ]]; then
+  HA_G_OK='✔'; HA_G_INFO='•'; HA_G_WARN='▲'; HA_G_ERR='✖'; HA_G_SKIP='◦'
+  HA_G_DOTS='…'; HA_G_REGUA='─'; HA_G_MARCA='▎'
+  HA_G_SEP='·'; HA_G_DASH='—'
+  HA_G_CHEIO='━'; HA_G_VAZIO='╌'; HA_G_BON='▰'; HA_G_BOFF='▱'
+  HA_SPIN_F='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'; HA_SPIN_N=10
+else
+  HA_G_OK='[OK]'; HA_G_INFO='[i]'; HA_G_WARN='[!]'; HA_G_ERR='[X]'; HA_G_SKIP='[-]'
+  HA_G_DOTS='...'; HA_G_REGUA='-'; HA_G_MARCA='>'
+  HA_G_SEP='-'; HA_G_DASH='--'
+  HA_G_CHEIO='#'; HA_G_VAZIO='-'; HA_G_BON='#'; HA_G_BOFF='-'
+  HA_SPIN_F='-\|/'; HA_SPIN_N=4
+fi
+
 rgb() { # rgb R G B -> escape
   case "$HAOS_UI_DEPTH" in
     24) printf '\033[38;2;%d;%d;%dm' "$1" "$2" "$3" ;;
@@ -546,7 +710,9 @@ C_RED="$(rgb 244 67 54)";    C_MUTED="$(rgb 96 125 139)"
 ha_gradient() {
   local s="$1" n=${#1} i out='' t r g b
   (( n == 0 )) && return
-  if [[ "$HAOS_UI_DEPTH" == 0 ]]; then printf '%s' "$s"; return; fi
+  # Sob locale não-UTF-8, ${s:i:1} fatia BYTES: inserir escape de cor entre os
+  # bytes de um caractere multibyte quebra a sequência na tela. Texto plano.
+  if [[ "$HAOS_UI_DEPTH" == 0 || "$HAOS_UI_UTF8" == 0 ]]; then printf '%s' "$s"; return; fi
   for (( i=0; i<n; i++ )); do
     t=$(( i * 200 / (n>1 ? n-1 : 1) ))
     if (( t <= 100 )); then
@@ -801,37 +967,99 @@ ha_shimmer() {
 # ── gradient rule across the terminal ───────────────────────────────────────
 ha_rule() {
   local w; w=$(tput cols 2>/dev/null || echo 72); (( w > 78 )) && w=78
-  local line=''; printf -v line '%*s' "$w" ''; line=${line// /─}
+  local line=''; printf -v line '%*s' "$w" ''; line=${line// /$HA_G_REGUA}
   printf '%s\n' "$(ha_gradient "$line")"
+}
+
+# ── barra de fase, viva na última linha ─────────────────────────────────────
+# Conta FASES, não itens (o desenho do AtlasFile): o que existe de discreto e
+# conhecido aqui são as fases, e um total de passos inventado é pior que barra
+# nenhuma. Só aparece depois da 1ª fase, e só com animação — em log seria lixo.
+# Apagar ANTES de qualquer mensagem é o que impede a barra de virar sujeira no
+# meio do texto; `\033[2K` apaga a linha inteira sem depender de TERM.
+HA_BAR_TOTAL=0; HA_BAR_N=0; HA_BAR_VISIVEL=0
+ha_bar_limpa() {
+  if [[ "$HA_BAR_VISIVEL" == 1 ]]; then printf '\r\033[2K'; HA_BAR_VISIVEL=0; fi
+  return 0
+}
+ha_bar_mostra() {
+  [[ "$HAOS_UI_ANIM" == 1 && "$HA_BAR_TOTAL" -gt 0 && "$HA_BAR_N" -gt 0 ]] || return 0
+  local w=20 f i out=''
+  f=$(( HA_BAR_N * w / HA_BAR_TOTAL ))
+  for (( i = 0; i < w; i++ )); do
+    if (( i < f )); then out+="${C_CYAN}${HA_G_BON}"; else out+="${C_MUTED}${HA_G_BOFF}"; fi
+  done
+  printf ' %s%s %sfase %d/%d%s' "$out" "$NC" "${C_MUTED}" "$HA_BAR_N" "$HA_BAR_TOTAL" "$NC"
+  HA_BAR_VISIVEL=1
+  return 0
 }
 
 # ── phase header ────────────────────────────────────────────────────────────
 HA_PHASE_N=0
 ha_phase() {
+  ha_bar_limpa
   HA_PHASE_N=$(( HA_PHASE_N + 1 ))
-  printf '\n%s%s▎%s %s%02d%s  %s\n' "$BOLD" "${C_BLUE}" "$NC" \
+  printf '\n%s%s%s%s %s%02d%s  %s\n' "$BOLD" "${C_BLUE}" "$HA_G_MARCA" "$NC" \
     "${C_MUTED}" "$HA_PHASE_N" "$NC" "$(ha_gradient "$1")"
   ha_rule
+  ha_bar_mostra
 }
 
 # ── status lines ────────────────────────────────────────────────────────────
-ha_ok()    { printf ' %s✔%s %s\n'  "${C_GREEN}" "$NC" "$1"; }
-ha_info()  { printf ' %s•%s %s%s%s\n' "${C_BLUE}" "$NC" "${C_MUTED}" "$1" "$NC"; }
-ha_warn()  { printf ' %s▲%s %s\n'  "${C_AMBER}" "$NC" "$1"; }
-ha_err()   { printf ' %s✖%s %s\n'  "${C_RED}"  "$NC" "$1" >&2; }
-ha_skip()  { printf ' %s◦%s %s%s%s\n' "${C_MUTED}" "$NC" "$DIM" "$1" "$NC"; }
+ha_ok()    { ha_bar_limpa; printf ' %s%s%s %s\n'  "${C_GREEN}" "$HA_G_OK" "$NC" "$1"; ha_bar_mostra; }
+ha_info()  { ha_bar_limpa; printf ' %s%s%s %s%s%s\n' "${C_BLUE}" "$HA_G_INFO" "$NC" "${C_MUTED}" "$1" "$NC"; ha_bar_mostra; }
+ha_warn()  { ha_bar_limpa; printf ' %s%s%s %s\n'  "${C_AMBER}" "$HA_G_WARN" "$NC" "$1"; ha_bar_mostra; }
+ha_err()   { ha_bar_limpa; printf ' %s%s%s %s\n'  "${C_RED}"  "$HA_G_ERR" "$NC" "$1" >&2; }
+ha_skip()  { ha_bar_limpa; printf ' %s%s%s %s%s%s\n' "${C_MUTED}" "$HA_G_SKIP" "$NC" "$DIM" "$1" "$NC"; ha_bar_mostra; }
+
+# ── quebra de linha na largura do terminal ──────────────────────────────────
+# Existe porque o produto imprime CAMINHOS (`~/VirtualBox VMs/...`), e caminho
+# que o terminal quebra sozinho sai sem recuo e não pode ser copiado inteiro.
+# Palavra maior que a largura transborda em vez de ser partida — caminho
+# quebrado no meio não cola. Largura por bytes menos bytes de continuação
+# UTF-8: dá caracteres nos dois locales (a armadilha do ${#s} sob LC_ALL=C).
+ha_strwidth() { # <texto>
+  local b c
+  b=$(printf '%s' "$1" | LC_ALL=C wc -c | tr -d ' ')
+  c=$(printf '%s' "$1" | LC_ALL=C tr -dc '\200-\277' | LC_ALL=C wc -c | tr -d ' ')
+  printf '%s' $(( b - c ))
+}
+ha_wrap() { # <prefixo_1a_linha> <prefixo_continuacao> <colunas_do_prefixo> <texto>
+  local p1="$1" p2="$2" pw="$3" texto="$4" linha='' palavra util w glob_ligado=1
+  w=$(tput cols 2>/dev/null || echo 72); case "$w" in ''|*[!0-9]*) w=72 ;; esac
+  (( w > 92 )) && w=92
+  util=$(( w - pw )); [ "$util" -lt 20 ] && util=20
+  # Texto pode conter glob (`*.vdi`); sem `set -f` a divisão em palavras
+  # expandiria contra o diretório corrente.
+  case "$-" in *f*) glob_ligado=0 ;; esac
+  set -f
+  for palavra in $texto; do
+    if [ -z "$linha" ]; then linha="$palavra"
+    elif [ "$(ha_strwidth "${linha} ${palavra}")" -le "$util" ]; then linha="${linha} ${palavra}"
+    else printf '%s%s\n' "$p1" "$linha"; p1="$p2"; linha="$palavra"; fi
+  done
+  [ "$glob_ligado" = "1" ] && set +f
+  printf '%s%s\n' "$p1" "$linha"
+}
 
 # ── orbit spinner around a label ────────────────────────────────────────────
 ha_spin() { # ha_spin "label" <pid>
-  local label="$1" pid="$2" frames='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' i=0
-  if [[ "$HAOS_UI_ANIM" == 0 ]]; then printf ' … %s\n' "$label"; wait "$pid"; return $?; fi
+  local label="$1" pid="$2" i=0 rc=0
+  # `wait` com código != 0 sob `set -e` abortaria o chamador antes do return —
+  # por isso todo wait aqui é `|| rc=$?`, nunca solto.
+  if [[ "$HAOS_UI_ANIM" == 0 ]]; then
+    printf ' %s %s\n' "$HA_G_DOTS" "$label"
+    wait "$pid" || rc=$?
+    return "$rc"
+  fi
+  ha_bar_limpa
   _hide
   while kill -0 "$pid" 2>/dev/null; do
-    printf '\r %s%s%s %s' "${C_CYAN}" "${frames:$(( i % 10 )):1}" "$NC" "$label"; i=$(( i + 1 ))
+    printf '\r %s%s%s %s' "${C_CYAN}" "${HA_SPIN_F:$(( i % HA_SPIN_N )):1}" "$NC" "$label"; i=$(( i + 1 ))
     sleep 0.07
   done
-  wait "$pid"; local rc=$?
-  printf '\r\033[K'; _show
+  wait "$pid" || rc=$?
+  printf '\r\033[2K'; _show
   if (( rc == 0 )); then ha_ok "$label"; else ha_err "$label  (exit $rc)"; fi
   return "$rc"
 }
@@ -841,9 +1069,10 @@ ha_bar() { # ha_bar <done> <total> "label"
   local d="$1" t="$2" label="${3:-}" w=32 f i out=''
   # Em log (nao-TTY) uma barra por frame vira lixo: so a linha final importa.
   if [[ "$HAOS_UI_ANIM" == 0 ]]; then (( d >= t )) && printf ' %d/%d %s\n' "$d" "$t" "$label"; return; fi
+  ha_bar_limpa
   (( t == 0 )) && t=1
   f=$(( d * w / t ))
-  if [[ "$HAOS_UI_DEPTH" == 0 ]]; then
+  if [[ "$HAOS_UI_DEPTH" == 0 || "$HAOS_UI_UTF8" == 0 ]]; then
     printf '\r [%-*s] %d/%d %s' "$w" "$(printf '%*s' "$f" '' | tr ' ' '#')" "$d" "$t" "$label"
   else
     for (( i=0; i<w; i++ )); do
@@ -1090,11 +1319,14 @@ tem_na_lista() { case " $2 " in *" $1 "*) return 0 ;; esac; return 1; }
 # ARGUMENTOS
 # =============================================================================
 OP_PERFIL=""; OP_WITH=""; OP_VM_PERFIL=""; OP_VM_NOME="HomeAssistant"
-OP_BRIDGE=""; OP_DRYRUN=0; OP_LIST=0; OP_NOINPUT=0; OP_FORCE=0
-OP_QUIET=0; OP_VERBOSE=0; OP_JSON=0; OP_ALL=0
-OP_MODO=""            # doctor | uninstall | upgrade | upgrade-only | self-update | resume
-OP_CONFIRM=""; OP_KEEP_IMAGE=0; OP_INSTALL_DEPS=0
+OP_DRYRUN=0; OP_LIST=0; OP_NOINPUT=0; OP_FORCE=0
+OP_QUIET=0; OP_VERBOSE=0; OP_ALL=0
+OP_KEEP_IMAGE=0; OP_INSTALL_DEPS=0
 
+# O help só promete o que EXISTE. As flags das fases futuras (--doctor,
+# --uninstall, --self-update, --resume, --upgrade, --bridge, --json, `last`)
+# entram AQUI no mesmo commit em que a implementação entra — o gate executa
+# cada flag publicada e reprova a que responder "não implementado" (B-4).
 uso() {
     cat <<'USO'
 haos-install.sh — Home Assistant OS numa VM VirtualBox em Mac Apple Silicon
@@ -1103,44 +1335,29 @@ haos-install.sh — Home Assistant OS numa VM VirtualBox em Mac Apple Silicon
   curl -fsSL <raw-url> | bash -s -- [opções]
 
 SELEÇÃO
-  --profile <id>     haos_vanilla | haos_conectado | haos_casa | last
+  --profile <id>     haos_vanilla | haos_conectado | haos_casa
   --with a,b,c       extras: ferramentas, casa_abhome, extensoes
   -a, --all          haos_casa + todos os extras (exceto o que exige opt-in)
 
 VM
   --vm-profile <id>  vm_minimo | vm_equilibrado | vm_recomendado
   --vm-name <nome>   padrão: HomeAssistant
-  --bridge <nome>    interface de bridge; padrão é a cabeada
 
 NÃO INSTALAM NADA
   -n, --dry-run      imprime o plano e sai
   --list             lista o catálogo e sai
-  --doctor           diagnóstico; nada é alterado
   --version          versão do instalador e a referência de compatibilidade
   -h, --help         esta ajuda
 
-ATUALIZAÇÃO
-  --upgrade          aplica atualizações dos artefatos que o instalador escreve
-  --upgrade-only     só atualiza o que existe, não instala nada novo, e sai
-  --self-update      atualiza este script
-
-REMOÇÃO
-  --uninstall        desfaz a instalação
-  --confirm=<nome>   obrigatório para --uninstall sem terminal
-  --keep-image       preserva o .vdi baixado
-
 OUTRAS
-  --resume           retoma da fase onde parou
-  -v, --verbose      saída completa
+  --keep-image       preserva o .zip baixado da imagem do HAOS
+  -v, --verbose      mostra a saída crua de cada ferramenta
   -q, --quiet        suprime a saída normal
-  --json             saída legível por máquina
   --no-input         não pergunta nada; falha se faltar dado obrigatório
-  -f, --force        reinstala item já presente. NÃO pula portão nem hash.
+  -f, --force        refaz artefato já presente. NÃO pula portão nem hash.
   --install-deps     instala pré-requisitos ausentes sem perguntar (VirtualBox)
 
 Ambiente: HAOS_LANG=pt|en · NO_COLOR
-
---upgrade NUNCA toca versão de Core, HAOS ou app: isso é do Supervisor.
 USO
 }
 
@@ -1150,25 +1367,24 @@ versao() {
     printf 'https://github.com/aleonnet/haos-mac-mini · MIT\n'
 }
 
-modo_unico() {
-    [ -z "$OP_MODO" ] || morrer "$E_USO" "--$1 não combina com --$OP_MODO"
-    OP_MODO="$1"
+# Flag de valor valida o shape NA HORA: sem isto, `--profile --help` engole a
+# flag seguinte e o erro aparece longe da causa (achado 7 do gap analysis; o
+# AtlasFile faz o mesmo no parser dele).
+exige_valor() { # <flag> <valor?>
+    case "${2:-}" in ''|-*) morrer "$E_USO" "$(msg flag_sem_valor "$1")" ;; esac
 }
 
 ler_args() {
     while [ $# -gt 0 ]; do
         case "$1" in
-            --profile)      OP_PERFIL="${2:-}"; shift ;;
-            --profile=*)    OP_PERFIL="${1#*=}" ;;
-            --with)         OP_WITH="${2:-}"; shift ;;
-            --with=*)       OP_WITH="${1#*=}" ;;
-            --vm-profile)   OP_VM_PERFIL="${2:-}"; shift ;;
-            --vm-profile=*) OP_VM_PERFIL="${1#*=}" ;;
-            --vm-name)      OP_VM_NOME="${2:-}"; shift ;;
-            --vm-name=*)    OP_VM_NOME="${1#*=}" ;;
-            --bridge)       OP_BRIDGE="${2:-}"; shift ;;
-            --bridge=*)     OP_BRIDGE="${1#*=}" ;;
-            --confirm=*)    OP_CONFIRM="${1#*=}" ;;
+            --profile)      exige_valor --profile "${2:-}";    OP_PERFIL="$2"; shift ;;
+            --profile=*)    exige_valor --profile "${1#*=}";   OP_PERFIL="${1#*=}" ;;
+            --with)         exige_valor --with "${2:-}";       OP_WITH="$2"; shift ;;
+            --with=*)       exige_valor --with "${1#*=}";      OP_WITH="${1#*=}" ;;
+            --vm-profile)   exige_valor --vm-profile "${2:-}"; OP_VM_PERFIL="$2"; shift ;;
+            --vm-profile=*) exige_valor --vm-profile "${1#*=}"; OP_VM_PERFIL="${1#*=}" ;;
+            --vm-name)      exige_valor --vm-name "${2:-}";    OP_VM_NOME="$2"; shift ;;
+            --vm-name=*)    exige_valor --vm-name "${1#*=}";   OP_VM_NOME="${1#*=}" ;;
             -a|--all)       OP_ALL=1 ;;
             -n|--dry-run)   OP_DRYRUN=1 ;;
             --list)         OP_LIST=1 ;;
@@ -1176,18 +1392,11 @@ ler_args() {
             -f|--force)     OP_FORCE=1 ;;
             -q|--quiet)     OP_QUIET=1 ;;
             -v|--verbose)   OP_VERBOSE=1 ;;
-            --json)         OP_JSON=1 ;;
             --keep-image)   OP_KEEP_IMAGE=1 ;;
             --install-deps) OP_INSTALL_DEPS=1 ;;
-            --doctor)       modo_unico doctor ;;
-            --uninstall)    modo_unico uninstall ;;
-            --upgrade)      modo_unico upgrade ;;
-            --upgrade-only) modo_unico upgrade-only ;;
-            --self-update)  modo_unico self-update ;;
-            --resume)       modo_unico resume ;;
             --version)      versao; exit 0 ;;
             -h|--help)      uso; exit 0 ;;
-            *)              erro "opção desconhecida: $1"; printf '\n'; uso >&2; exit "$E_USO" ;;
+            *)              ha_err "$(msg opcao_desconhecida "$1")"; printf '\n'; uso >&2; exit "$E_USO" ;;
         esac
         shift
     done
@@ -1296,7 +1505,7 @@ EOF
 
 TEM_CABEADA=0
 pre_voo() {
-    fase "$(msg preflight)"
+    ha_fase "$(msg preflight)"
     sonda
 
     # ── portões duros: impossibilidade de plataforma ──────────────────────────
@@ -1304,7 +1513,7 @@ pre_voo() {
     os="$(p_get host.os)"; arch="$(p_get host.arch)"
     [ "$os" = "Darwin" ]  || portao "$E_VALID" "$(msg so_macos "$os")"
     [ "$arch" = "arm64" ] || portao "$E_VALID" "$(msg so_apple_silicon "$arch")"
-    ok "$(msg maquina): $(p_get host.model) · $(p_get host.cpu) · macOS $(p_get host.macos)"
+    ha_ok "$(msg maquina): $(p_get host.model) ${HA_G_SEP} $(p_get host.cpu) ${HA_G_SEP} macOS $(p_get host.macos)"
 
     if [ "$(p_get vbox.present)" != "1" ]; then
         # Conduz, não delega: baixa da Oracle, confere o hash e instala por
@@ -1326,7 +1535,7 @@ pre_voo() {
         if [ "${maj:-0}" -lt 7 ] || { [ "${maj:-0}" = "7" ] && [ "${min:-0}" -lt 1 ]; }; then
             portao "$E_DEP" "$(msg vbox_antigo "$vv")"
         else
-            ok "$(msg vbox_versao "$vv")"
+            ha_ok "$(msg vbox_versao "$vv")"
         fi
     fi
 
@@ -1336,12 +1545,12 @@ pre_voo() {
     if [ "$(p_get python3.present)" != "1" ]; then
         portao "$E_DEP" "$(msg sem_python) $(msg sem_python_como)"
     else
-        ok "python3 $(python3 -V 2>&1 | awk '{print $2}')"
+        ha_ok "$(msg python3_versao "$(python3 -V 2>&1 | awk '{print $2}')")"
     fi
 
     local livre; livre="$(p_get disk.available_mib)"
     local minimo=12000
-    if [ "${livre:-0}" -ge "$minimo" ]; then ok "$(msg disco): ${livre} MiB"
+    if [ "${livre:-0}" -ge "$minimo" ]; then ha_ok "$(msg disco): ${livre} MiB"
     else portao "$E_VALID" "$(msg disco_curto "$(p_get disk.path)" "$livre" "$minimo")"; fi
 
     # ── portões suaves: avisam, não abortam ──────────────────────────────────
@@ -1353,12 +1562,12 @@ pre_voo() {
         i=$(( i + 1 ))
     done
     if [ "$TEM_CABEADA" = "1" ]; then
-        ok "$(msg rede): $(p_get net.1.port) ($(msg cabeada))"
+        ha_ok "$(msg rede): $(p_get net.1.port) ($(msg cabeada))"
     else
         # Aviso, NÃO portão. A doc oficial do HA aceita escolher o adaptador
         # Wi-Fi, e nenhum MacBook tem porta Ethernet desde 2016: abortar aqui
         # recusaria a maior parte dos Macs. A prova é empírica, na F5.
-        aviso "$(msg aviso_wifi)"
+        ha_warn "$(msg aviso_wifi)"
     fi
 }
 
@@ -1400,7 +1609,7 @@ vm_derivado_cpu() {
 }
 
 resolver_selecao() {
-    fase "$(msg selecao)"
+    ha_fase "$(msg selecao)"
 
     if [ "$OP_ALL" = "1" ]; then
         SEL_DEGRAU="haos_casa"; SEL_EXTRAS="ferramentas casa_abhome"
@@ -1412,7 +1621,7 @@ resolver_selecao() {
     elif tem_tty && [ "$OP_NOINPUT" != "1" ]; then
         SEL_DEGRAU="haos_casa"   # o seletor interativo entra aqui na próxima fase
     else
-        erro "$(msg sem_tty_titulo)"
+        ha_err "$(msg sem_tty_titulo)"
         printf '%s\n' "$(msg sem_tty_como)" >&2
         printf '  curl -fsSL %s | bash -s -- --profile haos_casa\n' "$HAOS_RAW_URL" >&2
         exit "$E_USO"
@@ -1438,11 +1647,11 @@ resolver_selecao() {
         tem_na_lista "$icat" "$cats" || continue
         [ "$ipadrao" = "1" ] && SEL_ITENS="$SEL_ITENS $iid"
     done
-    ok "$(msg degrau): $(cat_rotulo "${SEL_DEGRAU#haos_}") · $(msg ortogonais): ${SEL_EXTRAS:--}"
+    ha_ok "$(msg degrau): $(cat_rotulo "${SEL_DEGRAU#haos_}") ${HA_G_SEP} $(msg ortogonais): ${SEL_EXTRAS:--}"
 }
 
 plano() {
-    fase "$(msg plano)"
+    ha_fase "$(msg plano)"
     local ram cpu r id rot rm cp orig
     for r in "${VM_PROFILE_DB[@]}"; do
         IFS='|' read -r id rot rm cp orig <<< "$r"
@@ -1451,13 +1660,13 @@ plano() {
         else ram="$rm"; cpu="$cp"; fi
     done
 
-    printf '  %-14s %s\n' "$(msg perfil_vm):" "$SEL_VM — ${ram} MiB RAM · ${cpu} vCPU"
+    printf '  %-14s %s\n' "$(msg perfil_vm):" "$SEL_VM ${HA_G_DASH} ${ram} MiB RAM ${HA_G_SEP} ${cpu} vCPU"
     printf '  %-14s %s\n' "VM:" "$OP_VM_NOME"
     printf '  %-14s %s\n' "$(msg degrau):" "$SEL_DEGRAU"
     [ -n "$SEL_EXTRAS" ] && printf '  %-14s %s\n' "$(msg ortogonais):" "$SEL_EXTRAS"
 
     local disp; disp="$(p_get mem.available_mib)"
-    if [ "${disp:-0}" -lt "${ram:-0}" ]; then aviso "$(msg aviso_ram "$disp" "$ram")"; fi
+    if [ "${disp:-0}" -lt "${ram:-0}" ]; then ha_warn "$(msg aviso_ram "$disp" "$ram")"; fi
 
     # O piso vem de qualquer jeito — dizer só "0 itens" seria enganoso.
     printf '\n  %s\n' "$(msg piso_sempre "$(( ${#DEFAULT_CONFIG_DB[@]} + ${#HAOS_INTRINSIC_DB[@]} + ${#ONBOARDING_DB[@]} ))")"
@@ -1484,17 +1693,18 @@ main() {
     # `--list | head` fecha o cano; SIGPIPE com pipefail viraria erro do script
     [ "$OP_LIST" = "1" ] && { trap - PIPE; listar 2>/dev/null || true; exit 0; }
 
-    case "$OP_MODO" in
-        doctor|uninstall|upgrade|upgrade-only|self-update|resume)
-            morrer "$E_VALID" "$(msg nao_implementado "$HAOS_INSTALL_VERSION")" ;;
-    esac
+    # A partir daqui a execução conta como execução: o limpar() espelha o
+    # last-run mesmo numa morte no meio — exceto em dry-run, que não escreve
+    # NADA (cerca de snapshot no portão).
+    MAIN_INICIADO=1
+    if [ "$OP_DRYRUN" = "1" ]; then HA_BAR_TOTAL=3; else HA_BAR_TOTAL=4; fi
 
     # O logo só aparece quando há terminal e o usuário não pediu silêncio.
     # Em log, CI ou --quiet, um cabeçalho de uma linha. A animação nunca é
     # informação: tudo que ela mostra também está no texto.
     if [ "$OP_QUIET" != "1" ]; then
-        if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != "dumb" ] && [ "$OP_JSON" != "1" ]; then
-            ha_banner "Home Assistant OS" "$(msg subtitulo "$HAOS_INSTALL_VERSION")"
+        if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != "dumb" ]; then
+            ha_banner "Home Assistant OS" "$(msg subtitulo) ${HA_G_SEP} v${HAOS_INSTALL_VERSION}"
         else
             printf '\n%s v%s\n' "$(msg cabecalho)" "$HAOS_INSTALL_VERSION"
         fi
@@ -1507,22 +1717,33 @@ main() {
     if [ "$OP_DRYRUN" = "1" ]; then
         printf '\n'
         if [ "$PORTOES_ABERTOS" -gt 0 ]; then
-            aviso "$(msg portoes_pendentes "$PORTOES_ABERTOS")"
+            ha_warn "$(msg portoes_pendentes "$PORTOES_ABERTOS")"
         fi
-        info "$(msg nada_escrito)"
+        ha_info "$(msg nada_escrito)"
         exit 0
     fi
 
     if [ "$OP_NOINPUT" != "1" ]; then
-        perguntar "$(msg confirmar)" || { info "$(msg cancelado)"; exit "$E_CANCELADO"; }
+        perguntar "$(msg confirmar)" || { ha_info "$(msg cancelado)"; exit "$E_CANCELADO"; }
     fi
 
     local rc_img=0
     fase_imagem || rc_img=$?
     [ "$rc_img" = "0" ] || [ "$rc_img" = "100" ] || exit "$E_VALID"
 
-    fase "F4"
+    ha_fase "$(msg fase_vm)"
     morrer "$E_VALID" "$(msg nao_implementado "$HAOS_INSTALL_VERSION")"
 }
 
+# ── guarda de biblioteca ─────────────────────────────────────────────────────
+# `HAOS_INSTALL_LIB=1 source haos-install.sh` para AQUI: a bancada de teste
+# alcança as funções sem executar nada. O `exit` de fallback existe porque sob
+# `curl | bash` não há função de onde retornar. O trap vem DEPOIS da guarda —
+# um trap de EXIT instalado no source vazaria para o shell da bancada (B-7).
+MAIN_INICIADO=0
+if [ -n "${HAOS_INSTALL_LIB:-}" ]; then
+    return 0 2>/dev/null || exit 0
+fi
+
+trap limpar EXIT INT TERM
 main "$@"

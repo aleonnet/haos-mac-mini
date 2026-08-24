@@ -133,14 +133,85 @@ fi
 # A camada visual tem de degradar sob locale C, não cuspir UTF-8 partido.
 # Medido em 23/08: por SSH num Mac mini, LC_CTYPE=C fazia o bash contar BYTES e
 # a mesma linha de arte medir 118 em vez de 42.
+# A cerca exercita as FUNÇÕES DE FASE, não só o banner — achado B-3 da banca:
+# a primeira versão só olhava ha_banner, e ha_ok/ha_warn/ha_err passariam
+# verdes emitindo ✔▲✖ crus na máquina que o produto mais visita por SSH.
 titulo "locale"
 saida_c="$(LC_ALL=C LANG=C /bin/bash -c '
     source lib/haos-ui.sh >/dev/null 2>&1
-    ha_banner "T" "S" 2>/dev/null' | LC_ALL=C tr -d '[:print:][:space:]' | wc -c | tr -d ' ')"
+    ha_banner "T" "S" 2>/dev/null
+    ha_phase "Fase de teste"
+    ha_ok "linha ok"; ha_info "linha info"; ha_warn "linha warn"
+    ha_err "linha err" 2>&1; ha_skip "linha skip"
+    ha_bar 3 3 "barra"
+    ( sleep 0.1 ) & ha_spin "girando" $!
+    ha_wrap "  - " "    " 4 "um caminho comprido /Users/alguem/VirtualBox VMs/HomeAssistant/haos.vdi para quebrar"
+    ' | LC_ALL=C tr -d '[:print:][:space:]' | wc -c | tr -d ' ')"
 if [ "${saida_c:-1}" = "0" ]; then
-    ok "sob LC_ALL=C a saída é ASCII puro, sem byte partido"
+    ok "sob LC_ALL=C banner, fases, barra, spinner e wrap são ASCII puro"
 else
     falha "sob LC_ALL=C a camada visual emitiu $saida_c byte(s) não imprimível(is)"
+fi
+
+# E o INSTALADOR inteiro, pelo cano, sob locale C: as mensagens en (as que o
+# locale C seleciona) têm de ser ASCII puro — separador de UI inclusive.
+# shellcheck disable=SC2002
+saida_c="$(cat haos-install.sh | LC_ALL=C LANG=C "${BASH:-/bin/bash}" -s -- \
+    --dry-run --profile haos_casa --no-input 2>&1 \
+    | LC_ALL=C tr -d '\0-\177' | wc -c | tr -d ' ')"
+if [ "${saida_c:-1}" = "0" ]; then
+    ok "dry-run sob LC_ALL=C é ASCII puro de ponta a ponta"
+else
+    falha "dry-run sob LC_ALL=C emitiu $saida_c byte(s) não-ASCII"
+fi
+
+# ── help honesto ─────────────────────────────────────────────────────────────
+# Cada flag PUBLICADA no --help é EXECUTADA (forma do call-site, não grep de
+# texto): a que responder "não implementado" ou "opção desconhecida" reprova.
+# É a cerca que teria pego o help prometendo --doctor/--uninstall/--resume
+# enquanto todos caíam em morrer() — achado B-4 da banca.
+titulo "help honesto"
+# shellcheck disable=SC2002  # o `cat |` reproduz o curl | bash de propósito
+flags_help="$(cat haos-install.sh | "${BASH:-/bin/bash}" -s -- --help 2>/dev/null \
+    | grep -oE '^\s+(-[a-zA-Z], )?--[a-z-]+' | grep -oE '\-\-[a-z-]+' | sort -u)"
+mentira=""
+for f in $flags_help; do
+    case "$f" in
+        --help)    args="--help" ;;
+        --version) args="--version" ;;
+        --list)    args="--list" ;;
+        --profile)    args="--profile haos_casa --dry-run --no-input" ;;
+        --with)       args="--with ferramentas --profile haos_casa --dry-run --no-input" ;;
+        --vm-profile) args="--vm-profile vm_minimo --profile haos_casa --dry-run --no-input" ;;
+        --vm-name)    args="--vm-name Teste --profile haos_casa --dry-run --no-input" ;;
+        *)            args="$f --profile haos_casa --dry-run --no-input" ;;
+    esac
+    # shellcheck disable=SC2086,SC2002
+    saida="$(cat haos-install.sh | "${BASH:-/bin/bash}" -s -- $args 2>&1)" || true
+    if printf '%s' "$saida" | grep -qE 'não estão implementadas|not implemented yet|opção desconhecida|unknown option'; then
+        mentira="$mentira $f"
+    fi
+done
+if [ -z "$mentira" ]; then
+    ok "toda flag do --help executa de verdade ($(printf '%s\n' "$flags_help" | wc -l | tr -d ' ') flags)"
+else
+    falha "flags publicadas no help que não funcionam:$mentira"
+fi
+
+# ── dry-run não escreve NADA ─────────────────────────────────────────────────
+# Nem log, nem estado: a promessa "--dry-run: nada foi escrito" é conferida por
+# snapshot de um $HOME sintético (a costura HAOS_STATE_DIR/HOME é a do B-7).
+titulo "dry-run é read-only"
+sandbox="$(mktemp -d "${TMPDIR:-/tmp}/haos-gate-sb.XXXXXX")"
+# shellcheck disable=SC2002
+cat haos-install.sh | HOME="$sandbox" "${BASH:-/bin/bash}" -s -- \
+    --dry-run --profile haos_casa --no-input >/dev/null 2>&1 || true
+escritos="$(find "$sandbox" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')"
+rm -rf "$sandbox"
+if [ "${escritos:-1}" = "0" ]; then
+    ok "dry-run não escreveu nada num \$HOME sintético"
+else
+    falha "dry-run escreveu $escritos arquivo(s) no \$HOME"
 fi
 
 # EXECUTAR a camada visual, não só analisá-la. `bash -n` não acusa função que

@@ -45,6 +45,25 @@ HA_DEEP_R=1;    HA_DEEP_G=87;  HA_DEEP_B=155    # #01579B  deep
 if [[ "$HAOS_UI_DEPTH" == 0 ]]; then NC=''; BOLD=''; DIM=''
 else NC=$'\033[0m'; BOLD=$'\033[1m'; DIM=$'\033[2m'; fi
 
+# ── glifos, com fallback ASCII ───────────────────────────────────────────────
+# UMA fonte para todo caractere multibyte das linhas de status. Sob locale
+# não-UTF-8 o terminal recebe os bytes crus de "✔" — medido num Mac mini por
+# SSH com LC_CTYPE=C. A cerca do portão exercita ESTAS funções sob LC_ALL=C,
+# não só o banner (achado B-3 da banca).
+if [[ "$HAOS_UI_UTF8" == 1 ]]; then
+  HA_G_OK='✔'; HA_G_INFO='•'; HA_G_WARN='▲'; HA_G_ERR='✖'; HA_G_SKIP='◦'
+  HA_G_DOTS='…'; HA_G_REGUA='─'; HA_G_MARCA='▎'
+  HA_G_SEP='·'; HA_G_DASH='—'
+  HA_G_CHEIO='━'; HA_G_VAZIO='╌'; HA_G_BON='▰'; HA_G_BOFF='▱'
+  HA_SPIN_F='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'; HA_SPIN_N=10
+else
+  HA_G_OK='[OK]'; HA_G_INFO='[i]'; HA_G_WARN='[!]'; HA_G_ERR='[X]'; HA_G_SKIP='[-]'
+  HA_G_DOTS='...'; HA_G_REGUA='-'; HA_G_MARCA='>'
+  HA_G_SEP='-'; HA_G_DASH='--'
+  HA_G_CHEIO='#'; HA_G_VAZIO='-'; HA_G_BON='#'; HA_G_BOFF='-'
+  HA_SPIN_F='-\|/'; HA_SPIN_N=4
+fi
+
 rgb() { # rgb R G B -> escape
   case "$HAOS_UI_DEPTH" in
     24) printf '\033[38;2;%d;%d;%dm' "$1" "$2" "$3" ;;
@@ -61,7 +80,9 @@ C_RED="$(rgb 244 67 54)";    C_MUTED="$(rgb 96 125 139)"
 ha_gradient() {
   local s="$1" n=${#1} i out='' t r g b
   (( n == 0 )) && return
-  if [[ "$HAOS_UI_DEPTH" == 0 ]]; then printf '%s' "$s"; return; fi
+  # Sob locale não-UTF-8, ${s:i:1} fatia BYTES: inserir escape de cor entre os
+  # bytes de um caractere multibyte quebra a sequência na tela. Texto plano.
+  if [[ "$HAOS_UI_DEPTH" == 0 || "$HAOS_UI_UTF8" == 0 ]]; then printf '%s' "$s"; return; fi
   for (( i=0; i<n; i++ )); do
     t=$(( i * 200 / (n>1 ? n-1 : 1) ))
     if (( t <= 100 )); then
@@ -316,37 +337,99 @@ ha_shimmer() {
 # ── gradient rule across the terminal ───────────────────────────────────────
 ha_rule() {
   local w; w=$(tput cols 2>/dev/null || echo 72); (( w > 78 )) && w=78
-  local line=''; printf -v line '%*s' "$w" ''; line=${line// /─}
+  local line=''; printf -v line '%*s' "$w" ''; line=${line// /$HA_G_REGUA}
   printf '%s\n' "$(ha_gradient "$line")"
+}
+
+# ── barra de fase, viva na última linha ─────────────────────────────────────
+# Conta FASES, não itens (o desenho do AtlasFile): o que existe de discreto e
+# conhecido aqui são as fases, e um total de passos inventado é pior que barra
+# nenhuma. Só aparece depois da 1ª fase, e só com animação — em log seria lixo.
+# Apagar ANTES de qualquer mensagem é o que impede a barra de virar sujeira no
+# meio do texto; `\033[2K` apaga a linha inteira sem depender de TERM.
+HA_BAR_TOTAL=0; HA_BAR_N=0; HA_BAR_VISIVEL=0
+ha_bar_limpa() {
+  if [[ "$HA_BAR_VISIVEL" == 1 ]]; then printf '\r\033[2K'; HA_BAR_VISIVEL=0; fi
+  return 0
+}
+ha_bar_mostra() {
+  [[ "$HAOS_UI_ANIM" == 1 && "$HA_BAR_TOTAL" -gt 0 && "$HA_BAR_N" -gt 0 ]] || return 0
+  local w=20 f i out=''
+  f=$(( HA_BAR_N * w / HA_BAR_TOTAL ))
+  for (( i = 0; i < w; i++ )); do
+    if (( i < f )); then out+="${C_CYAN}${HA_G_BON}"; else out+="${C_MUTED}${HA_G_BOFF}"; fi
+  done
+  printf ' %s%s %sfase %d/%d%s' "$out" "$NC" "${C_MUTED}" "$HA_BAR_N" "$HA_BAR_TOTAL" "$NC"
+  HA_BAR_VISIVEL=1
+  return 0
 }
 
 # ── phase header ────────────────────────────────────────────────────────────
 HA_PHASE_N=0
 ha_phase() {
+  ha_bar_limpa
   HA_PHASE_N=$(( HA_PHASE_N + 1 ))
-  printf '\n%s%s▎%s %s%02d%s  %s\n' "$BOLD" "${C_BLUE}" "$NC" \
+  printf '\n%s%s%s%s %s%02d%s  %s\n' "$BOLD" "${C_BLUE}" "$HA_G_MARCA" "$NC" \
     "${C_MUTED}" "$HA_PHASE_N" "$NC" "$(ha_gradient "$1")"
   ha_rule
+  ha_bar_mostra
 }
 
 # ── status lines ────────────────────────────────────────────────────────────
-ha_ok()    { printf ' %s✔%s %s\n'  "${C_GREEN}" "$NC" "$1"; }
-ha_info()  { printf ' %s•%s %s%s%s\n' "${C_BLUE}" "$NC" "${C_MUTED}" "$1" "$NC"; }
-ha_warn()  { printf ' %s▲%s %s\n'  "${C_AMBER}" "$NC" "$1"; }
-ha_err()   { printf ' %s✖%s %s\n'  "${C_RED}"  "$NC" "$1" >&2; }
-ha_skip()  { printf ' %s◦%s %s%s%s\n' "${C_MUTED}" "$NC" "$DIM" "$1" "$NC"; }
+ha_ok()    { ha_bar_limpa; printf ' %s%s%s %s\n'  "${C_GREEN}" "$HA_G_OK" "$NC" "$1"; ha_bar_mostra; }
+ha_info()  { ha_bar_limpa; printf ' %s%s%s %s%s%s\n' "${C_BLUE}" "$HA_G_INFO" "$NC" "${C_MUTED}" "$1" "$NC"; ha_bar_mostra; }
+ha_warn()  { ha_bar_limpa; printf ' %s%s%s %s\n'  "${C_AMBER}" "$HA_G_WARN" "$NC" "$1"; ha_bar_mostra; }
+ha_err()   { ha_bar_limpa; printf ' %s%s%s %s\n'  "${C_RED}"  "$HA_G_ERR" "$NC" "$1" >&2; }
+ha_skip()  { ha_bar_limpa; printf ' %s%s%s %s%s%s\n' "${C_MUTED}" "$HA_G_SKIP" "$NC" "$DIM" "$1" "$NC"; ha_bar_mostra; }
+
+# ── quebra de linha na largura do terminal ──────────────────────────────────
+# Existe porque o produto imprime CAMINHOS (`~/VirtualBox VMs/...`), e caminho
+# que o terminal quebra sozinho sai sem recuo e não pode ser copiado inteiro.
+# Palavra maior que a largura transborda em vez de ser partida — caminho
+# quebrado no meio não cola. Largura por bytes menos bytes de continuação
+# UTF-8: dá caracteres nos dois locales (a armadilha do ${#s} sob LC_ALL=C).
+ha_strwidth() { # <texto>
+  local b c
+  b=$(printf '%s' "$1" | LC_ALL=C wc -c | tr -d ' ')
+  c=$(printf '%s' "$1" | LC_ALL=C tr -dc '\200-\277' | LC_ALL=C wc -c | tr -d ' ')
+  printf '%s' $(( b - c ))
+}
+ha_wrap() { # <prefixo_1a_linha> <prefixo_continuacao> <colunas_do_prefixo> <texto>
+  local p1="$1" p2="$2" pw="$3" texto="$4" linha='' palavra util w glob_ligado=1
+  w=$(tput cols 2>/dev/null || echo 72); case "$w" in ''|*[!0-9]*) w=72 ;; esac
+  (( w > 92 )) && w=92
+  util=$(( w - pw )); [ "$util" -lt 20 ] && util=20
+  # Texto pode conter glob (`*.vdi`); sem `set -f` a divisão em palavras
+  # expandiria contra o diretório corrente.
+  case "$-" in *f*) glob_ligado=0 ;; esac
+  set -f
+  for palavra in $texto; do
+    if [ -z "$linha" ]; then linha="$palavra"
+    elif [ "$(ha_strwidth "${linha} ${palavra}")" -le "$util" ]; then linha="${linha} ${palavra}"
+    else printf '%s%s\n' "$p1" "$linha"; p1="$p2"; linha="$palavra"; fi
+  done
+  [ "$glob_ligado" = "1" ] && set +f
+  printf '%s%s\n' "$p1" "$linha"
+}
 
 # ── orbit spinner around a label ────────────────────────────────────────────
 ha_spin() { # ha_spin "label" <pid>
-  local label="$1" pid="$2" frames='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' i=0
-  if [[ "$HAOS_UI_ANIM" == 0 ]]; then printf ' … %s\n' "$label"; wait "$pid"; return $?; fi
+  local label="$1" pid="$2" i=0 rc=0
+  # `wait` com código != 0 sob `set -e` abortaria o chamador antes do return —
+  # por isso todo wait aqui é `|| rc=$?`, nunca solto.
+  if [[ "$HAOS_UI_ANIM" == 0 ]]; then
+    printf ' %s %s\n' "$HA_G_DOTS" "$label"
+    wait "$pid" || rc=$?
+    return "$rc"
+  fi
+  ha_bar_limpa
   _hide
   while kill -0 "$pid" 2>/dev/null; do
-    printf '\r %s%s%s %s' "${C_CYAN}" "${frames:$(( i % 10 )):1}" "$NC" "$label"; i=$(( i + 1 ))
+    printf '\r %s%s%s %s' "${C_CYAN}" "${HA_SPIN_F:$(( i % HA_SPIN_N )):1}" "$NC" "$label"; i=$(( i + 1 ))
     sleep 0.07
   done
-  wait "$pid"; local rc=$?
-  printf '\r\033[K'; _show
+  wait "$pid" || rc=$?
+  printf '\r\033[2K'; _show
   if (( rc == 0 )); then ha_ok "$label"; else ha_err "$label  (exit $rc)"; fi
   return "$rc"
 }
@@ -356,9 +439,10 @@ ha_bar() { # ha_bar <done> <total> "label"
   local d="$1" t="$2" label="${3:-}" w=32 f i out=''
   # Em log (nao-TTY) uma barra por frame vira lixo: so a linha final importa.
   if [[ "$HAOS_UI_ANIM" == 0 ]]; then (( d >= t )) && printf ' %d/%d %s\n' "$d" "$t" "$label"; return; fi
+  ha_bar_limpa
   (( t == 0 )) && t=1
   f=$(( d * w / t ))
-  if [[ "$HAOS_UI_DEPTH" == 0 ]]; then
+  if [[ "$HAOS_UI_DEPTH" == 0 || "$HAOS_UI_UTF8" == 0 ]]; then
     printf '\r [%-*s] %d/%d %s' "$w" "$(printf '%*s' "$f" '' | tr ' ' '#')" "$d" "$t" "$label"
   else
     for (( i=0; i<w; i++ )); do

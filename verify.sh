@@ -240,22 +240,69 @@ fi
 # ── 12. i18n: toda chave com par pt e en ─────────────────────────────────────
 # Decisão dele: interface em en-US e pt-BR. Chave traduzida numa língua só é a
 # classe de defeito que isso cria — e some em runtime, não em teste.
+# A tabela é lida EM RUNTIME (guarda de biblioteca), não por awk sobre o bloco
+# de texto: um `MSG_DB+=(...)` futuro fora do bloco literal escaparia do awk
+# em silêncio — achado da banca sobre a cerca antiga.
 info "i18n"
 if [ -f "$INSTALADOR" ]; then
-    n_chaves=0; sem_par=0
-    while IFS= read -r linha; do
-        case "$linha" in '"'*'|'*) : ;; *) continue ;; esac
-        n_chaves=$((n_chaves+1))
-        barras="$(printf '%s' "$linha" | tr -cd '|' | wc -c | tr -d ' ')"
-        [ "$barras" -ge 2 ] || { falha "i18n: chave sem par — ${linha%%|*}"; sem_par=$((sem_par+1)); }
-    done < <(awk '/^MSG_DB=\(/{f=1;next} /^\)/{f=0} f' "$INSTALADOR")
-    if [ "$n_chaves" = "0" ]; then
-        falha "i18n: MSG_DB não encontrada ou vazia"
-    elif [ "$sem_par" = "0" ]; then
-        ok "i18n — $n_chaves chaves, todas com pt e en"
+    res_i18n="$(HAOS_INSTALL_LIB=1 /bin/bash -c '
+        source "'"$INSTALADOR"'" >/dev/null 2>&1
+        n=0; ruim=0
+        for linha in "${MSG_DB[@]}"; do
+            n=$((n+1))
+            barras="$(printf "%s" "$linha" | tr -cd "|" | wc -c | tr -d " ")"
+            [ "$barras" -ge 2 ] || { ruim=$((ruim+1)); printf "SEM_PAR %s\n" "${linha%%|*}" >&2; }
+        done
+        printf "%s %s" "$n" "$ruim"' 2>&1)"
+    n_chaves="${res_i18n##*$'\n'}"; n_chaves="${n_chaves% *}"
+    sem_par="${res_i18n##* }"
+    if [ "${n_chaves:-0}" = "0" ] || ! [ "${n_chaves:-x}" -ge 1 ] 2>/dev/null; then
+        falha "i18n: MSG_DB não carregou via guarda de biblioteca"
+    elif [ "${sem_par:-1}" = "0" ]; then
+        ok "i18n — $n_chaves chaves em runtime, todas com pt e en"
+    else
+        falha "i18n: $sem_par chave(s) sem par pt|en"
+        printf '%s\n' "$res_i18n" | grep '^SEM_PAR' | head -5 >&2
     fi
 else
     ok "instalador ausente — i18n pulado"
+fi
+
+# ── 12b. gramática única ─────────────────────────────────────────────────────
+# A voz do produto é a calha ha_* da camada visual. As cinco funções da
+# gramática antiga (ok/info/aviso/erro/fase) e os prefixos [OK]/[ERRO]/[AVISO]/
+# [*] não podem voltar ao instalador — "duas gramáticas visuais era o defeito"
+# (AtlasFile). Escopo cirúrgico (achado B-2): só o haos-install.sh, FORA dos
+# blocos embutidos — verify.sh, gate.sh, embed.sh e extras/ têm contrato
+# próprio de prefixo textual e ficam fora disto de propósito.
+info "gramática única"
+if [ -f "$INSTALADOR" ]; then
+    fora_blocos() {
+        awk '/^# >>> (UI|CATALOGO) EMBUTIDO >>>/{dentro=1} /^# <<< (UI|CATALOGO) EMBUTIDO <<</{dentro=0;next} !dentro' "$INSTALADOR"
+    }
+    defs="$(fora_blocos | grep -nE '^(ok|info|aviso|erro|fase)[[:space:]]*\(\)' || true)"
+    # Comentário não é saída; e `[*]` faria falso positivo com a expansão de
+    # array `${X[*]}` do bash — a definição de info() já cai na cerca acima.
+    prefixos="$(fora_blocos | grep -vE '^[[:space:]]*#' | grep -nE '\[(OK|ERRO|AVISO)\]' || true)"
+    if [ -z "$defs" ] && [ -z "$prefixos" ]; then
+        ok "gramática única — nenhuma função nem prefixo da voz antiga fora dos blocos embutidos"
+    else
+        [ -n "$defs" ]     && { falha "gramática: definição da voz antiga voltou:"; printf '%s\n' "$defs" | head -3 >&2; }
+        [ -n "$prefixos" ] && { falha "gramática: prefixo [OK]/[ERRO]/[AVISO]/[*] fora dos blocos embutidos:"; printf '%s\n' "$prefixos" | head -3 >&2; }
+    fi
+
+    # Toda mensagem humana passa por msg(): literal cru num call-site da calha
+    # nasce numa língua só e escapa da cerca de par. Aceita-se "$(msg ...)",
+    # variável, ou composição que começa por eles.
+    literais="$(fora_blocos | grep -nE 'ha_(ok|info|warn|err|skip|fase|run_step)[[:space:]]+"[^$]' || true)"
+    if [ -z "$literais" ]; then
+        ok "i18n — nenhum literal humano fora de msg() nos call-sites da calha"
+    else
+        falha "i18n: literal cru em call-site da calha (deveria vir de msg()):"
+        printf '%s\n' "$literais" | head -5 >&2
+    fi
+else
+    ok "instalador ausente — gramática pulada"
 fi
 
 # ── 13. cópias embutidas ─────────────────────────────────────────────────────

@@ -1,60 +1,109 @@
 # haos-mac-mini
 
-Instalador de **Home Assistant OS** numa VM VirtualBox em **Mac Apple Silicon**.
+![CI](https://github.com/aleonnet/haos-mac-mini/actions/workflows/ci.yml/badge.svg)
 
-> **Estado: em construção.** O `haos-install.sh` **ainda não existe**. O que está publicado
-> aqui é a base sobre a qual ele será escrito — catálogo, sonda do hospedeiro, contrato de
-> API verificado e os packages de custo. Nada aqui instala nada ainda.
+Instalador de **Home Assistant OS** numa VM VirtualBox em **Mac Apple Silicon**, em um
+único script Bash — idempotente, bilíngue (pt-BR/en-US pelo idioma do Mac) e pronto para
+rodar direto via `curl`. Identidade visual do próprio Home Assistant, com degradação
+verificada: em log, CI ou terminal sem UTF-8 a saída vira texto limpo e grepável.
 
-## Por que existe
+> **Estado: em desenvolvimento.** Hoje o script valida a máquina, conduz a instalação do
+> VirtualBox (download da Oracle com SHA-256 conferido, sem interface gráfica), monta o
+> plano por perfis e **baixa, confere e prepara a imagem oficial do HAOS**. A criação da
+> VM, o boot e a configuração das integrações chegam nas próximas versões — o
+> [CHANGELOG](CHANGELOG.md) diz exatamente o que já existe.
 
-A documentação oficial do Home Assistant descreve a instalação em macOS como uma sequência
-de cliques no assistente do VirtualBox. Funciona, e não é automatizável nem reproduzível.
-Não existe hoje um instalador mantido para HAOS + Mac: o único script público é Linux/Intel
-com versão fixada em 2021, e o guia de Mac que circula está marcado como *dormant* pelo
-próprio autor.
+## Instalação
 
-## O que já está aqui
+### Remota (recomendada)
 
-| Caminho | O que é |
+```bash
+curl -fsSL https://raw.githubusercontent.com/aleonnet/haos-mac-mini/main/haos-install.sh | bash
+```
+
+Em terminal interativo, mostra o plano e pede confirmação antes de escrever qualquer
+coisa. Cada execução real salva um relatório em `~/.config/haos-mac-mini/last-run.log`;
+uma falha preserva o log das ferramentas e imprime o caminho.
+
+### Headless / sem interação
+
+```bash
+# perfil pronto, sem perguntas
+curl -fsSL https://raw.githubusercontent.com/aleonnet/haos-mac-mini/main/haos-install.sh | bash -s -- --profile haos_casa --no-input --install-deps
+
+# só ver o que seria feito (não escreve nada, nem log)
+curl -fsSL https://raw.githubusercontent.com/aleonnet/haos-mac-mini/main/haos-install.sh | bash -s -- --dry-run --profile haos_casa
+```
+
+## Perfis
+
+Os degraus **somam**; os extras marcam-se à parte, em qualquer degrau.
+
+| Perfil | O que cobre |
 |---|---|
-| `catalog/catalog.bash` | **Fonte de verdade** do catálogo — categorias, itens, perfis de VM. O instalador embutirá uma cópia e o CI comparará as duas |
-| `lib/probe-host.sh` | Sonda do hospedeiro. Emite só pares chave=valor: sem cor, sem animação, sem decisão. Compatível com o bash 3.2 do macOS |
-| `lib/haos-ui.sh` | Camada visual. Degrada para texto puro fora de TTY e com `NO_COLOR` |
-| `docs/API-REFERENCE_20260823_verificado.md` | **Contrato de API**, com semântica de evidência explícita: `PUBLIC-DOC`, `SOURCE-PINNED`, `EMPÍRICO`, `DOC-GAP` |
-| `docs/homeassistant_installer_tiers_curadoria_2026-08-23.md` | Como o catálogo decide o que ofertar, e por que popularidade não é critério suficiente |
-| `packages/` | Custo de energia, gás e água com regras brasileiras — cascata por faixa, tributos por dentro, volume corrigido |
-| `extras/` | Overlay PTZ para câmeras Tapo C210. **Roda dentro do HAOS, à parte** — não faz parte do instalador |
+| `haos_vanilla` | o piso — o que o HAOS instala sozinho |
+| `haos_conectado` | + infraestrutura de conectividade (MQTT, Matter, Thread, ESPHome, Cast) |
+| `haos_casa` | + integrações de hardware de casa (Hue, Tuya, Shelly, TP-Link, SmartThings…) |
 
-## O que foi medido, não suposto
+Extras (`--with`): `ferramentas` (SSH, File editor, Samba) · `casa_abhome` (packages de
+custo com regras brasileiras) · `extensoes` (HACS — só a instalação, e nunca no `--all`).
 
-Contra uma instância real de **Home Assistant 2026.8.3**:
+Veja o catálogo completo com `--list`.
 
-- **O proxy REST `/api/hassio/*` não serve para instalar app.** Com token de usuário
-  confirmado administrador, **9 caminhos testados devolveram 401** — inclusive os de leitura
-  pura (`supervisor/info`, `os/info`, `store`).
-- **O comando WebSocket `supervisor/api` funciona** com esse mesmo token. É a rota, e é a
-  única — `hassio/addons` devolve `unknown_command`. Como bash não fala WebSocket, isso
-  torna `python3` uma dependência real do instalador, não um detalhe.
-- **Slug de app é `<repositório>_<app>`**, não o nome curto: `core_samba`, `core_ssh`,
-  `core_configurator`. O prefixo de um repositório de terceiro é **hash da URL** — tem de
-  ser descoberto depois de adicionar o repositório, nunca fixado no código.
+## Opções
 
-## Princípios que o código segue
+| Flag | Efeito |
+|---|---|
+| `--profile <id>` | `haos_vanilla` \| `haos_conectado` \| `haos_casa`, sem interação |
+| `--with a,b,c` | extras: `ferramentas`, `casa_abhome`, `extensoes` |
+| `--all`, `-a` | `haos_casa` + extras (exceto o que exige opt-in nominal) |
+| `--vm-profile <id>` | `vm_minimo` \| `vm_equilibrado` \| `vm_recomendado` (derivado da máquina) |
+| `--vm-name <nome>` | nome da VM (padrão `HomeAssistant`) |
+| `--dry-run`, `-n` | mostra o plano e sai — não escreve nada, nem log |
+| `--list` | lista o catálogo e sai |
+| `--keep-image` | preserva o `.zip` baixado da imagem do HAOS |
+| `--install-deps` | instala pré-requisitos ausentes sem perguntar (VirtualBox) |
+| `--no-input` | não pergunta nada; falha se faltar dado obrigatório |
+| `--force`, `-f` | refaz artefato já presente — **não** pula portão nem verificação de hash |
+| `--verbose`, `-v` | mostra a saída crua de cada ferramenta |
+| `--quiet`, `-q` | suprime a saída normal |
+| `--version` / `--help` | versão e ajuda |
 
-- **Probe, não enum fixo.** `--ostype` sai de `VBoxManage list ostypes`; `storagectl --add
-  virtio-scsi` é validado com `--help` antes de usar. Rótulo de tela nunca vira argumento de
-  CLI por semelhança textual.
-- **Verificar depois de escrever.** Status HTTP 200 não é prova; a pós-condição é.
-- **Falha de um item não aborta os demais.** Contrato de retorno: `0` instalado agora ·
-  `100` já estava · `1` falhou.
-- **`--dry-run` mostra o plano inteiro antes de tocar em qualquer coisa.**
-- **bash 3.2** — é o que o macOS traz. Sem arrays associativos, sem namerefs.
+Variáveis de ambiente: `HAOS_LANG=pt|en` força o idioma; `NO_COLOR` desliga cor e
+animação; `HAOS_STATE_DIR` muda o diretório de estado (padrão
+`~/.config/haos-mac-mini`).
+
+## Comportamentos importantes
+
+- **Idempotente**: artefato já presente e íntegro reporta "já está" e não é refeito.
+  Reexecutar depois de uma falha continua de onde parou.
+- **Nada sem verificação**: o `.dmg` do VirtualBox é conferido contra o `SHA256SUMS` da
+  Oracle e a imagem do HAOS contra o hash publicado na tabela do script — `--force` não
+  pula nenhum dos dois. Um download truncado é descartado pelo tamanho antes de custar a
+  leitura de 380 MiB.
+- **Uma senha, uma vez**: quem pergunta é o `sudo`, no terminal; o instalador nunca vê,
+  guarda ou repassa a senha.
+- **Falha explica**: erro de rede é reconhecido pela assinatura e dito como tal (com a
+  dica de reexecutar), em vez de despejar o stack da ferramenta; as últimas linhas do log
+  saem na tela e o arquivo completo fica em `$TMPDIR`.
+- **Degrada bem**: sem TTY, sem UTF-8 ou com `NO_COLOR`, os glifos viram ASCII e a
+  animação some — a mesma execução fica legível num log de CI.
 
 ## Requisitos
 
-macOS em Apple Silicon · VirtualBox · `python3` · `curl`
+- Mac com **Apple Silicon** (a imagem do HAOS é aarch64)
+- macOS com `curl` (de fábrica) · `python3` (via Command Line Tools: `xcode-select --install`)
+- VirtualBox ≥ 7.1 — o instalador oferece instalar se faltar
 
-## Licença
+## Desenvolvimento
 
-MIT — ver [LICENSE](LICENSE).
+O repositório é a fonte do script: `catalog/catalog.bash` é a fonte de verdade do
+catálogo, `lib/` da camada visual e da sonda, e `tools/embed.sh` embute as cópias no
+`haos-install.sh` (o CI reprova divergência). Portão de qualidade único, local e no CI:
+
+```bash
+./tools/gate.sh
+```
+
+Documentos de engenharia (contrato de API verificado, curadoria do catálogo, handoffs de
+frente) vivem em [`docs/`](docs/). Licença **MIT**.

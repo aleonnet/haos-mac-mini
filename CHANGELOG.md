@@ -1,0 +1,49 @@
+# Changelog
+
+Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) ·
+versionamento [SemVer](https://semver.org/lang/pt-BR/). O instalador ainda não teve
+release: tudo abaixo é a trilha do `0.1.0-dev`.
+
+## [Unreleased]
+
+### Added
+- **Gramática visual única**: as fases falam a calha da camada visual (✔ · ▲ ✖),
+  a mesma dos instaladores irmãos, com fallback ASCII verificado sob locale
+  não-UTF-8 e barra de progresso por fase. A voz antiga de prefixos `[OK]`
+  saiu, e o `verify.sh` reprova a volta dela.
+- **Log de execução** por rodada (`$TMPDIR/haos-install-*`): falha preserva o
+  log, reconhece assinatura de **falha de rede** e explica em vez de despejar
+  stack; sucesso limpa. Relatório do que o instalador fez em
+  `~/.config/haos-mac-mini/last-run.log`.
+- **`ha_run_step`**: passos com spinner e tempo medido para os comandos-folha
+  (downloads, `installer`, `unzip`).
+- **Guarda de biblioteca** (`HAOS_INSTALL_LIB=1`) e costura de estado
+  (`HAOS_STATE_DIR`): a bancada de teste alcança as funções sem executar nada.
+- **Cercas novas no portão**: toda flag publicada no `--help` é executada e
+  reprova se responder "não implementado"; dry-run é conferido como read-only
+  por snapshot de `$HOME` sintético; locale C é exercitado nas funções de fase,
+  não só no banner; i18n conferida em runtime.
+- **F3 — imagem do HAOS**: baixa (ou reaproveita um `.zip` local íntegro),
+  confere tamanho e SHA-256 antes de descompactar, descompacta atomicamente e
+  registra proveniência para a idempotência (`.origem`).
+
+### Changed
+- `--help` só promete o que existe: as flags das fases futuras (`--doctor`,
+  `--uninstall`, `--self-update`, `--resume`, `--upgrade`) entram junto com a
+  implementação.
+- Flags de valor validam o shape na hora (`--profile --help` não engole mais a
+  flag seguinte).
+- README reescrito para o usuário final.
+
+### Fixed
+- `ha_spin` abortava o chamador sob `set -e` quando o processo esperado falhava.
+- Glifos multibyte (spinner, réguas, separadores) vazavam crus sob
+  `LC_CTYPE=C` — medido por SSH num Mac mini.
+
+## Antes do changelog (2026-08-23)
+
+Fundação registrada no histórico do git: esqueleto F0–F2 (pré-voo por sonda,
+seleção por perfis, plano, `--dry-run`/`--list`), condução da instalação do
+VirtualBox com SHA-256 da Oracle, catálogo com 20 itens e cercas de schema,
+camada visual com logo animado do HA, portão único local=CI (`tools/gate.sh`) e
+arnês de contrato contra o HA Core fixado e `latest`.
