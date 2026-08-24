@@ -59,12 +59,15 @@ ha_gradient() {
       g=$(( HA_BLUE_G + (HA_CYAN_G-HA_BLUE_G)*u/100 ))
       b=$(( HA_BLUE_B + (HA_CYAN_B-HA_BLUE_B)*u/100 ))
     fi
-    out+="$(rgb $r $g $b)${s:i:1}"
+    out+="$(rgb "$r" "$g" "$b")${s:i:1}"
   done
   printf '%s%s' "$out" "$NC"
 }
 
-# ── the Home Assistant mark: house silhouette + circuit ─────────────────────
+# ── the mark: Home Assistant sitting on a Mac mini ──────────────────────────
+# The story the picture tells is the product: the HA house RISES OUT OF the Mac.
+# That is why ignition runs bottom-up — the machine appears first, the house
+# grows from it — instead of the usual top-down wipe.
 HA_MARK=(
 '                    ▟▙                    '
 '                  ▟████▙                  '
@@ -83,50 +86,103 @@ HA_MARK=(
 '   ██████              │              ███ '
 '   ██████              ●              ███ '
 '   ██████████████████████████████████████ '
+'                                          '
+'  ▗▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▖  '
+'  ▐                                 ·  ▌  '
+'  ▝▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▘  '
 )
+HA_LINHAS=${#HA_MARK[@]}
+HA_QUADROS=26
+HA_ATRASO=0.045
+HA_MIN_COLS=46
+# Onde começa a base do Mac mini: dali para baixo a cor é cinza-azulado, não
+# a rampa do Home Assistant. O LED de energia pulsa em vez de ficar fixo.
+HA_MAC_LINHA=18
 
-_hide() { if [[ "$HAOS_UI_ANIM" == 1 ]]; then tput civis 2>/dev/null || true; fi; }
-_show() { if [[ "$HAOS_UI_ANIM" == 1 ]]; then tput cnorm 2>/dev/null || true; fi; }
-
-# Library must not install a trap. `trap` is global to the shell and the last
-# caller wins: a trap here would silently REPLACE the caller's cleanup handler,
-# leaking temp files and skipping the rollback of a half-created VM on Ctrl-C.
-# The caller invokes ha_show_cursor from its own cleanup instead.
-ha_show_cursor() { _show; }
-
-# ── banner: sweep-reveal, then three breathing pulses ───────────────────────
-ha_banner() {
-  local title="${1:-Home Assistant OS}" sub="${2:-}"
-  local L=${#HA_MARK[@]} i j w=${#HA_MARK[0]}
-  if [[ "$HAOS_UI_ANIM" == 0 ]]; then
-    printf '%s\n' "${HA_MARK[@]}"; printf '  %s\n' "$title" "${sub:+$sub}"; return
+# ha_celula <linha> <coluna> <quadro> — cor de UMA célula.
+#
+# O realce é um PONTO que varre em onda triangular, e cada célula escurece com a
+# distância até ele. Uma rampa horizontal ao longo da arte inteira deixa o
+# volume chapado: a variação dentro das ~40 colunas é pequena demais para o olho
+# ler como luz. O ponto dá relevo.
+ha_celula() {
+  local lin="$1" col="$2" q="$3" tri hlc d n r g b
+  tri=$(( q % 20 )); [ "$tri" -gt 10 ] && tri=$(( 20 - tri ))
+  hlc=$(( 6 + tri * 3 ))                   # o ponto de luz varre da esquerda
+  d=$(( col > hlc ? col - hlc : hlc - col ))
+  [ "$d" -gt 24 ] && d=24
+  n=$(( 100 - d * 3 ))                     # 100 no foco, 28 na borda
+  [ "$n" -lt 28 ] && n=28
+  # rampa da identidade: HA_DEEP -> HA_BLUE -> HA_CYAN, modulada pela distância
+  if [ "$lin" -ge "$HA_MAC_LINHA" ]; then  # base do Mac: cinza-azulado, discreto
+    r=$(( 70 * n / 100 )); g=$(( 84 * n / 100 )); b=$(( 96 * n / 100 ))
+  else
+    r=$(( (HA_DEEP_R + (HA_CYAN_R - HA_DEEP_R) * lin / HA_LINHAS) * n / 100 ))
+    g=$(( (HA_DEEP_G + (HA_CYAN_G - HA_DEEP_G) * lin / HA_LINHAS) * n / 100 ))
+    b=$(( (HA_DEEP_B + (HA_CYAN_B - HA_DEEP_B) * lin / HA_LINHAS) * n / 100 ))
   fi
+  rgb "$r" "$g" "$b"
+}
+
+# ha_quadro <n> — pinta a arte inteira no estado do quadro n.
+ha_quadro() {
+  local q="$1" lin col ch linha revela saida led
+  # Ignição de baixo para cima: o quadro q revela q linhas a partir da base.
+  revela=$(( HA_LINHAS - q * 2 ))
+  [ "$revela" -lt 0 ] && revela=0
+  for (( lin = 0; lin < HA_LINHAS; lin++ )); do
+    linha="${HA_MARK[lin]}"
+    if [ "$lin" -lt "$revela" ]; then
+      printf '%*s\n' "${#linha}" ''        # ainda não acendeu
+      continue
+    fi
+    if [[ "$HAOS_UI_DEPTH" == 0 ]]; then
+      printf '%s\n' "$linha"; continue
+    fi
+    saida=''
+    for (( col = 0; col < ${#linha}; col++ )); do
+      ch="${linha:col:1}"
+      if [[ "$ch" == " " ]]; then saida+=' '; continue; fi
+      # o LED pulsa: aceso nos quadros pares depois da ignição da base
+      if [[ "$ch" == "·" ]]; then
+        if (( q % 4 < 2 )); then led="$(rgb 120 255 170)"; else led="$(rgb 40 90 70)"; fi
+        saida+="${led}●"; continue
+      fi
+      saida+="$(ha_celula "$lin" "$col" "$q")${ch}"
+    done
+    printf '%s%s\n' "$saida" "$NC"
+  done
+}
+
+# ha_banner [título] [subtítulo]
+ha_banner() {
+  local title="${1:-Home Assistant OS}" sub="${2:-}" q cols
+  cols="$(tput cols 2>/dev/null || echo 0)"
+  case "$cols" in ''|*[!0-9]*) cols=0 ;; esac
+
+  # Degrada para UM quadro estático — o último, que é a arte completa — quando
+  # não há animação ou o terminal é estreito demais. Nunca meia animação.
+  if [[ "$HAOS_UI_ANIM" == 0 ]] || [ "$cols" -lt "$HA_MIN_COLS" ]; then
+    ha_quadro "$HA_QUADROS"
+    printf '\n  %s\n' "$title"
+    [ -n "$sub" ] && printf '  %s\n' "$sub"
+    printf '\n'
+    return 0
+  fi
+
+  # Sem trap aqui: a biblioteca não instala trap, e o cursor é restaurado pelo
+  # cleanup de quem chama, via ha_show_cursor. Um trap aqui APAGARIA o do
+  # instalador — trap é global do shell e quem chama por último vence.
   _hide
-  # 1. reveal: each line wipes in left-to-right
-  for (( i=0; i<L; i++ )); do
-    for (( j=4; j<=w; j+=6 )); do
-      printf '\r%s' "$(ha_gradient "${HA_MARK[i]:0:j}")"
-      sleep 0.004
-    done
-    printf '\r%s\n' "$(ha_gradient "${HA_MARK[i]}")"
+  for (( q = 0; q <= HA_QUADROS; q++ )); do
+    (( q > 0 )) && { tput cuu "$HA_LINHAS" 2>/dev/null || break; }
+    ha_quadro "$q"
+    (( q < HA_QUADROS )) && sleep "$HA_ATRASO"
   done
-  # 2. breathe: redraw the whole mark at varying luminance
-  local -a steps=(45 70 100 70 45 70 100)
-  for s in "${steps[@]}"; do
-    tput cuu "$L" 2>/dev/null || break
-    for (( i=0; i<L; i++ )); do
-      local r=$(( HA_BLUE_R*s/100 )) g=$(( HA_BLUE_G*s/100 )) b=$(( HA_BLUE_B*s/100 ))
-      printf '%s%s%s\n' "$(rgb $r $g $b)" "${HA_MARK[i]}" "$NC"
-    done
-    sleep 0.055
-  done
-  # 3. settle on the gradient
-  tput cuu "$L" 2>/dev/null || true
-  for (( i=0; i<L; i++ )); do printf '%s\n' "$(ha_gradient "${HA_MARK[i]}")"; done
   _show
   printf '\n'
   ha_shimmer "  ${title}"
-  [[ -n "$sub" ]] && printf '  %s%s%s\n' "${C_MUTED}" "$sub" "$NC"
+  [ -n "$sub" ] && printf '  %s%s%s\n' "${C_MUTED}" "$sub" "$NC"
   printf '\n'
 }
 
@@ -185,7 +241,7 @@ ha_spin() { # ha_spin "label" <pid>
   wait "$pid"; local rc=$?
   printf '\r\033[K'; _show
   if (( rc == 0 )); then ha_ok "$label"; else ha_err "$label  (exit $rc)"; fi
-  return $rc
+  return "$rc"
 }
 
 # ── progress bar, HA rounded style ──────────────────────────────────────────
@@ -203,7 +259,7 @@ ha_bar() { # ha_bar <done> <total> "label"
         local u=$(( w>1 ? i*200/(w-1) : 0 )) r g b
         if (( u <= 100 )); then r=$(( HA_DEEP_R+(HA_BLUE_R-HA_DEEP_R)*u/100 )); g=$(( HA_DEEP_G+(HA_BLUE_G-HA_DEEP_G)*u/100 )); b=$(( HA_DEEP_B+(HA_BLUE_B-HA_DEEP_B)*u/100 ))
         else local v=$(( u-100 )); r=$(( HA_BLUE_R+(HA_CYAN_R-HA_BLUE_R)*v/100 )); g=$(( HA_BLUE_G+(HA_CYAN_G-HA_BLUE_G)*v/100 )); b=$(( HA_BLUE_B+(HA_CYAN_B-HA_BLUE_B)*v/100 )); fi
-        out+="$(rgb $r $g $b)━"
+        out+="$(rgb "$r" "$g" "$b")━"
       else out+="${C_MUTED}╌"; fi
     done
     printf '\r %s%s %s%d/%d%s %s' "$out" "$NC" "${C_MUTED}" "$d" "$t" "$NC" "$label"

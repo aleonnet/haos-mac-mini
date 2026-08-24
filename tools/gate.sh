@@ -116,6 +116,20 @@ else
     falha "uma lib trocou o trap EXIT"
 fi
 
+# Mesma disciplina para as OPÇÕES do shell. `set -uo pipefail` numa lib só liga
+# o que o instalador já tem, então hoje não contamina — mas um `set +e` futuro
+# desligaria o errexit do chamador em silêncio, e ninguém veria.
+if /bin/bash -c '
+    set -Eeuo pipefail
+    a="$-|$(set -o | awk "/errtrace|pipefail/{printf \"%s=%s \",\$1,\$2}")"
+    for l in lib/*.sh; do source "$l" >/dev/null 2>&1 || true; done
+    b="$-|$(set -o | awk "/errtrace|pipefail/{printf \"%s=%s \",\$1,\$2}")"
+    [ "$a" = "$b" ]'; then
+    ok "nenhuma lib mexeu nas opções do shell"
+else
+    falha "uma lib mudou as opções do shell do chamador"
+fi
+
 # ── resultado ────────────────────────────────────────────────────────────────
 printf '\n'
 if [ "$FALHAS" = "0" ]; then

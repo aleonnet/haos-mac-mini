@@ -209,7 +209,24 @@ for id in $IDS; do
 done
 [ "$dup_piso" = "0" ] && ok "nenhum item do ITEM_DB repete o piso"
 
-# ── 11. i18n: toda chave com par pt e en ─────────────────────────────────────
+# ── 11. arte do banner: todas as linhas com a MESMA largura ──────────────────
+# Uma linha com um caractere a mais desalinha o desenho inteiro, e num terminal
+# isso é imediatamente visível. Achado em 23/08: a base do Mac tinha 43 onde o
+# resto tinha 42.
+info "arte do banner"
+if [ -f "$RAIZ/lib/haos-ui.sh" ]; then
+    larguras="$(/bin/bash -c 'source "'"$RAIZ"'/lib/haos-ui.sh" 2>/dev/null; for l in "${HA_MARK[@]}"; do printf "%s\n" "${#l}"; done' | sort -u | tr '\n' ' ')"
+    n_larg="$(printf '%s' "$larguras" | wc -w | tr -d ' ')"
+    if [ "$n_larg" = "1" ]; then
+        ok "arte do banner — todas as linhas com ${larguras% } colunas"
+    else
+        falha "arte do banner tem larguras diferentes: $larguras"
+    fi
+else
+    ok "lib/haos-ui.sh ausente — arte pulada"
+fi
+
+# ── 12. i18n: toda chave com par pt e en ─────────────────────────────────────
 # Decisão dele: interface em en-US e pt-BR. Chave traduzida numa língua só é a
 # classe de defeito que isso cria — e some em runtime, não em teste.
 info "i18n"
@@ -230,23 +247,18 @@ else
     ok "instalador ausente — i18n pulado"
 fi
 
-# ── 12. cópia embutida no instalador ─────────────────────────────────────────
-info "cópia embutida"
+# ── 13. cópias embutidas ─────────────────────────────────────────────────────
+# Delegado ao embed.sh --check: um só lugar sabe quais blocos existem e como
+# eles são preparados. Duplicar a lógica aqui era o caminho para os dois
+# divergirem sobre o que "idêntico" significa.
+info "cópias embutidas"
 if [ ! -f "$INSTALADOR" ]; then
-    ok "haos-install.sh ainda não existe — comparação pulada (esperado nesta fase)"
+    ok "haos-install.sh ainda não existe — comparação pulada"
+elif "$RAIZ/tools/embed.sh" --check >/dev/null 2>&1; then
+    ok "todos os blocos embutidos idênticos às fontes"
 else
-    tmp="$(mktemp)"
-    # extrai o bloco entre os marcadores do instalador
-    awk '/^# >>> CATALOGO EMBUTIDO >>>$/{f=1;next} /^# <<< CATALOGO EMBUTIDO <<<$/{f=0} f' "$INSTALADOR" > "$tmp"
-    if [ ! -s "$tmp" ]; then
-        falha "instalador existe mas não tem o bloco CATALOGO EMBUTIDO"
-    elif diff -q "$tmp" "$CATALOGO" >/dev/null 2>&1; then
-        ok "cópia embutida idêntica ao catalog.bash"
-    else
-        falha "cópia embutida DIVERGE do catalog.bash:"
-        diff "$CATALOGO" "$tmp" | head -20 >&2
-    fi
-    rm -f "$tmp"
+    falha "bloco embutido diverge da fonte:"
+    "$RAIZ/tools/embed.sh" --check 2>&1 | head -12 >&2
 fi
 
 # ── resultado ────────────────────────────────────────────────────────────────
