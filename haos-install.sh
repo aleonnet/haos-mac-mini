@@ -89,9 +89,7 @@ MSG_DB=(
 "plano|Plano|Plan"
 "so_apple_silicon|Este instalador é só para Mac com Apple Silicon (a imagem do HAOS é aarch64). Detectado: %s|This installer is for Apple Silicon Macs only (the HAOS image is aarch64). Detected: %s"
 "so_macos|Este instalador é só para macOS. Detectado: %s|This installer is for macOS only. Detected: %s"
-"sem_vbox|VirtualBox não encontrado. Instale antes de continuar:|VirtualBox not found. Install it before continuing:"
-"sem_vbox_como|  brew install --cask virtualbox|  brew install --cask virtualbox"
-"sem_vbox_porque|O instalador não instala o VirtualBox: o cask pede senha de administrador e aprovação de extensão de sistema, que não se faz por script sem avisar.|This installer does not install VirtualBox: the cask needs an admin password and a system extension approval, which no script should do silently."
+"sem_vbox|VirtualBox não encontrado.|VirtualBox not found."
 "vbox_versao|VirtualBox %s|VirtualBox %s"
 "vbox_antigo|VirtualBox %s é anterior à 7.1, que trouxe host ARM e --platform-architecture. Atualize.|VirtualBox %s predates 7.1, which introduced ARM hosts and --platform-architecture. Please upgrade."
 "sem_python|python3 não encontrado. É dependência real: instalar app no Home Assistant exige o comando WebSocket supervisor/api, e bash não fala WebSocket.|python3 not found. This is a hard dependency: installing add-ons requires the supervisor/api WebSocket command, and bash cannot speak WebSocket."
@@ -119,6 +117,22 @@ MSG_DB=(
 "portoes_pendentes|%s pré-requisito(s) não atendido(s). O plano acima é o que aconteceria depois de resolvê-los.|%s prerequisite(s) not met. The plan above is what would happen once they are resolved."
 "piso_sempre|Piso: %s componentes que a própria instalação cria — não são escolha.|Floor: %s components the installation creates by itself — not a choice."
 "nada_alem_do_piso|(nada além do piso; os itens deste degrau são opt-in)|(nothing beyond the floor; this tier is opt-in)"
+"sem_sudo|sudo não encontrado.|sudo not found."
+"pede_senha|O próximo passo instala o VirtualBox e precisa da senha de administrador. Quem pergunta é o sudo; o instalador não guarda nem repassa a senha.|The next step installs VirtualBox and needs the administrator password. sudo is what asks; this installer never stores or forwards it."
+"sudo_sem_tty|sudo precisa de senha e não há terminal interativo. Rode \x27sudo -v\x27 antes, ou use --install-deps num terminal.|sudo needs a password and there is no interactive terminal. Run \x27sudo -v\x27 first, or use --install-deps from a terminal."
+"vbox_ausente|VirtualBox não encontrado.|VirtualBox not found."
+"vbox_instalar|Baixar e instalar o VirtualBox %s da Oracle?|Download and install Oracle VirtualBox %s?"
+"vbox_baixando|Baixando VirtualBox %s (~153 MB)...|Downloading VirtualBox %s (~153 MB)..."
+"vbox_download_falhou|Falha ao baixar o VirtualBox.|Failed to download VirtualBox."
+"vbox_sem_sha|Não consegui obter o SHA256SUMS da Oracle — sem ele não instalo.|Could not fetch Oracle SHA256SUMS — refusing to install without it."
+"vbox_sha_diverge|O SHA-256 do arquivo baixado NÃO confere com o publicado pela Oracle.|The downloaded file SHA-256 does NOT match the one Oracle publishes."
+"vbox_sha_ok|SHA-256 confere com o publicado pela Oracle|SHA-256 matches the one Oracle publishes"
+"vbox_mount_falhou|Não consegui montar a imagem.|Could not mount the disk image."
+"vbox_sem_pkg|A imagem não contém o pacote de instalação.|The image contains no installer package."
+"vbox_instalando|Instalando (installer -pkg, sem interface gráfica)...|Installing (installer -pkg, no GUI)..."
+"vbox_installer_falhou|O installer(8) falhou. Rode com --verbose para ver a saída.|installer(8) failed. Run with --verbose to see the output."
+"vbox_ok|VirtualBox %s instalado|VirtualBox %s installed"
+"vbox_bloqueado|VirtualBox instalado, mas o VBoxManage não responde. O macOS costuma BLOQUEAR a extensão de sistema da Oracle na primeira instalação: abra Ajustes do Sistema, Privacidade e Segurança, e Permitir o software da Oracle. Pode exigir reinício. Depois rode este instalador de novo.|VirtualBox installed, but VBoxManage does not respond. macOS usually BLOCKS the Oracle system extension on first install: open System Settings, Privacy & Security, and Allow the Oracle software. A restart may be required. Then run this installer again."
 "nao_implementado|As fases de execução ainda não estão implementadas nesta versão (%s).|Execution phases are not implemented yet in this version (%s)."
 )
 
@@ -170,6 +184,118 @@ perguntar() {
     printf '%s' "$prompt" >/dev/tty
     IFS= read -r resp </dev/tty || true
     [[ "${resp:-N}" =~ ^[sSyY]$ ]]
+}
+
+# ── sudo ─────────────────────────────────────────────────────────────────────
+# A credencial é PRIMADA antes, uma vez só, lendo o terminal de verdade. Sem
+# isso um prompt de senha cairia dentro de um passo com spinner e travaria — e
+# em `curl | bash` stdin é o cano, então tem de vir de $TTY_DEV.
+# O instalador NUNCA guarda, ecoa ou passa a senha adiante: quem pergunta é o
+# sudo, e o cache é do sistema.
+TTY_DEV="${TTY_DEV:-/dev/tty}"
+
+garantir_sudo() {
+    [ "$(id -u)" = "0" ] && return 0
+    command -v sudo >/dev/null 2>&1 || { erro "$(msg sem_sudo)"; return 1; }
+    if sudo -n true 2>/dev/null; then return 0; fi
+    if [ -r "$TTY_DEV" ]; then
+        info "$(msg pede_senha)"
+        # shellcheck disable=SC2024
+        # O aviso é sobre redirecionar SAÍDA com sudo. Aqui o redirecionamento é
+        # de ENTRADA, e é o ponto: o sudo tem de ler a senha do terminal real,
+        # porque em `curl | bash` o stdin do script é o cano.
+        sudo -v < "$TTY_DEV" || return 1
+        return 0
+    fi
+    erro "$(msg sudo_sem_tty)"
+    return 1
+}
+
+# confirmar "pergunta" — 0 = sim. Lê o terminal real, seguro sob `curl | bash`.
+# Sem TTY: só --install-deps ou --no-input decidem; o padrão é não.
+confirmar_dep() {
+    local q="$1" r=""
+    [ "$OP_INSTALL_DEPS" = "1" ] && return 0
+    [ -r "$TTY_DEV" ] || return 1
+    [ "$OP_NOINPUT" = "1" ] && return 1
+    printf '%s [s/N] ' "$q" > "$TTY_DEV"
+    IFS= read -r r < "$TTY_DEV" || true
+    case "${r:-N}" in s|S|y|Y) return 0 ;; *) return 1 ;; esac
+}
+
+# ── VirtualBox ───────────────────────────────────────────────────────────────
+# Contrato de retorno: 0 instalou agora · 100 já estava · 1 falhou.
+#
+# Por que o .dmg da Oracle e não o Homebrew: o cask apenas embrulha ESTE mesmo
+# .dmg e roda o mesmo .pkg. Passar pelo brew obrigaria a instalar um gerenciador
+# de pacotes inteiro que o usuário pode não querer, e pediria a senha DUAS vezes
+# — uma para criar /opt/homebrew, outra para o pkg. Medido em 23/08 no Mac mini
+# alvo: não havia Homebrew.
+#
+# Sem interface gráfica em momento nenhum: `installer(8)` é a mesma ferramenta
+# que o Installer.app usa por baixo.
+VBOX_VERSAO="7.2.16"
+VBOX_BUILD="174877"
+VBOX_DMG="VirtualBox-${VBOX_VERSAO}-${VBOX_BUILD}-macOSArm64.dmg"
+VBOX_BASE="https://download.virtualbox.org/virtualbox/${VBOX_VERSAO}"
+
+garantir_virtualbox() {
+    command -v VBoxManage >/dev/null 2>&1 && return 100
+
+    aviso "$(msg vbox_ausente)"
+    confirmar_dep "$(msg vbox_instalar "$VBOX_VERSAO")" || return 1
+    garantir_sudo || return 1
+
+    local dir dmg sha_arq esperado obtido ponto pkg
+    dir="$(mktempdir)"; dmg="$dir/$VBOX_DMG"
+
+    info "$(msg vbox_baixando "$VBOX_VERSAO")"
+    curl -fL --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2          -o "$dmg" "$VBOX_BASE/$VBOX_DMG" || { erro "$(msg vbox_download_falhou)"; return 1; }
+
+    # Hash SEMPRE. --force não pula isto: montar imagem não verificada é
+    # executar binário de origem não confirmada.
+    sha_arq="$dir/SHA256SUMS"
+    curl -fsSL --proto '=https' -o "$sha_arq" "$VBOX_BASE/SHA256SUMS"         || { erro "$(msg vbox_sem_sha)"; return 1; }
+    esperado="$(awk -v f="$VBOX_DMG" '$0 ~ f {print $1; exit}' "$sha_arq")"
+    obtido="$(shasum -a 256 "$dmg" | awk '{print $1}')"
+    if [ -z "$esperado" ] || [ "$esperado" != "$obtido" ]; then
+        erro "$(msg vbox_sha_diverge)"
+        printf '    esperado: %s\n    obtido  : %s\n' "${esperado:-<ausente>}" "$obtido" >&2
+        return 1
+    fi
+    ok "$(msg vbox_sha_ok)"
+
+    ponto="$(hdiutil attach -nobrowse -readonly -quiet "$dmg" 2>/dev/null              | awk -F'\t' '/Volumes/{print $NF}' | tail -1)"
+    [ -n "$ponto" ] || { erro "$(msg vbox_mount_falhou)"; return 1; }
+    # desmonta aconteça o que acontecer, inclusive em erro no meio
+    VBOX_PONTO="$ponto"
+
+    pkg="$(find "$ponto" -maxdepth 1 -name '*.pkg' | head -1)"
+    if [ -z "$pkg" ]; then
+        hdiutil detach -quiet "$ponto" 2>/dev/null || true
+        erro "$(msg vbox_sem_pkg)"; return 1
+    fi
+
+    info "$(msg vbox_instalando)"
+    if sudo installer -pkg "$pkg" -target / >/dev/null 2>&1; then
+        hdiutil detach -quiet "$ponto" 2>/dev/null || true
+        VBOX_PONTO=""
+    else
+        hdiutil detach -quiet "$ponto" 2>/dev/null || true
+        VBOX_PONTO=""
+        erro "$(msg vbox_installer_falhou)"
+        return 1
+    fi
+
+    # Re-sonda: instalado não é o mesmo que utilizável. Se o macOS bloqueou a
+    # extensão de sistema, o binário existe e não funciona — e dizer isso aqui
+    # é melhor que falhar na criação da VM com erro incompreensível.
+    if command -v VBoxManage >/dev/null 2>&1 && VBoxManage --version >/dev/null 2>&1; then
+        ok "$(msg vbox_ok "$(VBoxManage --version 2>/dev/null | tr -d '\r')")"
+        return 0
+    fi
+    erro "$(msg vbox_bloqueado)"
+    return 1
 }
 
 # ── download ─────────────────────────────────────────────────────────────────
@@ -409,7 +535,7 @@ OP_PERFIL=""; OP_WITH=""; OP_VM_PERFIL=""; OP_VM_NOME="HomeAssistant"
 OP_BRIDGE=""; OP_DRYRUN=0; OP_LIST=0; OP_NOINPUT=0; OP_FORCE=0
 OP_QUIET=0; OP_VERBOSE=0; OP_JSON=0; OP_ALL=0
 OP_MODO=""            # doctor | uninstall | upgrade | upgrade-only | self-update | resume
-OP_CONFIRM=""; OP_KEEP_IMAGE=0
+OP_CONFIRM=""; OP_KEEP_IMAGE=0; OP_INSTALL_DEPS=0
 
 uso() {
     cat <<'USO'
@@ -452,6 +578,7 @@ OUTRAS
   --json             saída legível por máquina
   --no-input         não pergunta nada; falha se faltar dado obrigatório
   -f, --force        reinstala item já presente. NÃO pula portão nem hash.
+  --install-deps     instala pré-requisitos ausentes sem perguntar (VirtualBox)
 
 Ambiente: HAOS_LANG=pt|en · NO_COLOR
 
@@ -493,6 +620,7 @@ ler_args() {
             -v|--verbose)   OP_VERBOSE=1 ;;
             --json)         OP_JSON=1 ;;
             --keep-image)   OP_KEEP_IMAGE=1 ;;
+            --install-deps) OP_INSTALL_DEPS=1 ;;
             --doctor)       modo_unico doctor ;;
             --uninstall)    modo_unico uninstall ;;
             --upgrade)      modo_unico upgrade ;;
@@ -621,9 +749,20 @@ pre_voo() {
     ok "$(msg maquina): $(p_get host.model) · $(p_get host.cpu) · macOS $(p_get host.macos)"
 
     if [ "$(p_get vbox.present)" != "1" ]; then
-        portao "$E_DEP" "$(msg sem_vbox) $(msg sem_vbox_como)"
-        [ "$OP_DRYRUN" = "1" ] || printf '%s\n' "$(msg sem_vbox_porque)" >&2
-    else
+        # Conduz, não delega: baixa da Oracle, confere o hash e instala por
+        # installer(8). Uma senha, no terminal, pedida pelo sudo.
+        if [ "$OP_DRYRUN" = "1" ]; then
+            portao "$E_DEP" "$(msg sem_vbox)"
+        else
+            local rc_vb=0
+            garantir_virtualbox || rc_vb=$?
+            if [ "$rc_vb" != "0" ] && [ "$rc_vb" != "100" ]; then
+                exit "$E_DEP"
+            fi
+            sonda   # re-sonda: a máquina mudou
+        fi
+    fi
+    if [ "$(p_get vbox.present)" = "1" ]; then
         local vv maj min
         vv="$(p_get vbox.version)"; maj="${vv%%.*}"; min="${vv#*.}"; min="${min%%.*}"
         if [ "${maj:-0}" -lt 7 ] || { [ "${maj:-0}" = "7" ] && [ "${min:-0}" -lt 1 ]; }; then
