@@ -113,7 +113,7 @@ ITEM_DB=(
 
     # ── ferramentas ──────────────────────────────────────────────────────────
     "advanced_ssh|ferramentas|SSH & Web Terminal|community|DESCOBRIR_ssh|1|-|-|-|-|repo_terceiro|terminal com Docker API; 33,7% — repositório hassio-addons"
-    "file_editor|ferramentas|File editor|oficial|core_configurator|1|-|-|-|-|-|editor ciente das entidades da instância — 63,6%"
+    "studio_code_server|ferramentas|Studio Code Server|community|DESCOBRIR_vscode|1|-|-|-|-|repo_terceiro|VS Code no navegador, ciente das entidades — repositório hassio-addons"
     "samba|ferramentas|Samba share|oficial|core_samba|1|-|-|-|-|-|/config montável no Finder por smb:// — 26,8%"
     "systemmonitor|ferramentas|System Monitor|core|-|0|-|user|user|-|single_entry schema_flow|CPU, memória e disco do host; schema VAZIO — cria com {}"
 
@@ -142,7 +142,7 @@ ITEM_META_DB=(
     "matter|-|39.8"
     "thread|-|37.1"
     "tuya|-|29.5"
-    "file_editor|-|63.6"
+    "studio_code_server|-|-"
     "samba|-|26.8"
     "advanced_ssh|-|33.7"
 )
@@ -190,6 +190,6 @@ NAO_APLICA_DB=(
     "raspberry_pi|não existe hardware Raspberry Pi numa VM em Mac"
     "rpi_power|mede a fonte do Raspberry Pi"
     "smartir|é pacote de dentro do HACS — a regra é não instalar nada de lá"
-    "studio_code_server|file_editor e samba, ambos oficiais, cobrem edição"
+    "file_editor|substituído pelo Studio Code Server por decisão do dono (24/08/2026) — a regra 'preferir o oficial quando cobre' cedeu à experiência de edição"
     "core_ssh|oficial, mas NÃO cobre: o config.yaml não declara docker_api, e Protection mode só libera o que o app declara"
 )

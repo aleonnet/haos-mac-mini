@@ -629,7 +629,7 @@ class H(BaseHTTPRequestHandler):
                            "result": {"repositories":
                                       [{"source": s2, "slug": ("a1b2c3d4" if "hassio-addons" in s2 else s2)}
                                        for s2 in estado["repos"]],
-                                      "addons": [{"slug": "a1b2c3d4_ssh"}] if any("hassio-addons" in r for r in estado["repos"]) else [],
+                                      "addons": [{"slug": "a1b2c3d4_ssh"}, {"slug": "a1b2c3d4_vscode"}] if any("hassio-addons" in r for r in estado["repos"]) else [],
                                       "enchimento": "x" * 70000}})
                 elif ep == "/store/repositories" and metodo == "post":
                     estado["repos"].append(m["data"]["repository"])
@@ -692,7 +692,7 @@ if [ -s "$sb_ha/porta" ]; then
         rc_c1=0; fase_conta  >/dev/null 2>&1 || rc_c1=$?
         rc_c2=0; fase_conta  >/dev/null 2>&1 || rc_c2=$?   # 2a: login_flow
         HA_SENHA_ERRADA=0
-        SEL_ITENS="samba advanced_ssh file_editor"
+        SEL_ITENS="samba advanced_ssh studio_code_server"
         rc_a1=0; fase_apps   >/dev/null 2>&1 || rc_a1=$?
         rc_a2=0; fase_apps   >/dev/null 2>&1 || rc_a2=$?   # convergência
         SEL_ITENS="systemmonitor tuya"
