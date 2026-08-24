@@ -373,6 +373,90 @@ else
 fi
 rm -rf "$sb_f4"
 
+# ── F5 de ponta a ponta (boot dublado) ───────────────────────────────────────
+# A espera do boot é por MAC→ARP, nunca por mDNS (falso positivo medido em
+# campo com outro HA vivo na rede). Os stubs FALHAM nas primeiras iterações
+# (arp vazio, depois curl mudo) para exercitar o laço de verdade; depois o
+# caminho de timeout com HAOS_BOOT_TIMEOUT mínimo; e o launchctl é dublado.
+titulo "F5 de ponta a ponta (boot dublado)"
+sb_f5="$(mktemp -d "${TMPDIR:-/tmp}/haos-gate-f5.XXXXXX")"
+# shellcheck disable=SC2016
+saida_f5="$(HAOS_INSTALL_LIB=1 SB="$sb_f5" "${BASH:-/bin/bash}" -c '
+    source haos-install.sh
+    HOME="$SB"
+    OP_VM_NOME=HomeAssistant
+    HAOS_BOOT_PASSO=1; HAOS_BOOT_TIMEOUT=8
+    VBoxManage() {
+        printf "%s\n" "$*" >> "$SB/calls.txt"
+        case "$1" in
+            showvminfo) printf "macaddress1=\"0800270C0FFB\"\nVMState=\"poweroff\"\n"; return 0 ;;
+            list)       return 0 ;;   # nada rodando
+            startvm)    touch "$SB/ligada"; return 0 ;;
+            *) return 0 ;;
+        esac
+    }
+    vbm() { VBoxManage "$@"; }
+    # contadores em ARQUIVO: os stubs rodam dentro de $( ) — subshell, variável
+    # de contagem morreria a cada chamada (lição desta própria cerca)
+    arp() { # vazio 2x, depois entrega o IP no formato do macOS
+        local n; n="$(cat "$SB/n_arp" 2>/dev/null || printf 0)"; n=$((n+1))
+        printf "%s" "$n" > "$SB/n_arp"
+        [ "$n" -le 2 ] && return 0
+        printf "? (10.9.9.9) at 8:0:27:c:f:fb on en7 ifscope [ethernet]\n"
+    }
+    curl() {
+        local m; m="$(cat "$SB/n_curl" 2>/dev/null || printf 0)"; m=$((m+1))
+        printf "%s" "$m" > "$SB/n_curl"
+        [ "$m" -le 1 ] && { printf "000"; return 0; }; printf "307"
+    }
+    ping() { touch "$SB/pingou"; return 0; }
+    route() { printf "   interface: en7\n"; }
+    ifconfig() { printf "	inet 10.9.9.1 netmask 0xffffff00 broadcast 10.9.9.255\n"; }
+    launchctl() { printf "%s\n" "$*" >> "$SB/launchctl.txt"; return 0; }
+    sleep() { :; }
+    rc1=0; fase_boot >/dev/null 2>&1 || rc1=$?
+    ip="$(manifest_get "$(vm_manifest)" vm_ip)"
+    mac="$(manifest_get "$(vm_manifest)" vm_mac)"
+    ag="$(manifest_get "$(vm_manifest)" autostart)"
+    plist_ok=0
+    p="$SB/Library/LaunchAgents/com.haos-mac-mini.HomeAssistant.plist"
+    [ -f "$p" ] && ! grep -q -- "-c</string>" "$p" && grep -q "<string>startvm</string>" "$p" && plist_ok=1
+    boot_ok=0; [ -f "$SB/ligada" ] && [ -f "$SB/pingou" ] && boot_ok=1
+    # convergência: agora a VM "roda" e responde de primeira
+    VBoxManage() { case "$1" in showvminfo) printf "macaddress1=\"0800270C0FFB\"\nVMState=\"running\"\n";; list) printf "\"HomeAssistant\" {u}\n";; esac; return 0; }
+    arp() { printf "? (10.9.9.9) at 8:0:27:c:f:fb on en7 [ethernet]\n"; }
+    curl() { printf "200"; }
+    rc2=0; fase_boot >/dev/null 2>&1 || rc2=$?
+    # timeout: arp nunca acha
+    arp() { return 0; }
+    VBoxManage() { case "$1" in showvminfo) printf "macaddress1=\"0800270C0FFB\"\nVMState=\"poweroff\"\n";; *) :;; esac; return 0; }
+    rc3=0; fase_boot >/dev/null 2>&1 || rc3=$?
+    printf "rc1=%s rc2=%s rc3=%s ip=%s mac=%s ag=%s plist=%s boot=%s" \
+        "$rc1" "$rc2" "$rc3" "$ip" "$mac" "$ag" "$plist_ok" "$boot_ok"')"
+esp_f5="rc1=0 rc2=100 rc3=1 ip=10.9.9.9 mac=8:0:27:c:f:fb ag=created plist=1 boot=1"
+if [ "$saida_f5" = "$esp_f5" ]; then
+    ok "F5 inteira: laço com ARP tardio, convergência 100, timeout limpo, agente sem sh -c"
+else
+    falha "F5 de ponta a ponta: esperado '$esp_f5', obtido '$saida_f5'"
+fi
+rm -rf "$sb_f5"
+
+# ── caminho seguro do uninstall: cerca NEGATIVA da classe agent ──────────────
+titulo "un_caminho_seguro (classe agent)"
+# shellcheck disable=SC2016
+saida_ag="$(HAOS_INSTALL_LIB=1 "${BASH:-/bin/bash}" -c '
+    source haos-install.sh
+    ok=1
+    un_caminho_seguro "$HOME/Library/LaunchAgents/com.haos-mac-mini.X.plist" agent || ok=0
+    un_caminho_seguro "$HOME/Library/LaunchAgents/com.apple.dock.plist" agent && ok=0
+    un_caminho_seguro "$HOME/Library/LaunchAgents/com.haos-mac-mini../../../etc.plist" agent && ok=0
+    printf "%s" "$ok"')"
+if [ "$saida_ag" = "1" ]; then
+    ok "classe agent: aceita só com.haos-mac-mini.*.plist dentro de LaunchAgents"
+else
+    falha "cerca negativa da classe agent furada"
+fi
+
 # self-update por ARQUIVO: versão maior atualiza com backup; menor é recusada.
 titulo "self-update"
 sb_su="$(mktemp -d "${TMPDIR:-/tmp}/haos-gate-su.XXXXXX")"

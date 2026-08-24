@@ -296,6 +296,17 @@ MSG_DB=(
 "vm_falhou|O VBoxManage recusou um passo da criação - a VM parcial foi desfeita, o disco ficou intacto.|VBoxManage refused a creation step - the partial VM was rolled back, the disk is intact."
 "vm_pronta|VM %s criada e verificada - disco SATA conectado, ponte de rede ativa.|%s VM created and verified - SATA disk attached, network bridge on."
 "un_vm|a VM %s do VirtualBox (o registro e o arquivo .vbox)|the %s VM in VirtualBox (registration and .vbox file)"
+"fase_boot|Boot|Boot"
+"boot_sem_vm|A VM %s não está registrada - a fase anterior precisa vir antes.|The %s VM is not registered - the previous phase must come first."
+"boot_ja_roda|A VM %s já está rodando.|The %s VM is already running."
+"boot_ligando|ligando a VM %s - headless: sem janela, ela vive em segundo plano|starting the %s VM - headless: no window, it lives in the background"
+"boot_esperando|esperando o HAOS aparecer na rede (MAC %s) - o primeiro boot leva alguns minutos|waiting for HAOS to show up on the network (MAC %s) - first boot takes a few minutes"
+"boot_no_ar|HAOS no ar: %s responde.|HAOS is up: %s answers."
+"boot_timeout|O HAOS não respondeu em %s s. A VM está ligada - confira a rede em ponte e o cabo, ou reexecute para esperar de novo.|HAOS did not answer within %s s. The VM is on - check the bridged network and cable, or rerun to wait again."
+"boot_autostart_ok|auto-start no login instalado: a VM sobe sozinha quando você entrar no Mac|login auto-start installed: the VM comes up by itself when you log into the Mac"
+"boot_autostart_ja|auto-start no login já instalado.|login auto-start already installed."
+"un_agent|o auto-start do login (%s)|the login auto-start (%s)"
+"vm_nome_invalido|--vm-name aceita só letras, números, ponto, hífen e sublinhado (até 64, sem ponto inicial) - o nome entra em caminhos e no launchd.|--vm-name accepts only letters, digits, dot, hyphen and underscore (max 64, no leading dot) - the name goes into paths and launchd."
 "rel_tempo|concluído em %s|done in %s"
 "prox_relatorio|relatório desta execução: %s|this run's report: %s"
 "novidade_haos|HAOS %s publicado; esta versão instala a %s fixada (a tabela atualiza em release futura)|HAOS %s published; this version installs the pinned %s (the table updates in a future release)"
@@ -975,6 +986,153 @@ fase_vm() {
 }
 
 
+# ── F5: boot e espera — pelo MAC, nunca pelo nome ────────────────────────────
+# Medido em 24/08: com outro Home Assistant vivo na rede, homeassistant.local
+# resolve para ELE e um teste por nome dá falso positivo. O único fato que
+# identifica ESTA VM é o MAC que o VirtualBox registrou. E o critério de vivo
+# é "qualquer resposta HTTP na 8123" — antes do onboarding a porta devolve
+# 307 (a API mora na 80), medido na instância recém-nascida.
+VM_IP=""
+
+mac_para_arp() { # 0800270C0FFB -> 8:0:27:c:f:fb (formato do arp do macOS)
+    printf '%s' "$1" | awk '{ s=tolower($0); o=""
+        for (i = 1; i <= length(s); i += 2) { oct = substr(s, i, 2)
+            sub(/^0/, "", oct); if (oct == "") oct = "0"
+            o = o (i > 1 ? ":" : "") oct }
+        print o }'
+}
+
+vm_ip_pelo_mac() { # <mac-arp> — imprime o IP ou falha
+    local ip
+    ip="$(arp -an 2>/dev/null | grep -iF " at $1 " \
+        | sed -n 's/.*(\([0-9.][0-9.]*\)).*/\1/p' | head -1)"
+    [ -n "$ip" ] && { printf '%s' "$ip"; return 0; }
+    return 1
+}
+
+vm_responde() { # <ip> — 0 se a 8123 devolve QUALQUER status HTTP
+    local code
+    code="$(curl -s -m 3 -o /dev/null -w '%{http_code}' "http://$1:8123/" 2>/dev/null || true)"
+    [ -n "$code" ] && [ "$code" != "000" ]
+}
+
+fase_boot() {
+    ha_fase "$(msg fase_boot)"
+    command -v VBoxManage >/dev/null 2>&1 \
+        || PATH="$PATH:/Applications/VirtualBox.app/Contents/MacOS"
+    command -v VBoxManage >/dev/null 2>&1 || { ha_err "$(msg vm_sem_vbm)"; return 1; }
+
+    local mac mac_arp ja=0
+    mac="$(VBoxManage showvminfo "$OP_VM_NOME" --machinereadable 2>/dev/null \
+        | sed -n 's/^macaddress1="\(.*\)"/\1/p')"
+    [ -n "$mac" ] || { ha_err "$(msg boot_sem_vm "$OP_VM_NOME")"; return 1; }
+    mac_arp="$(mac_para_arp "$mac")"
+
+    # Três ramos, não dois (banca): rodando (com ou sem resposta ainda) só
+    # espera; pausada retoma; qualquer outro estado (off, saved, aborted)
+    # passa pelo startvm — que em `saved` resume do ponto salvo.
+    local estado
+    estado="$(VBoxManage showvminfo "$OP_VM_NOME" --machinereadable 2>/dev/null \
+        | sed -n 's/^VMState="\(.*\)"/\1/p')"
+    case "$estado" in
+        running)
+            ja=1
+            ha_ok "$(msg boot_ja_roda "$OP_VM_NOME")" ;;
+        paused)
+            vbm controlvm "$OP_VM_NOME" resume \
+                || { ha_err "$(msg vm_falhou)"; diagnostico_log; return 1; } ;;
+        *)
+            ha_info "$(msg boot_ligando "$OP_VM_NOME")"
+            if ! vbm startvm "$OP_VM_NOME" --type headless; then
+                ha_err "$(msg vm_falhou)"; diagnostico_log; return 1
+            fi ;;
+    esac
+
+    # A espera: ARP popula quando a VM fala; um ping no broadcast da interface
+    # da rota default acorda a tabela quando ela demora.
+    local t=0 passo="${HAOS_BOOT_PASSO:-5}" limite="${HAOS_BOOT_TIMEOUT:-900}"
+    local ifc bcast achou=0
+    ifc="$(route -n get default 2>/dev/null | awk '/interface:/{print $2; exit}')"
+    bcast="$(ifconfig "${ifc:-en0}" 2>/dev/null | awk '/broadcast/{print $NF; exit}')"
+    ha_info "$(msg boot_esperando "$mac_arp")"
+    while [ "$t" -lt "$limite" ]; do
+        VM_IP="$(vm_ip_pelo_mac "$mac_arp" || true)"
+        if [ -n "$VM_IP" ] && vm_responde "$VM_IP"; then achou=1; break; fi
+        [ -n "$VM_IP" ] || { [ -z "$bcast" ] || ping -c1 -t1 "$bcast" >/dev/null 2>&1 || true; }
+        sleep "$passo"; t=$(( t + passo ))
+        ha_bar "$t" "$limite" "s"
+    done
+    if [ "$achou" != "1" ]; then
+        printf '\r\033[2K'
+        ha_err "$(msg boot_timeout "$limite")"
+        return 1
+    fi
+    ha_bar "$limite" "$limite" "s"
+    vm_set vm_mac "$mac_arp"
+    vm_set vm_ip "$VM_IP"
+    ha_ok "$(msg boot_no_ar "http://$VM_IP:8123")"
+
+    autostart_launchagent
+
+    [ "$ja" = "1" ] && return 100
+    return 0
+}
+
+# ── F5b: auto-start no login ─────────────────────────────────────────────────
+# LaunchAgent desired-state. Caminho COMPLETO do bundle no comando: launchd
+# não tem /usr/local/bin no PATH (mesma lição da sonda). SEM `sh -c` — a banca
+# reprovou a interpolação de nome dentro de shell (injeção persistente a cada
+# login); argv direto não interpreta nada, e `startvm` numa VM já rodando só
+# devolve um erro inócuo. O nome da VM é validado no parser ([A-Za-z0-9._-]).
+autostart_launchagent() {
+    local rotulo plist tmp vbm_bin dir uid_atual
+    dir="$HOME/Library/LaunchAgents"
+    rotulo="com.haos-mac-mini.$OP_VM_NOME"
+    plist="$dir/$rotulo.plist"
+    vbm_bin="/Applications/VirtualBox.app/Contents/MacOS/VBoxManage"
+    tmp="$(mktempfile)"
+    cat > "$tmp" <<FIM
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>$rotulo</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$vbm_bin</string>
+        <string>startvm</string>
+        <string>$OP_VM_NOME</string>
+        <string>--type</string>
+        <string>headless</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>
+FIM
+    uid_atual="$(id -u)"
+    if [ -f "$plist" ] && cmp -s "$tmp" "$plist"; then
+        # arquivo igual não prova job carregado (banca) — conferir e sanar
+        launchctl print "gui/$uid_atual/$rotulo" >/dev/null 2>&1 \
+            || launchctl bootstrap "gui/$uid_atual" "$plist" >/dev/null 2>&1 \
+            || launchctl load -w "$plist" >/dev/null 2>&1 || true
+        ha_ok "$(msg boot_autostart_ja)"
+        return 0
+    fi
+    mkdir -p "$dir" || return 0
+    vm_set autostart pending
+    install -m 0644 "$tmp" "$plist" || return 0
+    launchctl bootout "gui/$uid_atual/$rotulo" >/dev/null 2>&1 || true
+    launchctl bootstrap "gui/$uid_atual" "$plist" >/dev/null 2>&1 \
+        || launchctl load -w "$plist" >/dev/null 2>&1 || true
+    vm_set autostart created
+    vm_set autostart_path "$plist"
+    ha_ok "$(msg boot_autostart_ok)"
+    return 0
+}
+
+
 # =============================================================================
 # --doctor · --uninstall · --self-update
 # =============================================================================
@@ -1053,6 +1211,10 @@ un_act()        { UN_ACOES="${UN_ACOES}$1\n"; }
 un_caminho_seguro() { # <caminho> <classe: vdi|zip|estado>
     case "$2" in
         vdi)    case "$1" in "$HOME/VirtualBox VMs/"*.vdi|"$HOME/VirtualBox VMs/"*.vdi.origem) return 0 ;; esac ;;
+        agent)  case "$1" in "$HOME/Library/LaunchAgents/com.haos-mac-mini."*.plist)
+                    # `*` de case casa `/` também — barrar travessia na cauda
+                    case "${1#"$HOME/Library/LaunchAgents/"}" in */*) ;; *) return 0 ;; esac ;;
+                esac ;;
         zip)    case "$1" in "$HOME/Library/Caches/haos-mac-mini/"*.zip|"$HOME/Library/Caches/haos-mac-mini/"*.dmg) return 0 ;; esac ;;
         estado) case "$1" in "$(haos_state_dir)/"*) return 0 ;; esac ;;
     esac
@@ -1077,6 +1239,16 @@ un_montar_plano() {
         preexisting) un_add_keep "$(msg un_vbox_pre)" ;;
         *)           command -v VBoxManage >/dev/null 2>&1 && un_add_keep "$(msg un_vbox_pre)" ;;
     esac
+
+    # O agente de auto-start sai PRIMEIRO — enquanto ele existir, um login
+    # pode religar a VM no meio da remoção (achado da banca).
+    local ag_st ag_path
+    ag_st="$(manifest_get "$(vm_manifest)" autostart)"
+    ag_path="$(manifest_get "$(vm_manifest)" autostart_path)"
+    if [ "$ag_st" = "created" ] && [ -n "$ag_path" ] && [ -f "$ag_path" ]; then
+        un_add_remove "$(msg un_agent "$ag_path")"
+        un_act "rm-agent"
+    fi
 
     # A VM sai ANTES do disco: desregistrar solta o medium que o rm vai apagar.
     local vmreg_st
@@ -1135,20 +1307,31 @@ un_rm() { # <caminho> <classe>
 }
 
 un_executar() {
-    local acao vdi_path zip_path d
+    local acao vdi_path zip_path d ag_path esp
     vdi_path="$(manifest_get "$(vm_manifest)" vdi_path)"
     zip_path="$(manifest_get "$(vm_manifest)" zip_path)"
+    ag_path="$(manifest_get "$(vm_manifest)" autostart_path)"
     d="$(haos_state_dir)"
     while IFS= read -r acao; do
         [ -n "$acao" ] || continue
         case "$acao" in
+            rm-agent)
+                launchctl bootout "gui/$(id -u)/$(basename "${ag_path%.plist}")" >/dev/null 2>&1 || true
+                un_rm "$ag_path" agent ;;
             rm-vm)
                 command -v VBoxManage >/dev/null 2>&1 \
                     || PATH="$PATH:/Applications/VirtualBox.app/Contents/MacOS"
-                # soltar o medium primeiro — `unregistervm --delete` apagaria
+                # desligar antes de desregistrar (unregister falha em VM viva)
+                # e soltar o medium primeiro — `unregistervm --delete` apagaria
                 # o .vdi, inclusive sob --keep-image
                 if command -v VBoxManage >/dev/null 2>&1 \
-                    && { VBoxManage storageattach "$OP_VM_NOME" --storagectl SATA \
+                    && { if VBoxManage list runningvms 2>/dev/null | grep -qF "\"$OP_VM_NOME\""; then
+                             VBoxManage controlvm "$OP_VM_NOME" poweroff >/dev/null 2>&1 || true
+                             esp=0
+                             while [ "$esp" -lt 30 ] && VBoxManage list runningvms 2>/dev/null \
+                                 | grep -qF "\"$OP_VM_NOME\""; do sleep 1; esp=$((esp+1)); done
+                         fi
+                         VBoxManage storageattach "$OP_VM_NOME" --storagectl SATA \
                              --port 0 --device 0 --medium none >/dev/null 2>&1 || true
                          [ -z "$vdi_path" ] \
                              || VBoxManage closemedium disk "$vdi_path" >/dev/null 2>&1 || true
@@ -2155,6 +2338,17 @@ exige_valor() { # <flag> <valor?>
     case "${2:-}" in ''|-*) morrer "$E_USO" "$(msg flag_sem_valor "$1")" ;; esac
 }
 
+# O nome da VM entra em CAMINHO (manifesto, VirtualBox VMs/), em PLIST do
+# launchd e em argv de VBoxManage — a banca reprovou aceitá-lo livre (um nome
+# com `../` ou aspas vira travessia de diretório ou código persistente).
+valida_vm_nome() {
+    case "$OP_VM_NOME" in
+        *[!A-Za-z0-9._-]*|''|.*)
+            morrer "$E_USO" "$(msg vm_nome_invalido)" ;;
+    esac
+    [ "${#OP_VM_NOME}" -le 64 ] || morrer "$E_USO" "$(msg vm_nome_invalido)"
+}
+
 ler_args() {
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -2164,8 +2358,10 @@ ler_args() {
             --with=*)       exige_valor --with "${1#*=}";      OP_WITH="${1#*=}" ;;
             --vm-profile)   exige_valor --vm-profile "${2:-}"; OP_VM_PERFIL="$2"; shift ;;
             --vm-profile=*) exige_valor --vm-profile "${1#*=}"; OP_VM_PERFIL="${1#*=}" ;;
-            --vm-name)      exige_valor --vm-name "${2:-}";    OP_VM_NOME="$2"; shift ;;
-            --vm-name=*)    exige_valor --vm-name "${1#*=}";   OP_VM_NOME="${1#*=}" ;;
+            --vm-name)      exige_valor --vm-name "${2:-}";    OP_VM_NOME="$2"; shift
+                            valida_vm_nome ;;
+            --vm-name=*)    exige_valor --vm-name "${1#*=}";   OP_VM_NOME="${1#*=}"
+                            valida_vm_nome ;;
             --image)        exige_valor --image "${2:-}";      OP_IMAGEM="$2"; shift ;;
             --image=*)      exige_valor --image "${1#*=}";     OP_IMAGEM="${1#*=}" ;;
             --doctor)       modo_unico doctor ;;
@@ -2845,7 +3041,7 @@ main() {
     # NADA (cerca de snapshot no portão).
     MAIN_INICIADO=1
     MAIN_T0=$SECONDS
-    if [ "$OP_DRYRUN" = "1" ]; then HA_BAR_TOTAL=3; else HA_BAR_TOTAL=5; fi
+    if [ "$OP_DRYRUN" = "1" ]; then HA_BAR_TOTAL=3; else HA_BAR_TOTAL=6; fi
 
     # O logo só aparece quando há terminal e o usuário não pediu silêncio.
     # Em log, CI ou --quiet, um cabeçalho de uma linha. A animação nunca é
@@ -2887,6 +3083,10 @@ main() {
     local rc_vm=0
     fase_vm || rc_vm=$?
     [ "$rc_vm" = "0" ] || [ "$rc_vm" = "100" ] || exit "$E_VALID"
+
+    local rc_boot=0
+    fase_boot || rc_boot=$?
+    [ "$rc_boot" = "0" ] || [ "$rc_boot" = "100" ] || exit "$E_VALID"
 
     relatorio_final
 }
