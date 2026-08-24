@@ -45,6 +45,22 @@ Fim-a-fim REAL no Mac mini: 3 execuções — instala tudo → converge →
 7. O Mac mini **dormia** e congelava a VM — `caffeinate` do dono segurou;
    o LaunchAgent religa a VM no login, mas energia é assunto do dono.
 
+## 2b. LIÇÕES DO PÓS-INSTALAÇÃO NA CASA (24/08, noite)
+
+1. **O handshake TLS das Tapo é POR CÂMERA**: na mesma instância, uma C210
+   entrou limpa e a outra caiu em SSLV3_ALERT_HANDSHAKE_FAILURE (:443) — o
+   critério "o canal de controle funciona, logo o bug não está presente" é
+   FALSO. O `extras/fix_tapo_tls_ecdhe_ha.sh` foi aplicado na instância do
+   Mac mini conforme a regra (erro confirmado em tela); atualização do Core
+   REMOVE o patch — reexecutar quando o sintoma voltar.
+2. **Protection mode do add-on SSH**: o socket do docker só monta na SUBIDA
+   do add-on — depois do toggle é preciso Restart do add-on E sessão nova do
+   terminal (a aba velha sobrevive com o CLI sem socket, e o script esconde
+   o stderr do docker inspect — parece "protection ainda ligado").
+3. Card de câmera no dashboard = entidade `camera.*`, que só nasce com a
+   Camera Account preenchida na entry (o diagnóstico da integração REDIGE
+   esse campo — comparar diagnósticos não decide; comparar entidades sim).
+
 ## 3. DECISÕES (registro, não pergunta)
 
 1. Credencial do HA: pedida no terminal (oculta, 2×) ou
