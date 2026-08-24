@@ -184,7 +184,7 @@ ha_spin() { # ha_spin "label" <pid>
   done
   wait "$pid"; local rc=$?
   printf '\r\033[K'; _show
-  (( rc == 0 )) && ha_ok "$label" || ha_err "$label  (exit $rc)"
+  if (( rc == 0 )); then ha_ok "$label"; else ha_err "$label  (exit $rc)"; fi
   return $rc
 }
 

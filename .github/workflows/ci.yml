@@ -25,9 +25,11 @@ jobs:
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
           shellcheck --version
-          # o catálogo é fragmento sourceado, não script: SC2034 é esperado
-          shellcheck -e SC2034 verify.sh
-          shellcheck -e SC2034 lib/*.sh extras/*.sh
+          # SC2034: IFS='|' read descompacta campos que nem sempre se usam
+          # SC1090/SC1091: source de caminho computado
+          # SC2329: funções das fases ainda não chamadas nesta versão
+          shellcheck -e SC2034,SC1090,SC1091,SC2329 \
+            haos-install.sh verify.sh tools/*.sh lib/*.sh extras/*.sh
 
       - name: bash -n em tudo que é shell
         run: |
@@ -35,8 +37,11 @@ jobs:
             bash -n "$f" && echo "  OK  $f"
           done
 
-      - name: verify.sh — schema e conteúdo do catálogo
+      - name: verify.sh — schema, conteúdo, i18n e cópia embutida
         run: ./verify.sh
+
+      - name: a cópia embutida do catálogo não derivou
+        run: ./tools/embed.sh --check
 
       - name: python — sintaxe
         run: |

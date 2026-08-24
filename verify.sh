@@ -101,7 +101,7 @@ done
 # ── 3. ids únicos ────────────────────────────────────────────────────────────
 info "unicidade de ids"
 dups="$(for r in "${ITEM_DB[@]}"; do echo "${r%%|*}"; done | sort | uniq -d)"
-if [ -n "$dups" ]; then falha "ids duplicados no ITEM_DB: $(echo $dups)"; else ok "ids do ITEM_DB são únicos"; fi
+if [ -n "$dups" ]; then falha "ids duplicados no ITEM_DB: $(printf "%s " "$dups")"; else ok "ids do ITEM_DB são únicos"; fi
 
 IDS=""
 for r in "${ITEM_DB[@]}"; do IDS="$IDS ${r%%|*}"; done
@@ -209,7 +209,28 @@ for id in $IDS; do
 done
 [ "$dup_piso" = "0" ] && ok "nenhum item do ITEM_DB repete o piso"
 
-# ── 11. cópia embutida no instalador ─────────────────────────────────────────
+# ── 11. i18n: toda chave com par pt e en ─────────────────────────────────────
+# Decisão dele: interface em en-US e pt-BR. Chave traduzida numa língua só é a
+# classe de defeito que isso cria — e some em runtime, não em teste.
+info "i18n"
+if [ -f "$INSTALADOR" ]; then
+    n_chaves=0; sem_par=0
+    while IFS= read -r linha; do
+        case "$linha" in '"'*'|'*) : ;; *) continue ;; esac
+        n_chaves=$((n_chaves+1))
+        barras="$(printf '%s' "$linha" | tr -cd '|' | wc -c | tr -d ' ')"
+        [ "$barras" -ge 2 ] || { falha "i18n: chave sem par — ${linha%%|*}"; sem_par=$((sem_par+1)); }
+    done < <(awk '/^MSG_DB=\(/{f=1;next} /^\)/{f=0} f' "$INSTALADOR")
+    if [ "$n_chaves" = "0" ]; then
+        falha "i18n: MSG_DB não encontrada ou vazia"
+    elif [ "$sem_par" = "0" ]; then
+        ok "i18n — $n_chaves chaves, todas com pt e en"
+    fi
+else
+    ok "instalador ausente — i18n pulado"
+fi
+
+# ── 12. cópia embutida no instalador ─────────────────────────────────────────
 info "cópia embutida"
 if [ ! -f "$INSTALADOR" ]; then
     ok "haos-install.sh ainda não existe — comparação pulada (esperado nesta fase)"

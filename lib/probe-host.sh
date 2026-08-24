@@ -95,7 +95,7 @@ probe_memory() {
     _kv mem.used_mib      "$(_mib "$used")"
     _kv mem.available_mib "$(_mib "$avail")"
     _kv mem.reclaimable_mib "$(_mib $(( (inactive + spec + purge) * pagesize )))"
-    [ "${total:-0}" -gt 0 ] && _kv mem.used_pct $(( used * 100 / total )) || _kv mem.used_pct 0
+    if [ "${total:-0}" -gt 0 ]; then _kv mem.used_pct $(( used * 100 / total )); else _kv mem.used_pct 0; fi
   fi
 
   # swap em uso indica pressão real, não folga aparente
@@ -129,7 +129,7 @@ probe_virtualbox() {
     _kv vbox.version ""
     _kv vbox.hint    "brew install --cask virtualbox"
   fi
-  [ -d /Applications/VirtualBox.app ] && _kv vbox.app 1 || _kv vbox.app 0
+  if [ -d /Applications/VirtualBox.app ]; then _kv vbox.app 1; else _kv vbox.app 0; fi
 }
 
 # ── rede ────────────────────────────────────────────────────────────────────
@@ -152,7 +152,7 @@ probe_network() {
         media="$(ifconfig "$dev" 2>/dev/null | awk '/media:/{print; exit}')"
         wired=0
         case "$media" in
-          *autoselect*|*baseT*|*baseTX*|*1000baseT*|*10Gbase*) wired=1 ;;
+          *baseT*|*10Gbase*) wired=1 ;;
         esac
         case "$media" in *"IEEE 802.11"*|*none*) wired=0 ;; esac
         # Wi-Fi não tem `media: ... baseT`; o port do 802.11 é reportado como
