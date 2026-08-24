@@ -7,6 +7,22 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
 ## [Unreleased]
 
 ### Fixed
+- **O relatório final responde "o que foi instalado e onde"**: VirtualBox com
+  versão e caminho em `/Applications`, o disco do HAOS verificado por SHA-256
+  com o caminho completo, a seleção salva — e, em aviso destacado, **o que
+  AINDA NÃO existe**: a VM e o Home Assistant rodando; nada responde em
+  `http://homeassistant.local:8123` nesta versão, que para na preparação
+  verificada. Saíram a duplicação cartão+linhas e a contagem enganosa de
+  passos.
+- **A barra de download é a nossa**, não o "jogo da velha" do curl: bytes
+  gravados no disco contra o total da tabela, no estilo da calha, a cada
+  300 ms.
+- **As teclas do seletor, medidas com expect num pty real**: ESPAÇO marca no
+  `gum choose` (extras); TAB marca no `gum filter` (Personalizado — o espaço
+  pertence à busca). O cabeçalho do Personalizado ensinava a tecla errada.
+  Cerca no portão dirige o gum de verdade e confere que cada tela ensina a
+  SUA tecla. O binário do gum ganhou cache por versão em
+  `~/Library/Caches/haos-mac-mini/`.
 - **F1 morria em "Could not mount"** no primeiro teste real: `hdiutil attach
   -quiet` SUPRIME a listagem do ponto de montagem e o parse recebia vazio.
   Agora o parse é do `-plist`, com `</dev/null` (em `curl | bash` o stdin é o

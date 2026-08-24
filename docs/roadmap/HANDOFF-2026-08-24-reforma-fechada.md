@@ -1,6 +1,9 @@
 # HANDOFF — reforma navblue fechada em código: F-A a F-D · 2026-08-24
 
-> **LEIA-ME PRIMEIRO.** Porta de entrada da frente do instalador. Supersede
+> **SUPERADO por `HANDOFF-2026-08-24-pos-teste-campo.md`.** Mantido como
+> registro do fechamento da reforma.
+>
+> Supersede
 > `HANDOFF-2026-08-24-gramatica-e-operacao.md`. Plano executado (v2 pós-banca,
 > 3 lentes, 7 bloqueadores): `docs/planos_concluidos/2026-08-24-reforma-navblue-instalador.plan.md`.
 
