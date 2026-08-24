@@ -67,7 +67,8 @@ for f in haos-install.sh verify.sh tools/*.sh lib/*.sh extras/*.sh catalog/*.bas
     bash -n "$f" || { falha "bash -n: $f"; erros=1; }
 done
 [ "$erros" = "0" ] && ok "bash -n em todos os shell"
-for f in contract/*.py; do
+for f in contract/*.py lib/*.py tools/*.py; do
+    [ -f "$f" ] || continue
     python3 -m py_compile "$f" 2>/dev/null || falha "py_compile: $f"
 done
 ok "py_compile nos python"
@@ -456,6 +457,335 @@ if [ "$saida_ag" = "1" ]; then
 else
     falha "cerca negativa da classe agent furada"
 fi
+
+# ── F6–F9 contra um Home Assistant DUBLADO (REST + WebSocket reais) ─────────
+# Um servidor python (stdlib) fala as duas superfícies que o helper usa:
+# onboarding/login_flow/token/config_entries por HTTP e supervisor/api por
+# WebSocket — com um frame >64 KiB para forçar o comprimento de 8 bytes no
+# cliente (banca cer#6). A senha é uma SENTINELA: no fim, grep prova que ela
+# não vazou para LOG_FILE, last-run, manifesto nem state dir (banca cer#2).
+titulo "F6–F9 contra HA dublado"
+sb_ha="$(mktemp -d "${TMPDIR:-/tmp}/haos-gate-ha.XXXXXX")"
+cat > "$sb_ha/fake_ha.py" <<'FIM_FAKE_HA'
+import base64, hashlib, json, os, signal, socket, struct, sys, threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+PORTFILE, REQLOG = sys.argv[1], sys.argv[2]
+signal.alarm(120)  # watchdog: o portão nunca fica pendurado nesta cerca
+estado = {"onboarded": False, "addons": {}, "repos": ["core"], "entries": []}
+tranca = threading.Lock()
+
+def log(evento):
+    with tranca, open(REQLOG, "a") as f:
+        f.write(json.dumps(evento) + "\n")
+
+class H(BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def _json(self, corpo, code=200):
+        dado = json.dumps(corpo).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(dado)))
+        self.end_headers()
+        self.wfile.write(dado)
+
+    def _corpo(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        bruto = self.rfile.read(n).decode() if n else ""
+        try:
+            return json.loads(bruto)
+        except Exception:
+            from urllib.parse import parse_qs
+            return {k: v[0] for k, v in parse_qs(bruto).items()}
+
+    def do_GET(self):
+        if self.path == "/api/websocket":
+            return self._ws()
+        if self.path == "/api/onboarding":
+            if estado["onboarded"]:
+                return self._json({"error": "gone"}, 404)
+            return self._json([{"step": s, "done": False} for s in
+                               ("user", "core_config", "analytics", "integration")])
+        if self.path == "/api/config/config_entries/entry":
+            return self._json(estado["entries"])
+        self._json({}, 404)
+
+    def do_POST(self):
+        c = self._corpo()
+        log({"m": "POST", "p": self.path, "c": c})
+        p = self.path
+        if p == "/api/onboarding/users":
+            if not (c.get("username") and c.get("password")):
+                return self._json({}, 400)
+            estado["cred"] = (c["username"], c["password"])
+            return self._json({"auth_code": "code-onboarding"})
+        if p == "/auth/login_flow":
+            return self._json({"flow_id": "lf1", "step_id": "init"})
+        if p == "/auth/login_flow/lf1":
+            if (c.get("username"), c.get("password")) == estado.get("cred"):
+                return self._json({"type": "create_entry", "result": "code-login"})
+            return self._json({"type": "form", "errors": {"base": "invalid_auth"}})
+        if p == "/auth/token":
+            return self._json({"access_token": "tok", "refresh_token": "ref",
+                               "token_type": "Bearer"})
+        if p in ("/api/onboarding/core_config", "/api/onboarding/analytics",
+                 "/api/onboarding/integration"):
+            if p.endswith("integration"):
+                estado["onboarded"] = True
+            return self._json({})
+        if p == "/api/config/config_entries/flow":
+            h = c.get("handler")
+            if h == "systemmonitor":
+                estado["entries"].append({"domain": h, "entry_id": "e1",
+                                          "source": "user"})
+                return self._json({"type": "create_entry", "flow_id": "f1"})
+            if h == "fora_do_conjunto":
+                estado["entries"].append({"domain": h, "entry_id": "e2",
+                                          "source": "zeroconf"})
+                return self._json({"type": "create_entry", "flow_id": "f2"})
+            return self._json({"type": "form", "flow_id": "f3", "step_id": "user",
+                               "data_schema": [{"name": "host", "required": True}]})
+        if p == "/api/config/core/check_config":
+            return self._json({"result": "valid"})
+        if p == "/api/services/homeassistant/restart":
+            return self._json({})
+        self._json({}, 404)
+
+    def do_DELETE(self):
+        log({"m": "DELETE", "p": self.path})
+        if self.path.startswith("/api/config/config_entries/entry/"):
+            eid = self.path.rsplit("/", 1)[1]
+            estado["entries"] = [e for e in estado["entries"]
+                                 if e["entry_id"] != eid]
+        self._json({})
+
+    # ── WebSocket lado servidor ──────────────────────────────────────────────
+    def _ws(self):
+        chave = self.headers.get("Sec-WebSocket-Key", "")
+        aceite = base64.b64encode(hashlib.sha1(
+            (chave + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()
+        ).decode()
+        self.wfile.write((
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
+            "Connection: Upgrade\r\nSec-WebSocket-Accept: " + aceite + "\r\n\r\n"
+        ).encode())
+        s = self.connection
+        s.settimeout(30)
+
+        def manda(obj):
+            d = json.dumps(obj).encode()
+            if len(d) < 126:
+                cab = struct.pack("!BB", 0x81, len(d))
+            elif len(d) < 65536:
+                cab = struct.pack("!BBH", 0x81, 126, len(d))
+            else:
+                cab = struct.pack("!BBQ", 0x81, 127, len(d))
+            s.sendall(cab + d)
+
+        def le():
+            def exato(n):
+                b = b""
+                while len(b) < n:
+                    p = s.recv(n - len(b))
+                    if not p:
+                        raise EOFError
+                    b += p
+                return b
+            b1, b2 = struct.unpack("!BB", exato(2))
+            tam = b2 & 0x7F
+            if tam == 126:
+                (tam,) = struct.unpack("!H", exato(2))
+            elif tam == 127:
+                (tam,) = struct.unpack("!Q", exato(8))
+            masc = exato(4) if b2 & 0x80 else b""
+            dado = exato(tam)
+            if masc:
+                dado = bytes(x ^ masc[i % 4] for i, x in enumerate(dado))
+            if b1 & 0x0F == 0x8:
+                raise EOFError
+            return json.loads(dado.decode())
+
+        manda({"type": "auth_required"})
+        m = le()
+        if m.get("access_token") != "tok":
+            manda({"type": "auth_invalid"})
+            return
+        manda({"type": "auth_ok"})
+        try:
+            while True:
+                m = le()
+                log({"m": "WS", "c": m})
+                mid = m.get("id")
+                if m.get("type") == "config_entries/flow/progress":
+                    manda({"id": mid, "type": "result", "success": True,
+                           "result": [{"handler": "hue"}, {"handler": "shelly"}]})
+                    continue
+                ep = m.get("endpoint", "")
+                metodo = m.get("method", "get")
+                if ep == "/store":
+                    manda({"id": mid, "type": "result", "success": True,
+                           "result": {"repositories":
+                                      [{"source": s2, "slug": ("a1b2c3d4" if "hassio-addons" in s2 else s2)}
+                                       for s2 in estado["repos"]],
+                                      "addons": [{"slug": "a1b2c3d4_ssh"}] if any("hassio-addons" in r for r in estado["repos"]) else [],
+                                      "enchimento": "x" * 70000}})
+                elif ep == "/store/repositories" and metodo == "post":
+                    estado["repos"].append(m["data"]["repository"])
+                    manda({"id": mid, "type": "result", "success": True, "result": {}})
+                elif ep == "/addons":
+                    manda({"id": mid, "type": "result", "success": True,
+                           "result": {"addons": [{"slug": k} for k in estado["addons"]]}})
+                elif ep.startswith("/store/addons/") and ep.endswith("/install"):
+                    slug = ep.split("/")[3]
+                    estado["addons"][slug] = {"version": "1.0", "state": "stopped",
+                                              "options": {}}
+                    manda({"id": mid, "type": "result", "success": True, "result": {}})
+                elif ep.endswith("/options") and metodo == "post":
+                    slug = ep.split("/")[2]
+                    estado["addons"][slug]["options"] = m["data"]["options"]
+                    manda({"id": mid, "type": "result", "success": True, "result": {}})
+                elif ep.endswith("/start") and metodo == "post":
+                    slug = ep.split("/")[2]
+                    estado["addons"][slug]["state"] = "started"
+                    manda({"id": mid, "type": "result", "success": True, "result": {}})
+                elif ep.endswith("/info"):
+                    slug = ep.split("/")[2]
+                    a = estado["addons"].get(slug)
+                    if a is None:
+                        manda({"id": mid, "type": "result", "success": False,
+                               "error": {"code": "not_found", "message": ""}})
+                    else:
+                        manda({"id": mid, "type": "result", "success": True,
+                               "result": dict(a)})
+                else:
+                    manda({"id": mid, "type": "result", "success": False,
+                           "error": {"code": "?", "message": ep}})
+        except (EOFError, socket.timeout, OSError):
+            return
+
+srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+with open(PORTFILE, "w") as f:
+    f.write(str(srv.server_address[1]))
+srv.serve_forever()
+FIM_FAKE_HA
+python3 "$sb_ha/fake_ha.py" "$sb_ha/porta" "$sb_ha/req.log" &
+pid_fake=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$sb_ha/porta" ] && break; sleep 0.3; done
+if [ -s "$sb_ha/porta" ]; then
+    porta_ha="$(cat "$sb_ha/porta")"
+    # shellcheck disable=SC2016
+    saida_ha="$(HAOS_INSTALL_LIB=1 SB="$sb_ha" PORTA="$porta_ha" "${BASH:-/bin/bash}" -c '
+        source haos-install.sh
+        HOME="$SB"; PATH="$SB/bin:$PATH"
+        mkdir -p "$SB/bin"
+        # mount_smbfs dublado: pede senha (o expect REAL a responde — o cano
+        # inteiro é exercitado) e povoa o "share" com um configuration.yaml
+        printf "#!/bin/sh\nprintf \"Password for fake: \"\nread -r _s\nprintf \"default_config:\\\\n\" > \"\$2/configuration.yaml\"\nexit 0\n" > "$SB/bin/mount_smbfs"
+        chmod +x "$SB/bin/mount_smbfs"
+        VM_URL="http://127.0.0.1:$PORTA"; VM_IP="127.0.0.2"
+        HAOS_BOOT_TIMEOUT=2; HAOS_BOOT_PASSO=1
+        HAOS_HA_USER="usuario-cerca"; HAOS_HA_PASSWORD="SENTINELA-9f3a7c"
+        OP_NOINPUT=1
+        garantir_log
+        rc_c1=0; fase_conta  >/dev/null 2>&1 || rc_c1=$?
+        rc_c2=0; fase_conta  >/dev/null 2>&1 || rc_c2=$?   # 2a: login_flow
+        HA_SENHA_ERRADA=0
+        SEL_ITENS="samba advanced_ssh file_editor"
+        rc_a1=0; fase_apps   >/dev/null 2>&1 || rc_a1=$?
+        rc_a2=0; fase_apps   >/dev/null 2>&1 || rc_a2=$?   # convergência
+        SEL_ITENS="systemmonitor tuya"
+        rc_i=0;  fase_integracoes >/dev/null 2>&1 || rc_i=$?
+        n_flows="$(printf "%s" "$FLOWS_PENDENTES" | grep -c .)"
+        # cerca de conjunto: o dublado grava source=zeroconf; permitido só user
+        rc_cj=0
+        printf "%s\n%s\n" "$HAOS_HA_USER" "$HAOS_HA_PASSWORD" \
+            | helper entry-ensure fora_do_conjunto user >/dev/null 2>&1 || rc_cj=$?
+        SEL_ITENS="energia_br"
+        # gravar o ponto antes de a fase o zerar — nada está montado de verdade
+        desmontar_smb() { PONTO_GRAVADO="$SMB_PONTO"; SMB_PONTO=""; }
+        rc_f9=0; fase_arquivos >/dev/null 2>&1 || rc_f9=$?
+        pkg_ok=0
+        if [ -f "${PONTO_GRAVADO:-/nada}/packages/energia_br.yaml" ]; then pkg_ok=1; fi
+        # sem credencial e sem terminal: erro claro
+        HA_USER=""; HA_SENHA=""; HAOS_HA_USER=""; HAOS_HA_PASSWORD=""
+        rc_sem=0; obter_credencial >/dev/null 2>&1 || rc_sem=$?
+        # a sentinela NÃO pode existir em nada que o instalador persiste
+        vaz=0
+        for alvo in "$LOG_FILE" "$(haos_state_dir)"; do
+            [ -e "$alvo" ] || continue
+            if grep -r "SENTINELA-9f3a7c" "$alvo" >/dev/null 2>&1; then vaz=1; fi
+        done
+        printf "c1=%s c2=%s a1=%s a2=%s i=%s fl=%s cj=%s f9=%s pkg=%s sem=%s vaz=%s" \
+            "$rc_c1" "$rc_c2" "$rc_a1" "$rc_a2" "$rc_i" "$n_flows" "$rc_cj" "$rc_f9" "$pkg_ok" "$rc_sem" "$vaz"')"
+    esp_ha="c1=0 c2=100 a1=0 a2=100 i=0 fl=2 cj=1 f9=0 pkg=1 sem=1 vaz=0"
+    if [ "$saida_ha" = "$esp_ha" ]; then
+        ok "F6–F9 no dublado: conta 0→100, apps 0→100 (repo hash descoberto), conjunto reprova, F9 escreve, sentinela ausente"
+    else
+        falha "F6–F9 no dublado: esperado '$esp_ha', obtido '$saida_ha'"
+    fi
+    if grep -q '"p": "/api/onboarding/analytics"' "$sb_ha/req.log"; then
+        ok "onboarding: passo analytics concluído SEM ligar envio (corpo vazio no dublado)"
+    else
+        falha "onboarding: passo analytics não exercitado"
+    fi
+    if grep -q 'a1b2c3d4_ssh' "$sb_ha/req.log"; then
+        ok "prefixo de repositório de terceiro DESCOBERTO (a1b2c3d4), nunca fixado"
+    else
+        falha "slug community não passou pela descoberta"
+    fi
+else
+    falha "HA dublado não subiu"
+fi
+kill "$pid_fake" 2>/dev/null || true
+wait "$pid_fake" 2>/dev/null || true
+rm -rf "$sb_ha"
+
+# ── F9: conf_estado nunca adivinha ───────────────────────────────────────────
+titulo "conf_estado (configuration.yaml)"
+# shellcheck disable=SC2016
+saida_conf="$(HAOS_INSTALL_LIB=1 "${BASH:-/bin/bash}" -c '
+    source haos-install.sh
+    d="$(mktemp -d)"
+    printf "default_config:\n" > "$d/a.yaml"
+    printf "default_config:\nhomeassistant:\n  packages: !include_dir_named packages\n" > "$d/b.yaml"
+    printf "homeassistant:\n  name: Casa\n" > "$d/c.yaml"
+    printf "%s %s %s" "$(conf_estado "$d/a.yaml")" "$(conf_estado "$d/b.yaml")" "$(conf_estado "$d/c.yaml")"
+    rm -rf "$d"')"
+if [ "$saida_conf" = "append ja estranho" ]; then
+    ok "conf_estado: append no virgem, 100 no já-feito, ABORTA no formato estranho"
+else
+    falha "conf_estado: esperado 'append ja estranho', obtido '$saida_conf'"
+fi
+
+# ── HACS: download adulterado é RECUSADO (supply chain) ──────────────────────
+titulo "HACS recusa download adulterado"
+sb_hc="$(mktemp -d "${TMPDIR:-/tmp}/haos-gate-hc.XXXXXX")"
+# shellcheck disable=SC2016
+saida_hc="$(HAOS_INSTALL_LIB=1 SB="$sb_hc" "${BASH:-/bin/bash}" -c '
+    source haos-install.sh
+    HOME="$SB"
+    curl() { # dublê: entrega um zip ADULTERADO com o tamanho publicado
+        local a out="" prev=""
+        for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; prev="$a"; done
+        [ -n "$out" ] && dd if=/dev/zero of="$out" bs=1 count=0 seek="$HAOS_HACS_BYTES" 2>/dev/null
+    }
+    helper() { return 0; }  # nada de rede real nesta cerca
+    garantir_smb_senha() { SMB_SENHA=x; }
+    montar_smb() { SMB_PONTO="$SB/mnt"; mkdir -p "$SMB_PONTO"; }
+    obter_credencial() { HA_USER=u; HA_SENHA=p; }
+    garantir_log
+    SEL_ITENS="hacs"
+    rc=0; fase_arquivos >/dev/null 2>&1 || rc=$?
+    tem_hacs=0; [ -d "$SB/mnt/custom_components/hacs" ] && [ -n "$(command ls "$SB/mnt/custom_components/hacs" 2>/dev/null)" ] && tem_hacs=1
+    printf "rc=%s instalado=%s" "$rc" "$tem_hacs"')"
+if [ "$saida_hc" = "rc=1 instalado=0" ]; then
+    ok "HACS adulterado (SHA errado com tamanho certo): recusado, nada instalado"
+else
+    falha "HACS adulterado: esperado 'rc=1 instalado=0', obtido '$saida_hc'"
+fi
+rm -rf "$sb_hc"
 
 # self-update por ARQUIVO: versão maior atualiza com backup; menor é recusada.
 titulo "self-update"

@@ -259,6 +259,13 @@ if [ -f "$INSTALADOR" ]; then
             n=$((n+1))
             barras="$(printf "%s" "$linha" | tr -cd "|" | wc -c | tr -d " ")"
             [ "$barras" -ge 2 ] || { ruim=$((ruim+1)); printf "SEM_PAR %s\n" "${linha%%|*}" >&2; }
+            # a metade en é a que o locale C seleciona: TEM de ser ASCII pura
+            # (banca: a cerca dinâmica de locale nunca alcança fase que o
+            # dry-run não executa — esta estática alcança todas)
+            en="${linha##*|}"
+            if LC_ALL=C printf "%s" "$en" | LC_ALL=C grep -q "[^ -~]"; then
+                ruim=$((ruim+1)); printf "EN_NAO_ASCII %s\n" "${linha%%|*}" >&2
+            fi
         done
         printf "%s %s" "$n" "$ruim"' 2>&1)"
     n_chaves="${res_i18n##*$'\n'}"; n_chaves="${n_chaves% *}"

@@ -18,24 +18,44 @@ set -Eeuo pipefail
 RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 INSTALADOR="$RAIZ/haos-install.sh"
 
-# Cada bloco: <marcador>|<arquivo de origem>. O instalador é autocontido, então
-# tudo que ele usa viaja dentro dele — e cada cópia é conferível contra a fonte.
-BLOCOS="CATALOGO|catalog/catalog.bash UI|lib/haos-ui.sh"
+# Cada bloco: <marcador>|<arquivo de origem>[|var:<NOME_DA_VAR>].
+# Sem sufixo o conteúdo entra como BASH (shebang e `set` removidos — numa cópia
+# embutida passariam a valer para o instalador). Com `var:` o conteúdo entra
+# VERBATIM dentro de um heredoc quoted atribuído à variável — é assim que
+# python e yaml viajam dentro de um script bash sem virar código dele.
+BLOCOS="CATALOGO|catalog/catalog.bash UI|lib/haos-ui.sh HELPER|lib/ha-api.py|var:HAOS_HELPER_PY PKG_ENERGIA|packages/energia_br.yaml|var:HAOS_PKG_ENERGIA PKG_GAS|packages/gas_br.yaml|var:HAOS_PKG_GAS PKG_AGUA|packages/agua_br.yaml|var:HAOS_PKG_AGUA"
 
 [ -f "$INSTALADOR" ] || { echo "[ERRO] instalador ausente: $INSTALADOR" >&2; exit 4; }
+
+# Completude: um packages/*.yaml novo SEM bloco viajaria fora do instalador em
+# silêncio — cerca da banca.
+for p in "$RAIZ"/packages/*.yaml; do
+    case " $BLOCOS " in
+        *"|packages/$(basename "$p")|"*) ;;
+        *) echo "[ERRO] packages/$(basename "$p") sem bloco em BLOCOS — o instalador não o carregaria" >&2; exit 3 ;;
+    esac
+done
 
 tmp_a="$(mktemp)"; tmp_b="$(mktemp)"; tmp_c="$(mktemp)"
 trap 'rm -f "$tmp_a" "$tmp_b" "$tmp_c"' EXIT
 
-# prepara <origem> -> stdout: tira shebang e `set`, que numa cópia embutida
-# passariam a valer para o INSTALADOR e mudariam as opções dele em silêncio.
+# prepara <origem> <modo> <nome> -> stdout
 prepara() {
-    grep -vE '^#!/|^set ' "$1"
+    if [ "${2%%:*}" = "var" ]; then
+        # shellcheck disable=SC2016  # o $( ) é para o INSTALADOR expandir, não aqui
+        printf '%s=$(cat <<'\''FIM_EMB_%s'\''\n' "${2#var:}" "$3"
+        cat "$1"
+        printf 'FIM_EMB_%s\n)\n' "$3"
+    else
+        grep -vE '^#!/|^set ' "$1"
+    fi
 }
 
 falhou=0
 for bloco in $BLOCOS; do
-    nome="${bloco%%|*}"; rel="${bloco#*|}"
+    nome="${bloco%%|*}"; resto="${bloco#*|}"
+    rel="${resto%%|*}"
+    modo="bash"; case "$resto" in *"|"*) modo="${resto#*|}" ;; esac
     origem="$RAIZ/$rel"
     abre="# >>> $nome EMBUTIDO >>>"
     fecha="# <<< $nome EMBUTIDO <<<"
@@ -45,7 +65,7 @@ for bloco in $BLOCOS; do
     grep -qF "$fecha" "$INSTALADOR" || { echo "[ERRO] sem marcador de fechamento de $nome" >&2; exit 3; }
 
     awk -v a="$abre" -v f="$fecha" '$0==a{p=1;next} $0==f{p=0} p' "$INSTALADOR" > "$tmp_a"
-    prepara "$origem" > "$tmp_b"
+    prepara "$origem" "$modo" "$nome" > "$tmp_b"
 
     if [ "${1:-}" = "--check" ]; then
         if diff -q "$tmp_a" "$tmp_b" >/dev/null 2>&1; then
