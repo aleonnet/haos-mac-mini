@@ -369,7 +369,7 @@ resp_card="$sb_card/respostas.txt"
 card_roda() { # <respostas printf> -> stdout do dry-run em $CARD_SAIDA
     printf '%b' "$1" > "$resp_card"
     # shellcheck disable=SC2002
-    CARD_SAIDA="$(cat haos-install.sh | HOME="$sb_card" TTY_DEV="$resp_card" \
+    CARD_SAIDA="$(cat haos-install.sh | HOME="$sb_card" TTY_DEV="$resp_card" HAOS_USE_GUM=0 \
         "${BASH:-/bin/bash}" -s -- --dry-run 2>&1)" || true
 }
 card_ruim=""

@@ -258,6 +258,17 @@ MSG_DB=(
 "sel_op_vm3|  3) Desta máquina - %s MiB - %s vCPU (derivado da sonda)|  3) This machine - %s MiB - %s vCPU (derived from the probe)"
 "sel_prompt_vm|VM [2]: |VM [2]: "
 "sel_invalida|não entendi %s|did not understand %s"
+"gum_ok|seletor rico carregado (gum %s, SHA-256 verificado, temporário)|rich selector loaded (gum %s, SHA-256 verified, temporary)"
+"gum_fallback|seletor rico indisponível (%s) - usando o seletor simples|rich selector unavailable (%s) - using the simple one"
+"sel_gum_degrau|Qual degrau instalar? (os degraus somam)|Which tier to install? (tiers stack)"
+"sel_gum_extras|Extras - espaço marca, enter confirma|Extras - space marks, enter confirms"
+"sel_gum_itens|Ajustar item a item? Digite para buscar - espaço marca - enter confirma|Fine-tune items? Type to search - space marks - enter confirms"
+"sel_gum_vm|Perfil da VM|VM profile"
+"sel_gum_confirmar|Instalar agora?|Install now?"
+"sel_gum_sim|Instalar|Install"
+"sel_gum_nao|Cancelar|Cancel"
+"novidade_script|Instalador %s publicado (este é %s) - atualize com --self-update|Installer %s published (this one is %s) - update with --self-update"
+"novidade_haos|HAOS %s publicado; esta versão instala a %s fixada (a tabela atualiza em release futura)|HAOS %s published; this version installs the pinned %s (the table updates in a future release)"
 )
 
 # ── saída ────────────────────────────────────────────────────────────────────
@@ -2116,6 +2127,24 @@ EOF
     printf 'net.count=%s\n' "$n"
 }
 
+# ── novidades: melhor-esforço, 3 s de teto, silêncio na falha ────────────────
+# O que o mac-env faz com o brew outdated, aqui vale para as DUAS fontes que
+# envelhecem: o próprio instalador (raw publicado) e a release do HAOS (a
+# imagem é fixada por tabela; release nova é AVISO, nunca troca automática).
+checar_novidades() {
+    local remoto tag
+    remoto="$(curl -fsSL --max-time 3 "$HAOS_RAW_URL" 2>/dev/null         | grep -m1 '^HAOS_INSTALL_VERSION=' | cut -d'"' -f2)" || true
+    if [ -n "$remoto" ] && ver_menor "$HAOS_INSTALL_VERSION" "$remoto"; then
+        ha_info "$(msg novidade_script "$remoto" "$HAOS_INSTALL_VERSION")"
+    fi
+    tag="$(curl -fsSL --max-time 3         "https://api.github.com/repos/home-assistant/operating-system/releases/latest" 2>/dev/null         | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)" || true
+    case "$tag" in
+        ''|*[!0-9.]*) : ;;   # shape estranho: silêncio — a fonte é externa
+        *) [ "$tag" != "$HAOS_REF_OS" ] && ver_menor "$HAOS_REF_OS" "$tag"             && ha_info "$(msg novidade_haos "$tag" "$HAOS_REF_OS")" ;;
+    esac
+    return 0
+}
+
 TEM_CABEADA=0
 pre_voo() {
     ha_fase "$(msg preflight)"
@@ -2184,6 +2213,7 @@ pre_voo() {
         # recusaria a maior parte dos Macs. A prova é empírica, na F5.
         ha_warn "$(msg aviso_wifi)"
     fi
+    checar_novidades
 }
 
 # =============================================================================
@@ -2221,6 +2251,141 @@ vm_derivado_cpu() {
     [ "${p:-0}" -lt 2 ] && p=2
     [ "${p:-2}" -gt 4 ] && p=4
     printf '%s' "$p"
+}
+
+# ── gum: o seletor rico, carregado em TEMP com SHA-256 verificado ────────────
+# Porta do mac-env-setup: baixa o binário oficial do charmbracelet para um
+# diretório temporário (some no limpar()), confere contra o checksums.txt da
+# release e NUNCA instala nada permanente. Sem TTY, sem rede ou com
+# HAOS_USE_GUM=0, o cardápio simples numerado assume — mesma degradação de lá.
+HAOS_GUM_VERSION="${HAOS_GUM_VERSION:-0.17.0}"
+GUM=""
+GUM_MOTIVO=""
+
+gum_tem_tty() {
+    [ -z "${NO_COLOR:-}" ] || return 1
+    [ "${TERM:-dumb}" != "dumb" ] || return 1
+    tem_tty
+}
+
+gum_bootstrap() {
+    GUM=""; GUM_MOTIVO=""
+    case "${HAOS_USE_GUM:-auto}" in 0|off|no) GUM_MOTIVO="HAOS_USE_GUM=0"; return 1 ;; esac
+    gum_tem_tty || { GUM_MOTIVO="sem TTY"; return 1; }
+    if command -v gum >/dev/null 2>&1; then GUM="gum"; return 0; fi
+    command -v tar >/dev/null 2>&1 || { GUM_MOTIVO="sem tar"; return 1; }
+    local os arch base asset d
+    case "$(uname -s)" in Darwin) os=Darwin ;; *) GUM_MOTIVO="so macOS"; return 1 ;; esac
+    case "$(uname -m)" in arm64) arch=arm64 ;; x86_64) arch=x86_64 ;; *) GUM_MOTIVO="arch"; return 1 ;; esac
+    asset="gum_${HAOS_GUM_VERSION}_${os}_${arch}.tar.gz"
+    base="https://github.com/charmbracelet/gum/releases/download/v${HAOS_GUM_VERSION}"
+    d="$(mktempdir)"
+    garantir_log
+    curl -fsSL --proto '=https' --tlsv1.2 --retry 2 -o "$d/$asset" "$base/$asset" 2>>"$LOG_FILE"         || { GUM_MOTIVO="download"; return 1; }
+    curl -fsSL --proto '=https' --tlsv1.2 -o "$d/checksums.txt" "$base/checksums.txt" 2>>"$LOG_FILE"         || { GUM_MOTIVO="checksum indisponível"; return 1; }
+    ( cd "$d" && shasum -a 256 --ignore-missing -c checksums.txt ) >>"$LOG_FILE" 2>&1         || { GUM_MOTIVO="checksum divergiu"; return 1; }
+    tar -xzf "$d/$asset" -C "$d" 2>>"$LOG_FILE" || { GUM_MOTIVO="extração"; return 1; }
+    GUM="$(find "$d" -type f -name gum 2>/dev/null | head -1)"
+    if [ -z "$GUM" ] || [ ! -x "$GUM" ]; then GUM=""; GUM_MOTIVO="binário ausente"; return 1; fi
+    return 0
+}
+
+# Tema na paleta do Home Assistant — o mac-env usa o âmbar dele; aqui é o azul.
+gum_tema() {
+    [ -n "$GUM" ] || return 0
+    export GUM_CHOOSE_CURSOR="❯ "
+    export GUM_CHOOSE_CURSOR_FOREGROUND="#03A9F4"
+    export GUM_CHOOSE_HEADER_FOREGROUND="#8892b0"
+    export GUM_CHOOSE_SELECTED_FOREGROUND="#00E5FF"
+    export GUM_CHOOSE_SELECTED_PREFIX="◆ "
+    export GUM_CHOOSE_UNSELECTED_PREFIX="◇ "
+    export GUM_CHOOSE_CURSOR_PREFIX="◇ "
+    export GUM_CONFIRM_PROMPT_FOREGROUND="#03A9F4"
+    export GUM_CONFIRM_SELECTED_BACKGROUND="#03A9F4"
+    export GUM_CONFIRM_SELECTED_FOREGROUND="#0b0f14"
+    export GUM_FILTER_INDICATOR="❯"
+    export GUM_FILTER_INDICATOR_FOREGROUND="#03A9F4"
+    export GUM_FILTER_MATCH_FOREGROUND="#00E5FF"
+    export GUM_FILTER_SELECTED_PREFIX=" ◆ "
+    export GUM_FILTER_SELECTED_PREFIX_FOREGROUND="#00E5FF"
+    export GUM_FILTER_UNSELECTED_PREFIX=" ◇ "
+    export GUM_FILTER_PLACEHOLDER_FOREGROUND="#5a6480"
+    export GUM_FILTER_HEADER_FOREGROUND="#8892b0"
+    export GUM_FILTER_PROMPT="/ "
+    export GUM_FILTER_PROMPT_FOREGROUND="#03A9F4"
+    return 0
+}
+gum_choose()  { "$GUM" choose  "$@" </dev/tty; }
+gum_filter()  { "$GUM" filter  "$@" </dev/tty; }
+gum_confirm() { "$GUM" confirm "$@" </dev/tty; }
+
+# ── seletor rico: choose/filter, com busca e marcação por espaço ─────────────
+seletor_gum() {
+    local sel linha id tem_ultima=0 resumo=''
+    if carregar_selecao; then
+        tem_ultima=1
+        resumo="$LAST_DEGRAU"; [ -n "$LAST_EXTRAS" ] && resumo="$resumo + $LAST_EXTRAS"
+    fi
+
+    local ops=()
+    [ "$tem_ultima" = "1" ] && ops+=("Repetir a última: $resumo")
+    ops+=("Vanilla — só o piso, o que o HAOS cria sozinho"
+          "Conectado — + MQTT, Matter, Thread, ESPHome, Cast"
+          "Casa — + Hue, Tuya, Shelly, TP-Link, SmartThings (recomendado)")
+    sel="$(gum_choose --header "$(msg sel_gum_degrau)" "${ops[@]}")"         || { ha_info "$(msg cancelado)"; exit "$E_CANCELADO"; }
+    case "$sel" in
+        Repetir*)   SEL_DEGRAU="$LAST_DEGRAU"
+                    [ -n "$LAST_EXTRAS" ] && SEL_EXTRAS="$LAST_EXTRAS"
+                    [ -n "$LAST_VM" ] && OP_VM_PERFIL="${OP_VM_PERFIL:-$LAST_VM}"
+                    return 0 ;;
+        Vanilla*)   SEL_DEGRAU="haos_vanilla" ;;
+        Conectado*) SEL_DEGRAU="haos_conectado" ;;
+        *)          SEL_DEGRAU="haos_casa" ;;
+    esac
+
+    sel="$(gum_choose --no-limit --header "$(msg sel_gum_extras)"         "ferramentas — SSH e Web Terminal, File editor, Samba"         "casa_abhome — custos BR na fatura: energia, gás, água"         "extensoes — HACS (código de terceiros; sempre opt-in)")" || sel=""
+    SEL_EXTRAS=""
+    while IFS= read -r linha; do
+        [ -n "$linha" ] && SEL_EXTRAS="$SEL_EXTRAS ${linha%% *}"
+    done <<EOF
+$sel
+EOF
+    SEL_EXTRAS="${SEL_EXTRAS# }"
+
+    if [ -z "$OP_VM_PERFIL" ]; then
+        sel="$(gum_choose --header "$(msg sel_gum_vm)"             "vm_minimo — 2048 MiB · 2 vCPU (doc oficial)"             "vm_equilibrado — 4096 MiB · 2 vCPU (recomendado)"             "vm_recomendado — $(vm_derivado_ram) MiB · $(vm_derivado_cpu) vCPU (desta máquina)")"             || { ha_info "$(msg cancelado)"; exit "$E_CANCELADO"; }
+        OP_VM_PERFIL="${sel%% *}"
+    fi
+    return 0
+}
+
+# Ajuste item a item, com BUSCA (o modo Personalizado do mac-env): lista os
+# itens das categorias escolhidas com os padrões pré-marcados; digite para
+# filtrar, espaço marca, enter confirma. Chamado DEPOIS de resolver a seleção.
+afinar_itens_gum() {
+    [ -n "$GUM" ] || return 0
+    local cats it iid icat irot iorigem islug ipadrao resto ops=() presel='' op
+    cats="$(degrau_categorias "$SEL_DEGRAU") $SEL_EXTRAS"
+    for it in "${ITEM_DB[@]}"; do
+        IFS='|' read -r iid icat irot iorigem islug ipadrao resto <<< "$it"
+        tem_na_lista "$icat" "$cats" || continue
+        op="$iid — $irot"
+        ops+=("$op")
+        if tem_na_lista "$iid" "$SEL_ITENS"; then
+            if [ -n "$presel" ]; then presel="$presel,$op"; else presel="$op"; fi
+        fi
+    done
+    [ "${#ops[@]}" -gt 0 ] || return 0
+    local sel linha novo=''
+    sel="$(gum_filter --no-limit --height 14 --header "$(msg sel_gum_itens)"         --placeholder "..." --selected "$presel" "${ops[@]}")" || return 0
+    [ -n "$sel" ] || return 0
+    while IFS= read -r linha; do
+        [ -n "$linha" ] && novo="$novo ${linha%% *}"
+    done <<EOF
+$sel
+EOF
+    SEL_ITENS="${novo# }"
+    return 0
 }
 
 # ── o cardápio ───────────────────────────────────────────────────────────────
@@ -2336,7 +2501,14 @@ resolver_selecao() {
         perfil_valido "$OP_PERFIL" || morrer "$E_USO" "perfil desconhecido: $OP_PERFIL"
         SEL_DEGRAU="$OP_PERFIL"
     elif { tem_tty || [ "$TTY_DEV" != "/dev/tty" ]; } && [ "$OP_NOINPUT" != "1" ]; then
-        seletor_interativo
+        if [ "$TTY_DEV" = "/dev/tty" ] && gum_bootstrap; then
+            gum_tema
+            ha_info "$(msg gum_ok "$HAOS_GUM_VERSION")"
+            seletor_gum
+        else
+            [ -n "$GUM_MOTIVO" ] && ha_info "$(msg gum_fallback "$GUM_MOTIVO")"
+            seletor_interativo
+        fi
     else
         ha_err "$(msg sem_tty_titulo)"
         printf '%s\n' "$(msg sem_tty_como)" >&2
@@ -2364,6 +2536,7 @@ resolver_selecao() {
         tem_na_lista "$icat" "$cats" || continue
         [ "$ipadrao" = "1" ] && SEL_ITENS="$SEL_ITENS $iid"
     done
+    afinar_itens_gum
     ha_ok "$(msg degrau): $(cat_rotulo "${SEL_DEGRAU#haos_}") ${HA_G_SEP} $(msg ortogonais): ${SEL_EXTRAS:--}"
 }
 
@@ -2451,7 +2624,11 @@ main() {
     fi
 
     if [ "$OP_NOINPUT" != "1" ]; then
-        perguntar "$(msg confirmar)" || { ha_info "$(msg cancelado)"; exit "$E_CANCELADO"; }
+        if [ -n "$GUM" ]; then
+            gum_confirm "$(msg sel_gum_confirmar)"                 --affirmative "$(msg sel_gum_sim)" --negative "$(msg sel_gum_nao)"                 || { ha_info "$(msg cancelado)"; exit "$E_CANCELADO"; }
+        else
+            perguntar "$(msg confirmar)" || { ha_info "$(msg cancelado)"; exit "$E_CANCELADO"; }
+        fi
     fi
     salvar_selecao
 

@@ -19,6 +19,14 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
   os 153 MB de novo. O `--uninstall` sabe removê-lo.
 
 ### Added
+- **Seletor rico com gum** (porta do mac-env-setup): baixado em temp com
+  SHA-256 conferido contra o checksums.txt da release, tema na paleta HA —
+  degrau por setas, extras por **espaço**, **ajuste item a item com busca**
+  (`gum filter` com os padrões pré-marcados), confirmação `gum confirm`.
+  Fallback: o seletor numerado, sem TTY/rede ou com `HAOS_USE_GUM=0`.
+- **Verificação de novidades no pré-voo** (melhor-esforço, 3 s de teto,
+  silêncio na falha): avisa quando há instalador publicado mais novo
+  (`--self-update`) e quando o HAOS lançou release acima da fixada na tabela.
 - **A calha vertical** (`│`), a gramática dos irmãos: toda linha — status,
   menus do cardápio, plano, plano de remoção, dump do doctor — pendura numa
   trilha contínua; cada etapa abre com `├── NN Título ───`. Inputs ganharam

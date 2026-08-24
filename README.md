@@ -21,10 +21,14 @@ verificada: em log, CI ou terminal sem UTF-8 a saída vira texto limpo e grepáv
 curl -fsSL https://raw.githubusercontent.com/aleonnet/haos-mac-mini/main/haos-install.sh | bash
 ```
 
-Em terminal interativo, **sem flag nenhuma**, abre o cardápio: degrau (Vanilla /
-Conectado / Casa, com "repetir a última" quando houver), extras e perfil de VM —
-depois mostra o plano e pede confirmação antes de escrever qualquer coisa. As
-flags existem para o modo headless/CI. Cada execução real salva a seleção (`--profile last` a repete) e um relatório em
+Em terminal interativo, **sem flag nenhuma**, abre o cardápio com
+[gum](https://github.com/charmbracelet/gum) (baixado em temp com SHA-256
+verificado, nunca instalado): degrau com setas, extras marcados por **espaço**,
+**ajuste item a item com busca** (digite para filtrar, espaço marca, enter
+confirma) e perfil de VM — depois o plano e a confirmação, antes de escrever
+qualquer coisa. Sem TTY ou com `HAOS_USE_GUM=0`, degrada para o seletor
+numerado simples. O pré-voo ainda avisa quando há instalador ou release do
+HAOS mais novos publicados. As flags existem para o modo headless/CI. Cada execução real salva a seleção (`--profile last` a repete) e um relatório em
 `~/.config/haos-mac-mini/`; uma falha preserva o log das ferramentas e imprime o
 caminho. O que o instalador cria fica registrado num manifesto
 (`created`/`preexisting`) — e o `--uninstall` remove **só** o que ele provar
