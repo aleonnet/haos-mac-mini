@@ -209,21 +209,29 @@ for id in $IDS; do
 done
 [ "$dup_piso" = "0" ] && ok "nenhum item do ITEM_DB repete o piso"
 
-# ── 11. arte do banner: todas as linhas com a MESMA largura ──────────────────
+# ── 11. logo: máscara íntegra e contorno utilizável ──────────────────────────
 # Uma linha com um caractere a mais desalinha o desenho inteiro, e num terminal
 # isso é imediatamente visível. Achado em 23/08: a base do Mac tinha 43 onde o
 # resto tinha 42.
-info "arte do banner"
+info "logo"
 if [ -f "$RAIZ/lib/haos-ui.sh" ]; then
     # Medir SEMPRE em UTF-8: a largura é propriedade do arquivo-fonte, não do
     # locale de quem roda a cerca. Sob LC_CTYPE=C o bash contaria bytes e a
     # mesma arte daria larguras diferentes em máquinas diferentes.
-    larguras="$(LC_ALL=en_US.UTF-8 /bin/bash -c 'source "'"$RAIZ"'/lib/haos-ui.sh" 2>/dev/null; for l in "${HA_MARK[@]}"; do printf "%s\n" "${#l}"; done' | sort -u | tr '\n' ' ')"
-    n_larg="$(printf '%s' "$larguras" | wc -w | tr -d ' ')"
-    if [ "$n_larg" = "1" ]; then
-        ok "arte do banner — todas as linhas com ${larguras% } colunas"
+    # A máscara é gerada por tools/gera-logo.py; a cerca confere que ela chegou
+    # inteira: HA_H linhas, todas com HA_W colunas, e o contorno não vazio.
+    res="$(LC_ALL=en_US.UTF-8 /bin/bash -c 'source "'"$RAIZ"'/lib/haos-ui.sh" 2>/dev/null
+        larg="$(for l in "${HA_MASK[@]}"; do printf "%s\n" "${#l}"; done | sort -u | tr "\n" " ")"
+        printf "%s|%s|%s|%s|%s" "${#HA_MASK[@]}" "$HA_H" "${larg% }" "$HA_W" "${#HA_BX[@]}"')"
+    IFS='|' read -r n_lin ha_h larg ha_w n_borda <<< "$res"
+    if [ "$n_lin" != "$ha_h" ]; then
+        falha "máscara tem $n_lin linhas, HA_H diz $ha_h"
+    elif [ "$larg" != "$ha_w" ]; then
+        falha "máscara tem larguras '$larg', HA_W diz $ha_w"
+    elif [ "${n_borda:-0}" -lt 20 ]; then
+        falha "contorno com apenas ${n_borda:-0} pixels — o traço não teria por onde correr"
     else
-        falha "arte do banner tem larguras diferentes: $larguras"
+        ok "logo — ${n_lin}x${larg} px, contorno de ${n_borda} pixels"
     fi
 else
     ok "lib/haos-ui.sh ausente — arte pulada"

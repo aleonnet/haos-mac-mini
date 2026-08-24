@@ -87,129 +87,198 @@ _hide() { if [[ "$HAOS_UI_ANIM" == 1 ]]; then tput civis 2>/dev/null || true; fi
 _show() { if [[ "$HAOS_UI_ANIM" == 1 ]]; then tput cnorm 2>/dev/null || true; fi; }
 ha_show_cursor() { _show; }
 
-# ── the mark: Home Assistant sitting on a Mac mini ──────────────────────────
-# The story the picture tells is the product: the HA house RISES OUT OF the Mac.
-# That is why ignition runs bottom-up — the machine appears first, the house
-# grows from it — instead of the usual top-down wipe.
-HA_MARK=(
-'                    ▟▙                    '
-'                  ▟████▙                  '
-'                ▟████████▙                '
-'              ▟████████████▙              '
-'            ▟████████████████▙            '
-'          ▟████████████████████▙          '
-'        ▟████████████████████████▙        '
-'      ▟████████████████████████████▙      '
-'    ▟████████████████████████████████▙    '
-'   ██████████████████████████████████████ '
-'   ██████   ●          ●          ●   ███ '
-'   ██████   │          │          │   ███ '
-'   ██████   └────┐     │     ┌────┘   ███ '
-'   ██████        └─────●─────┘        ███ '
-'   ██████              │              ███ '
-'   ██████              ●              ███ '
-'   ██████████████████████████████████████ '
-'                                          '
-'  ▗▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▖  '
-'  ▐                                 ·  ▌  '
-'  ▝▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▘  '
+# ── GERADO por tools/gera-logo.py — NÃO editar à mão ──────────────────────
+# Máscara do logo do Home Assistant, por pixel:
+#   .  fora    #  corpo da casa    o  circuito
+# HA_BX/HA_BY são o contorno JÁ ORDENADO, em vetores PARALELOS: é o caminho
+# que o traço percorre, começando embaixo no centro e subindo pela esquerda,
+# como no logo oficial. Dois vetores em vez de "x,y" numa string evitam
+# fatiar texto no laço mais quente do render.
+HA_W=48
+HA_H=48
+HA_MASK=(
+'................................................'
+'................................................'
+'.....................######.....................'
+'....................########....................'
+'...................##########...................'
+'..................############..................'
+'.................##############.................'
+'................################................'
+'...............##################...............'
+'..............####################..............'
+'.............######################.............'
+'...........#########################............'
+'..........###########oooooo###########..........'
+'.........############oooooo############.........'
+'........############oooooooo############........'
+'.......#############oooooooo#############.......'
+'......##############oooooooo##############......'
+'.....###############oooooooo###############.....'
+'....#################oooooo#################....'
+'...###################oooo###################...'
+'..####################oooo####################..'
+'.#####################oooo#####################.'
+'######################oooo######################'
+'######################oooo######################'
+'######################oooo#######oooooo#########'
+'######################oooo#######oooooo#########'
+'######################oooo######oooooooo########'
+'######################oooo######oooooooo########'
+'######################oooo######oooooooo########'
+'######################oooo#####ooooooooo########'
+'######################oooo####ooooooooo#########'
+'##########oooo########oooo###ooooooooo##########'
+'#########oooooo#######oooo#ooooooo##############'
+'########oooooooo######oooooooooo################'
+'########oooooooo######ooooooooo#################'
+'########oooooooo######oooooooo##################'
+'########ooooooooo#####ooooooo###################'
+'#########ooooooooo####oooooo####################'
+'##########oooooooooo##oooo######################'
+'##############ooooooo#oooo######################'
+'################oooooooooo######################'
+'#################ooooooooo######################'
+'##################oooooooo######################'
+'###################ooooooo######################'
+'#####################ooooo######################'
+'.#####################oooo#####################.'
+'.######################oo######################.'
+'...##########################################...'
 )
-HA_LINHAS=${#HA_MARK[@]}
-HA_QUADROS=26
-HA_ATRASO=0.045
-HA_MIN_COLS=46
-# Onde começa a base do Mac mini: dali para baixo a cor é cinza-azulado, não
-# a rampa do Home Assistant. O LED de energia pulsa em vez de ficar fixo.
-HA_MAC_LINHA=18
+HA_BX=(23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 46 46 45 44 43 42 41 40 39 38 37 36 35 34 33 32 31 30 29 28 27 26 25 24)
+HA_BY=(47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 46 46 45 44 43 42 41 40 39 38 37 36 35 34 33 32 31 30 29 28 27 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 11 10 9 8 7 6 5 4 3 2 2 2 2 2 2 3 4 5 6 7 8 9 10 11 12 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 46 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47)
 
-# ha_celula <linha> <coluna> <quadro> — cor de UMA célula.
+# ── logo: meio-bloco, dois pixels por célula ─────────────────────────────────
+# A célula do terminal é ~2:1. Com "▀" ela vira DOIS pixels de cor
+# independente — frente em cima, fundo embaixo — e o pixel resultante fica
+# quase quadrado. É a maior resolução com cor por subpixel que o terminal dá.
+# Braille daria 2x4, mas só UMA cor por célula: o azul e o branco não caberiam
+# juntos no mesmo caractere, e o logo tem os dois encostados.
 #
-# O realce é um PONTO que varre em onda triangular, e cada célula escurece com a
-# distância até ele. Uma rampa horizontal ao longo da arte inteira deixa o
-# volume chapado: a variação dentro das ~40 colunas é pequena demais para o olho
-# ler como luz. O ponto dá relevo.
-ha_celula() {
-  local lin="$1" col="$2" q="$3" tri hlc d n r g b
-  tri=$(( q % 20 )); [ "$tri" -gt 10 ] && tri=$(( 20 - tri ))
-  hlc=$(( 6 + tri * 3 ))                   # o ponto de luz varre da esquerda
-  d=$(( col > hlc ? col - hlc : hlc - col ))
-  [ "$d" -gt 24 ] && d=24
-  n=$(( 100 - d * 3 ))                     # 100 no foco, 28 na borda
-  [ "$n" -lt 28 ] && n=28
-  # rampa da identidade: HA_DEEP -> HA_BLUE -> HA_CYAN, modulada pela distância
-  if [ "$lin" -ge "$HA_MAC_LINHA" ]; then  # base do Mac: cinza-azulado, discreto
-    r=$(( 70 * n / 100 )); g=$(( 84 * n / 100 )); b=$(( 96 * n / 100 ))
+# A animação é a oficial do Home Assistant: um traço branco percorre o
+# CONTORNO da casa, como uma caneta desenhando o perímetro.
+
+HA_MIN_COLS=50
+HA_ATRASO=0.018
+HA_COMETA=44        # comprimento do traço — ~30%% do perímetro, como na referência
+
+# Escapes pré-computados: montar cor por célula com $(...) seria um subshell
+# por pixel — 1152 por quadro. Aqui o laço interno é só concatenação.
+ha_logo_init() {
+  [ -n "${HA_LOGO_PRONTO:-}" ] && return 0
+  if [[ "$HAOS_UI_DEPTH" == 24 ]]; then
+    HA_FG_AZUL=$'\033[38;2;3;169;244m';   HA_BG_AZUL=$'\033[48;2;3;169;244m'
+    HA_FG_BRANCO=$'\033[38;2;236;242;248m'; HA_BG_BRANCO=$'\033[48;2;236;242;248m'
+    HA_FG_TRACO=$'\033[38;2;255;255;255m';  HA_BG_TRACO=$'\033[48;2;255;255;255m'
   else
-    r=$(( (HA_DEEP_R + (HA_CYAN_R - HA_DEEP_R) * lin / HA_LINHAS) * n / 100 ))
-    g=$(( (HA_DEEP_G + (HA_CYAN_G - HA_DEEP_G) * lin / HA_LINHAS) * n / 100 ))
-    b=$(( (HA_DEEP_B + (HA_CYAN_B - HA_DEEP_B) * lin / HA_LINHAS) * n / 100 ))
+    HA_FG_AZUL=$'\033[38;5;39m';  HA_BG_AZUL=$'\033[48;5;39m'
+    HA_FG_BRANCO=$'\033[38;5;255m'; HA_BG_BRANCO=$'\033[48;5;255m'
+    HA_FG_TRACO=$'\033[38;5;231m';  HA_BG_TRACO=$'\033[48;5;231m'
   fi
-  rgb "$r" "$g" "$b"
+  HA_LOGO_PRONTO=1
 }
 
-# ha_quadro <n> — pinta a arte inteira no estado do quadro n.
-ha_quadro() {
-  local q="$1" lin col ch linha revela saida led
-  # Ignição de baixo para cima: o quadro q revela q linhas a partir da base.
-  revela=$(( HA_LINHAS - q * 2 ))
-  [ "$revela" -lt 0 ] && revela=0
-  for (( lin = 0; lin < HA_LINHAS; lin++ )); do
-    linha="${HA_MARK[lin]}"
-    if [ "$lin" -lt "$revela" ]; then
-      printf '%*s\n' "${#linha}" ''        # ainda não acendeu
-      continue
-    fi
-    if [[ "$HAOS_UI_DEPTH" == 0 ]]; then
-      printf '%s\n' "$linha"; continue
-    fi
+# ha_logo_quadro <n> — pinta o logo com o traço na posição n do contorno.
+# n < 0 desenha sem traço (o logo parado).
+ha_logo_quadro() {
+  local n="$1" r y1 y2 x c1 c2 saida chave
+  local -a aceso
+  ha_logo_init
+
+  # marca os pixels do contorno que estão sob o cometa neste quadro
+  if [ "$n" -ge 0 ]; then
+    local total=${#HA_BX[@]} i idx
+    for (( i = 0; i < HA_COMETA; i++ )); do
+      idx=$(( (n - i + total * 2) % total ))
+      aceso[idx]=1
+    done
+  fi
+
+  # Índice POR LINHA. A primeira versão guardava um conjunto único "x,y" e
+  # buscava nele a cada pixel: 2.300 buscas de substring em string de 140
+  # elementos por quadro, e o quadro levava 51 ms. Indexando por linha, cada
+  # busca varre só os poucos pixels de contorno daquela linha.
+  local -a linha_acesa
+  if [ "$n" -ge 0 ]; then
+    local k by
+    for k in "${!aceso[@]}"; do
+      by=${HA_BY[k]}
+      linha_acesa[by]="${linha_acesa[by]:- } ${HA_BX[k]} "
+    done
+  fi
+
+  for (( y1 = 0; y1 < HA_H; y1 += 2 )); do
+    y2=$(( y1 + 1 ))
     saida=''
-    for (( col = 0; col < ${#linha}; col++ )); do
-      ch="${linha:col:1}"
-      if [[ "$ch" == " " ]]; then saida+=' '; continue; fi
-      # o LED pulsa: aceso nos quadros pares depois da ignição da base
-      if [[ "$ch" == "·" ]]; then
-        if (( q % 4 < 2 )); then led="$(rgb 120 255 170)"; else led="$(rgb 40 90 70)"; fi
-        saida+="${led}●"; continue
-      fi
-      saida+="$(ha_celula "$lin" "$col" "$q")${ch}"
+    for (( x = 0; x < HA_W; x++ )); do
+      c1="${HA_MASK[$y1]:$x:1}"
+      c2="${HA_MASK[$y2]:$x:1}"
+      # o traço sobrepõe a máscara
+      case "${linha_acesa[$y1]:-}" in *" $x "*) c1='t' ;; esac
+      case "${linha_acesa[$y2]:-}" in *" $x "*) c2='t' ;; esac
+      chave="$c1$c2"
+      case "$chave" in
+        '..') saida+="${NC} " ;;
+        '.#') saida+="${NC}${HA_FG_AZUL}▄" ;;
+        '.o') saida+="${NC}${HA_FG_BRANCO}▄" ;;
+        '.t') saida+="${NC}${HA_FG_TRACO}▄" ;;
+        '#.') saida+="${NC}${HA_FG_AZUL}▀" ;;
+        'o.') saida+="${NC}${HA_FG_BRANCO}▀" ;;
+        't.') saida+="${NC}${HA_FG_TRACO}▀" ;;
+        '##') saida+="${HA_FG_AZUL}${HA_BG_AZUL}▀" ;;
+        'oo') saida+="${HA_FG_BRANCO}${HA_BG_BRANCO}▀" ;;
+        'tt') saida+="${HA_FG_TRACO}${HA_BG_TRACO}▀" ;;
+        '#o') saida+="${HA_FG_AZUL}${HA_BG_BRANCO}▀" ;;
+        'o#') saida+="${HA_FG_BRANCO}${HA_BG_AZUL}▀" ;;
+        '#t') saida+="${HA_FG_AZUL}${HA_BG_TRACO}▀" ;;
+        't#') saida+="${HA_FG_TRACO}${HA_BG_AZUL}▀" ;;
+        'ot') saida+="${HA_FG_BRANCO}${HA_BG_TRACO}▀" ;;
+        'to') saida+="${HA_FG_TRACO}${HA_BG_BRANCO}▀" ;;
+        *)    saida+="${NC} " ;;
+      esac
     done
     printf '%s%s\n' "$saida" "$NC"
   done
 }
 
+HA_LINHAS=$(( 48 / 2 ))
+
 # ha_banner [título] [subtítulo]
 ha_banner() {
-  local title="${1:-Home Assistant OS}" sub="${2:-}" q cols
+  local title="${1:-Home Assistant OS}" sub="${2:-}" n cols total
   cols="$(tput cols 2>/dev/null || echo 0)"
   case "$cols" in ''|*[!0-9]*) cols=0 ;; esac
+  HA_LINHAS=$(( HA_H / 2 ))
 
-  # Degrada para UM quadro estático — o último, que é a arte completa — quando
-  # não há animação ou o terminal é estreito demais. Nunca meia animação.
-  # Sem UTF-8 não há arte: os glifos sairiam como lixo. Um cabeçalho honesto
-  # em ASCII diz a mesma coisa.
-  if [[ "$HAOS_UI_UTF8" == 0 ]]; then
+  # Sem UTF-8 os glifos sairiam partidos; sem cor o logo vira mancha.
+  if [[ "$HAOS_UI_UTF8" == 0 ]] || [[ "$HAOS_UI_DEPTH" == 0 ]]; then
     printf '  %s\n' "$title"
     [ -n "$sub" ] && printf '  %s\n' "$sub"
     printf '\n'
     return 0
   fi
+
+  # Terminal estreito ou sem animação: UM quadro, o logo parado. Nunca meia
+  # animação, e nada que o movimento mostre existe só nele.
   if [[ "$HAOS_UI_ANIM" == 0 ]] || [ "$cols" -lt "$HA_MIN_COLS" ]; then
-    ha_quadro "$HA_QUADROS"
+    ha_logo_quadro -1
     printf '\n  %s\n' "$title"
     [ -n "$sub" ] && printf '  %s\n' "$sub"
     printf '\n'
     return 0
   fi
 
-  # Sem trap aqui: a biblioteca não instala trap, e o cursor é restaurado pelo
-  # cleanup de quem chama, via ha_show_cursor. Um trap aqui APAGARIA o do
-  # instalador — trap é global do shell e quem chama por último vence.
+  # Sem trap aqui: a lib não instala trap, e o cursor volta pelo cleanup de
+  # quem chama, via ha_show_cursor.
   _hide
-  for (( q = 0; q <= HA_QUADROS; q++ )); do
-    (( q > 0 )) && { tput cuu "$HA_LINHAS" 2>/dev/null || break; }
-    ha_quadro "$q"
-    (( q < HA_QUADROS )) && sleep "$HA_ATRASO"
+  total=${#HA_BX[@]}
+  for (( n = 0; n < total; n += 4 )); do
+    (( n > 0 )) && { tput cuu "$HA_LINHAS" 2>/dev/null || break; }
+    ha_logo_quadro "$n"
+    sleep "$HA_ATRASO"
   done
+  tput cuu "$HA_LINHAS" 2>/dev/null && ha_logo_quadro -1   # assenta sem o traço
   _show
   printf '\n'
   ha_shimmer "  ${title}"
