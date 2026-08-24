@@ -305,6 +305,31 @@ else
     ok "instalador ausente — gramática pulada"
 fi
 
+# ── 12c. segredo: nada da casa em arquivo versionado ─────────────────────────
+# O repositório é PÚBLICO e o histórico do git não esquece: esta cerca passa
+# ANTES de qualquer documento entrar no versionamento (bloqueador B-5 da
+# banca). Varre os arquivos rastreados por padrões que identificam ESTA casa —
+# IP privado, e-mail, hostname interno, credencial conhecida. O inventário cru
+# (inventario/) permanece fora do git e fora desta varredura.
+info "segredo"
+if command -v git >/dev/null 2>&1 && git -C "$RAIZ" rev-parse --git-dir >/dev/null 2>&1; then
+    # Os literais que identificam a casa entram QUEBRADOS na fonte — senão este
+    # próprio arquivo, versionado, casaria o padrão que ele carrega.
+    padrao='192\.168\.[0-9]+\.[0-9]+|[A-Za-z0-9._%+-]+@(gmail|outlook|hotmail|yahoo)\.[a-z]+|\.home\.arpa|'
+    padrao="${padrao}Akm""@[0-9]+|aless""andro@"
+    vazamento="$(git -C "$RAIZ" ls-files -z 2>/dev/null \
+        | xargs -0 grep -lnE "$padrao" 2>/dev/null \
+        || true)"
+    if [ -z "$vazamento" ]; then
+        ok "segredo — nenhum arquivo versionado contém IP privado, e-mail ou host da casa"
+    else
+        falha "segredo: dado da casa em arquivo VERSIONADO (repo público!):"
+        printf '%s\n' "$vazamento" | head -5 >&2
+    fi
+else
+    ok "fora de um repositório git — varredura de segredo pulada"
+fi
+
 # ── 13. cópias embutidas ─────────────────────────────────────────────────────
 # Delegado ao embed.sh --check: um só lugar sabe quais blocos existem e como
 # eles são preparados. Duplicar a lógica aqui era o caminho para os dois

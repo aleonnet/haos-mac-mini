@@ -6,7 +6,6 @@ secrets.yaml
 # no .gitignore o "#" só inicia comentário no início da linha; no meio é literal,
 # e o padrão inteiro deixa de casar.
 inventario/
-INVENTARIO.md
 
 # Artefatos grandes
 *.vdi
@@ -16,7 +15,6 @@ INVENTARIO.md
 
 # macOS
 .DS_Store
-INVENTARIO.md
 lib/haos-splash.*
 catalog/*.psv
 
@@ -31,7 +29,5 @@ __pycache__/
 # A máscara ASCII de origem desconhecida continua fora:
 tools/haos-mask.txt
 
-# Documentos internos de trabalho — não vão para o repositório público
-PLANO.md
-ESTADO.md
+# Superado — não vai para o repositório público
 docs/API-REFERENCE.md
