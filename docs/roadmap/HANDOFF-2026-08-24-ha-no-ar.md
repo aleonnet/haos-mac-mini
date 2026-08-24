@@ -67,7 +67,11 @@ Fim-a-fim REAL no Mac mini: 3 execuções — instala tudo → converge →
    `:ha` do catálogo) — fica "espera você no painel".
 5. Flake antigo da cerca do cardápio (1 em 3 rodadas, 24/08) — não
    reapareceu; instrução de captura no HANDOFF anterior.
-6. `rel_falta`/`prox_*`: mensagens do relatório pré-0.3.0 que sobraram no
+6. **`utility_meter.source` é nome-contrato (`sensor.energy_total`)** que o
+   dono aponta via auxiliar template de UI — editar o yaml não sobrevive ao
+   desired-state. Falta uma costura melhor (ex.: input de configuração) para
+   fonte por casa.
+7. `rel_falta`/`prox_*`: mensagens do relatório pré-0.3.0 que sobraram no
    MSG_DB só para o caminho sem VM_URL — revisar quando F5 for obrigatória.
 
 ## 5. BANCADA DO DONO — o teste fim-a-fim
