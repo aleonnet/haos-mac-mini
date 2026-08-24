@@ -272,14 +272,19 @@ MSG_DB=(
 "sel_gum_vm1|vm_minimo - 2048 MiB - 2 vCPU (doc oficial)|vm_minimo - 2048 MiB - 2 vCPU (official doc)"
 "sel_gum_vm2|vm_equilibrado - 4096 MiB - 2 vCPU (recomendado)|vm_equilibrado - 4096 MiB - 2 vCPU (recommended)"
 "sel_gum_vm3|vm_recomendado - %s MiB - %s vCPU (desta máquina)|vm_recomendado - %s MiB - %s vCPU (this machine)"
-"sel_gum_extras|Extras - espaço marca, enter confirma|Extras - space marks, enter confirms"
-"sel_gum_itens|Ajustar item a item? Digite para buscar - espaço marca - enter confirma|Fine-tune items? Type to search - space marks - enter confirms"
+"sel_gum_extras|Extras - ESPAÇO marca/desmarca, enter confirma|Extras - SPACE toggles, enter confirms"
+"sel_gum_itens|Digite para buscar - TAB marca/desmarca - enter confirma|Type to search - TAB toggles - enter confirms"
 "sel_gum_vm|Perfil da VM|VM profile"
 "sel_gum_confirmar|Instalar agora?|Install now?"
 "sel_gum_sim|Instalar|Install"
 "sel_gum_nao|Cancelar|Cancel"
 "novidade_script|Instalador %s publicado (este é %s) - atualize com --self-update|Installer %s published (this one is %s) - update with --self-update"
 "rel_titulo|Feito até aqui|Done so far"
+"rel_instalado|O que ficou instalado nesta máquina:|Installed on this machine:"
+"rel_i_vbox|VirtualBox %s - /Applications/VirtualBox.app|VirtualBox %s - /Applications/VirtualBox.app"
+"rel_i_vdi|o disco do HAOS, verificado por SHA-256: %s|the HAOS disk, SHA-256 verified: %s"
+"rel_i_sel|sua seleção, salva - repita quando quiser com --profile last|your selection, saved - repeat anytime with --profile last"
+"rel_falta|O que AINDA NÃO existe: a VM e o Home Assistant rodando - nada responde em http://homeassistant.local:8123 ainda. Esta versão (%s) para na preparação verificada; criar a VM, dar o boot e abrir o navegador é a PRÓXIMA release.|What does NOT exist yet: the VM and a running Home Assistant - nothing answers at http://homeassistant.local:8123 yet. This version (%s) stops at verified preparation; creating the VM, booting it and opening the browser is the NEXT release."
 "rel_tempo|concluído em %s|done in %s"
 "rel_passos|%s passo(s) executado(s)|%s step(s) executed"
 "rel_vbox|VirtualBox %s pronto|VirtualBox %s ready"
@@ -790,12 +795,26 @@ fase_imagem() {
         # 380 MiB a barra nativa do curl informa mais que um spinner. Sem TTY,
         # o stderr vai para o log e uma falha ganha o diagnóstico de rede.
         local rc_dl=0
-        if [ -t 2 ]; then
-            case "$dl" in
-                curl) curl -fL --progress-bar --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2 \
-                           -o "$parcial" "$url" || rc_dl=$? ;;
-                wget) wget -q --https-only -O "$parcial" "$url" || rc_dl=$? ;;
-            esac
+        if [ -t 2 ] && [ "$dl" = "curl" ]; then
+            # a barra é a NOSSA (bytes gravados contra o total da tabela) — a
+            # do curl é um jogo-da-velha fora da identidade, apontado pelo dono
+            garantir_log
+            curl -fL -sS --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2 \
+                -o "$parcial" "$url" 2>>"$LOG_FILE" &
+            local pid_dl=$! tam_dl
+            while kill -0 "$pid_dl" 2>/dev/null; do
+                tam_dl="$(stat -f%z "$parcial" 2>/dev/null || echo 0)"
+                ha_bar $(( tam_dl / 1048576 )) $(( bytes / 1048576 )) "MiB"
+                sleep 0.3
+            done
+            wait "$pid_dl" || rc_dl=$?
+            if [ "$rc_dl" = "0" ]; then
+                ha_bar $(( bytes / 1048576 )) $(( bytes / 1048576 )) "MiB"
+            else
+                printf '\r\033[2K'
+            fi
+        elif [ -t 2 ]; then
+            wget -q --https-only -O "$parcial" "$url" || rc_dl=$?
         else
             garantir_log
             case "$dl" in
@@ -2299,6 +2318,8 @@ gum_bootstrap() {
     case "$(uname -m)" in arm64) arch=arm64 ;; x86_64) arch=x86_64 ;; *) GUM_MOTIVO="arch"; return 1 ;; esac
     asset="gum_${HAOS_GUM_VERSION}_${os}_${arch}.tar.gz"
     base="https://github.com/charmbracelet/gum/releases/download/v${HAOS_GUM_VERSION}"
+    local cache_gum="$HOME/Library/Caches/haos-mac-mini/gum-${HAOS_GUM_VERSION}"
+    if [ -x "$cache_gum/gum" ]; then GUM="$cache_gum/gum"; return 0; fi
     d="$(mktempdir)"
     garantir_log
     curl -fsSL --proto '=https' --tlsv1.2 --retry 2 -o "$d/$asset" "$base/$asset" 2>>"$LOG_FILE"         || { GUM_MOTIVO="download"; return 1; }
@@ -2307,6 +2328,11 @@ gum_bootstrap() {
     tar -xzf "$d/$asset" -C "$d" 2>>"$LOG_FILE" || { GUM_MOTIVO="extração"; return 1; }
     GUM="$(find "$d" -type f -name gum 2>/dev/null | head -1)"
     if [ -z "$GUM" ] || [ ! -x "$GUM" ]; then GUM=""; GUM_MOTIVO="binário ausente"; return 1; fi
+    # verificado uma vez, guardado por versão — reexecução não repaga o download
+    if mkdir -p "$cache_gum" 2>/dev/null && cp "$GUM" "$cache_gum/gum" 2>/dev/null; then
+        chmod +x "$cache_gum/gum" 2>/dev/null || true
+        GUM="$cache_gum/gum"
+    fi
     return 0
 }
 
@@ -2627,44 +2653,37 @@ plano() {
 fmt_seg() { local t="$1"; if [ "$t" -ge 60 ]; then printf '%dm%02ds' $((t/60)) $((t%60)); else printf '%ds' "$t"; fi; }
 
 relatorio_final() {
-    local total=$(( SECONDS - ${MAIN_T0:-0} )) linha segs n=0
+    local total=$(( SECONDS - ${MAIN_T0:-0} ))
     ha_bar_limpa
     printf '%s\n' "$HA_GUT"
     if [[ "${HAOS_UI_UTF8:-0}" == 1 ]]; then printf '%s' '╰'; else printf '%s' '+'; fi
     printf '%s\n' "$(ha_gradient "$(printf '%*s' 76 '' | tr ' ' "$HA_G_REGUA")")"
     printf '\n'
     ha_shimmer "  $(msg rel_titulo) ${HA_G_SEP} $(msg rel_tempo "$(fmt_seg "$total")")"
-    # Com o seletor rico ativo, o resumo vira o cartão do mac-env.
-    if [ -n "${GUM:-}" ]; then
-        local corpo=""
-        command -v VBoxManage >/dev/null 2>&1 \
-            && corpo="${corpo}$(msg rel_vbox "$(VBoxManage --version 2>/dev/null | tr -d '\r')")
+
+    local corpo
+    corpo="$(msg rel_instalado)
 "
-        [ -n "${HAOS_VDI:-}" ] && [ -f "${HAOS_VDI:-/nonexistent}" ] \
-            && corpo="${corpo}$(msg rel_vdi "$HAOS_VDI")
-"
-        if [ -n "$corpo" ]; then
-            "$GUM" style --border rounded --border-foreground "#03A9F4" \
-                --padding "0 2" "$corpo" 2>/dev/null || true
-        fi
-    fi
-    while IFS='|' read -r linha segs; do
-        [ -n "$linha" ] && n=$((n+1))
-    done <<EOF
-$RUN_STEPS
-EOF
-    [ "$n" -gt 0 ] && printf '  %s\n' "$(msg rel_passos "$n")"
     command -v VBoxManage >/dev/null 2>&1 \
-        && printf '  %s\n' "$(msg rel_vbox "$(VBoxManage --version 2>/dev/null | tr -d '\r')")"
+        && corpo="${corpo}  $HA_G_OK $(msg rel_i_vbox "$(VBoxManage --version 2>/dev/null | tr -d '\r')")
+"
     [ -n "${HAOS_VDI:-}" ] && [ -f "${HAOS_VDI:-/nonexistent}" ] \
-        && printf '  %s\n' "$(msg rel_vdi "$HAOS_VDI")"
-    printf '\n  %s\n' "$(msg rel_prox)"
-    printf '    %s %s\n' "$HA_G_INFO" "$(msg prox_vm)"
-    printf '    %s %s\n' "$HA_G_INFO" "$(msg prox_last)"
-    printf '    %s %s\n' "$HA_G_INFO" "$(msg prox_relatorio "$(haos_state_dir)/last-run.log")"
+        && corpo="${corpo}  $HA_G_OK $(msg rel_i_vdi "$HAOS_VDI")
+"
+    corpo="${corpo}  $HA_G_OK $(msg rel_i_sel)"
+    if [ -n "${GUM:-}" ]; then
+        "$GUM" style --border rounded --border-foreground "#03A9F4" --padding "0 2" \
+            "$corpo" 2>/dev/null || printf '%s\n' "$corpo"
+    else
+        printf '%s\n' "$corpo"
+    fi
+    printf '\n'
+    ha_wrap "  $HA_G_WARN " "    " 4 "$(msg rel_falta "$HAOS_INSTALL_VERSION")"
+    printf '\n  %s %s\n' "$HA_G_INFO" "$(msg prox_relatorio "$(haos_state_dir)/last-run.log")"
     printf '\n'
     return 0
 }
+
 
 # =============================================================================
 # MAIN

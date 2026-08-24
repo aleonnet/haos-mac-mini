@@ -355,6 +355,45 @@ else
     falha "diagnóstico de rede não reconheceu a assinatura do curl"
 fi
 
+# ── as teclas do seletor rico ────────────────────────────────────────────────
+# Medido em 24/08 depois de o cabeçalho MENTIR a tecla para o dono: no gum
+# choose --no-limit quem marca é ESPAÇO; no gum filter (o que tem busca) quem
+# marca é TAB — o espaço pertence à caixa de busca. A cerca dirige o gum num
+# pty de verdade (expect, timeout 8 s) e confere que a TELA ensina cada tecla.
+titulo "teclas do seletor rico"
+gum_cerca="${TMPDIR:-/tmp}/gum-0.17.0/gum"
+if command -v expect >/dev/null 2>&1 && [ -x "$gum_cerca" ]; then
+    GUMBIN="$gum_cerca" expect <<'FIM' >/dev/null 2>&1
+set timeout 8
+log_user 0
+spawn sh -c "$env(GUMBIN) choose --no-limit alfa beta gama > /tmp/haos-gate-gc.txt"
+sleep 0.4; send " "; sleep 0.2; send "\r"
+expect eof
+FIM
+    GUMBIN="$gum_cerca" expect <<'FIM' >/dev/null 2>&1
+set timeout 8
+log_user 0
+spawn sh -c "$env(GUMBIN) filter --no-limit alfa beta gama > /tmp/haos-gate-gf.txt"
+sleep 0.4; send "\t"; sleep 0.2; send "\r"
+expect eof
+FIM
+    t_choose="$(cat /tmp/haos-gate-gc.txt 2>/dev/null)"
+    t_filter="$(cat /tmp/haos-gate-gf.txt 2>/dev/null)"
+    rm -f /tmp/haos-gate-gc.txt /tmp/haos-gate-gf.txt
+    tecla_ruim=""
+    [ "$t_choose" = "alfa" ] || tecla_ruim="$tecla_ruim choose-espaço"
+    [ "$t_filter" = "alfa" ] || tecla_ruim="$tecla_ruim filter-tab"
+    grep -q 'sel_gum_itens|.*TAB' haos-install.sh || tecla_ruim="$tecla_ruim texto-filter"
+    grep -q 'sel_gum_extras|.*ESPAÇO' haos-install.sh || tecla_ruim="$tecla_ruim texto-choose"
+    if [ -z "$tecla_ruim" ]; then
+        ok "espaço marca no choose, TAB marca no filter — e a tela ensina cada um"
+    else
+        falha "teclas do seletor:$tecla_ruim"
+    fi
+else
+    ok "expect ou gum em cache indisponíveis — cerca de teclas pulada (roda quando houver)"
+fi
+
 # ── o cardápio responde ──────────────────────────────────────────────────────
 # O seletor interativo é exercitado pela costura TTY_DEV (arquivo de respostas
 # lido em fd único, como um terminal entrega). Quatro cenários: escolha
