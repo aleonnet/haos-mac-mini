@@ -343,6 +343,21 @@ HAOS_UI_ANIM=1
 [[ -n "${NO_COLOR:-}" ]] && HAOS_UI_ANIM=0
 [[ "${HAOS_NO_ANIM:-0}" == "1" ]] && HAOS_UI_ANIM=0
 
+# ── UTF-8 ────────────────────────────────────────────────────────────────────
+# A arte é toda de caracteres multibyte. Sob locale C o bash conta e fatia
+# BYTES: `${linha:col:1}` devolveria um terço de caractere, e a tela receberia
+# UTF-8 inválido. Medido em 23/08 num Mac mini por SSH, onde LC_CTYPE=C: a
+# mesma linha media 42 aqui e 118 lá.
+#
+# E se o locale não é UTF-8, o terminal provavelmente não desenha os glifos de
+# qualquer forma. Então a resposta certa não é forçar o locale do usuário — é
+# degradar para texto simples.
+HAOS_UI_UTF8=0
+if [ "$(LC_ALL="${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" /bin/bash -c 's=▟▙; printf %s "${#s}"')" = "2" ]; then
+  HAOS_UI_UTF8=1
+fi
+[[ "$HAOS_UI_UTF8" == 0 ]] && HAOS_UI_ANIM=0
+
 case "${COLORTERM:-}" in
   truecolor|24bit) HAOS_UI_DEPTH=24 ;;
   *) [[ "$(tput colors 2>/dev/null || echo 8)" -ge 256 ]] && HAOS_UI_DEPTH=8 || HAOS_UI_DEPTH=0 ;;
@@ -490,6 +505,14 @@ ha_banner() {
 
   # Degrada para UM quadro estático — o último, que é a arte completa — quando
   # não há animação ou o terminal é estreito demais. Nunca meia animação.
+  # Sem UTF-8 não há arte: os glifos sairiam como lixo. Um cabeçalho honesto
+  # em ASCII diz a mesma coisa.
+  if [[ "$HAOS_UI_UTF8" == 0 ]]; then
+    printf '  %s\n' "$title"
+    [ -n "$sub" ] && printf '  %s\n' "$sub"
+    printf '\n'
+    return 0
+  fi
   if [[ "$HAOS_UI_ANIM" == 0 ]] || [ "$cols" -lt "$HA_MIN_COLS" ]; then
     ha_quadro "$HA_QUADROS"
     printf '\n  %s\n' "$title"

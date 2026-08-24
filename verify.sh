@@ -215,7 +215,10 @@ done
 # resto tinha 42.
 info "arte do banner"
 if [ -f "$RAIZ/lib/haos-ui.sh" ]; then
-    larguras="$(/bin/bash -c 'source "'"$RAIZ"'/lib/haos-ui.sh" 2>/dev/null; for l in "${HA_MARK[@]}"; do printf "%s\n" "${#l}"; done' | sort -u | tr '\n' ' ')"
+    # Medir SEMPRE em UTF-8: a largura é propriedade do arquivo-fonte, não do
+    # locale de quem roda a cerca. Sob LC_CTYPE=C o bash contaria bytes e a
+    # mesma arte daria larguras diferentes em máquinas diferentes.
+    larguras="$(LC_ALL=en_US.UTF-8 /bin/bash -c 'source "'"$RAIZ"'/lib/haos-ui.sh" 2>/dev/null; for l in "${HA_MARK[@]}"; do printf "%s\n" "${#l}"; done' | sort -u | tr '\n' ' ')"
     n_larg="$(printf '%s' "$larguras" | wc -w | tr -d ' ')"
     if [ "$n_larg" = "1" ]; then
         ok "arte do banner — todas as linhas com ${larguras% } colunas"

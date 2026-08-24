@@ -130,6 +130,19 @@ else
     falha "uma lib mudou as opções do shell do chamador"
 fi
 
+# A camada visual tem de degradar sob locale C, não cuspir UTF-8 partido.
+# Medido em 23/08: por SSH num Mac mini, LC_CTYPE=C fazia o bash contar BYTES e
+# a mesma linha de arte medir 118 em vez de 42.
+titulo "locale"
+saida_c="$(LC_ALL=C LANG=C /bin/bash -c '
+    source lib/haos-ui.sh >/dev/null 2>&1
+    ha_banner "T" "S" 2>/dev/null' | LC_ALL=C tr -d '[:print:][:space:]' | wc -c | tr -d ' ')"
+if [ "${saida_c:-1}" = "0" ]; then
+    ok "sob LC_ALL=C a saída é ASCII puro, sem byte partido"
+else
+    falha "sob LC_ALL=C a camada visual emitiu $saida_c byte(s) não imprimível(is)"
+fi
+
 # ── resultado ────────────────────────────────────────────────────────────────
 printf '\n'
 if [ "$FALHAS" = "0" ]; then
