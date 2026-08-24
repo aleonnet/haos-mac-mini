@@ -1,6 +1,9 @@
 # HANDOFF — gramática única e esqueleto de operação (F-A) · 2026-08-24
 
-> **LEIA-ME PRIMEIRO.** Porta de entrada da frente do instalador. Supersede o
+> **SUPERADO por `HANDOFF-2026-08-24-reforma-fechada.md`.** Mantido como
+> registro da fase F-A.
+>
+> ~~**LEIA-ME PRIMEIRO.** Porta de entrada da frente do instalador.~~ Supersede o
 > `ESTADO.md` da raiz para o estado DESTA frente (o restante do ESTADO.md será
 > absorvido e o arquivo removido na fase F-D). Plano em execução:
 > `~/.claude/plans/linear-frolicking-wren.md` (v2 pós-banca — 3 lentes, 36

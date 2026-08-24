@@ -241,6 +241,28 @@ else
     falha "enumerados do help recusados pelo parser:$enum_ruim"
 fi
 
+# ── isca no diretório corrente ───────────────────────────────────────────────
+# O zip local do usuário é candidato LEGÍTIMO (decisão da banca: --image soma,
+# não substitui). O que a cerca prova é o outro lado: arquivo com o NOME certo
+# e conteúdo errado é DESCARTADO — nunca descompactado — e a fase falha limpa
+# quando também não há rede (URL inválida), sem escrever .vdi nenhum.
+titulo "isca no cwd"
+sb_isca="$(mktemp -d "${TMPDIR:-/tmp}/haos-gate-isca.XXXXXX")"
+printf 'lixo' > "$sb_isca/haos_generic-aarch64-18.2.vdi.zip"
+# shellcheck disable=SC2016  # a interpolação de $RAIZ é feita AQUI, de propósito
+saida_isca="$(cd "$sb_isca" && HOME="$sb_isca" HAOS_INSTALL_LIB=1 "${BASH:-/bin/bash}" -c '
+    source "'"$RAIZ"'/haos-install.sh"
+    HAOS_IMAGE_DB=("18.2|https://invalido.invalido/haos.zip|0000000000000000000000000000000000000000000000000000000000000000|397964849")
+    OP_DRYRUN=0
+    rc=0; fase_imagem >/dev/null 2>&1 || rc=$?
+    printf "rc=%s vdi=%s" "$rc" "$(find "$HOME/VirtualBox VMs" -name "*.vdi" 2>/dev/null | wc -l | tr -d " ")"')"
+rm -rf "$sb_isca"
+if [ "$saida_isca" = "rc=1 vdi=0" ]; then
+    ok "isca com nome certo e conteúdo errado: descartada, nada extraído (rc=1)"
+else
+    falha "isca no cwd: esperado 'rc=1 vdi=0', obtido '$saida_isca'"
+fi
+
 # ── dry-run não escreve NADA ─────────────────────────────────────────────────
 # Nem log, nem estado: a promessa "--dry-run: nada foi escrito" é conferida por
 # snapshot de um $HOME sintético (a costura HAOS_STATE_DIR/HOME é a do B-7).

@@ -2,9 +2,13 @@
 
 Formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) ·
 versionamento [SemVer](https://semver.org/lang/pt-BR/). O instalador ainda não teve
-release: tudo abaixo é a trilha do `0.1.0-dev`.
+release público ainda; as versões abaixo marcam os fechamentos de fase.
 
 ## [Unreleased]
+
+_Nada ainda._
+
+## [0.2.0] — 2026-08-24
 
 ### Added
 - **`--uninstall`**: fatos (read-only) → plano REMOVE/PRESERVA → UMA

@@ -16,7 +16,7 @@
 # =============================================================================
 set -Eeuo pipefail
 
-HAOS_INSTALL_VERSION="0.1.0-dev"
+HAOS_INSTALL_VERSION="0.2.0"
 HAOS_REF_CORE="2026.8.3"      # versão do HA contra a qual o contrato foi verificado
 HAOS_REF_OS="18.2"
 HAOS_RAW_URL="https://raw.githubusercontent.com/aleonnet/haos-mac-mini/main/haos-install.sh"
