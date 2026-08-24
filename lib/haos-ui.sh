@@ -109,161 +109,179 @@ _show() { if [[ "$HAOS_UI_ANIM" == 1 ]]; then tput cnorm 2>/dev/null || true; fi
 ha_show_cursor() { _show; }
 
 # ── GERADO por tools/gera-logo.py — NÃO editar à mão ──────────────────────
-# Máscara do logo do Home Assistant, por pixel:
-#   .  fora    #  corpo da casa    o  circuito
-# HA_BX/HA_BY são o contorno JÁ ORDENADO, em vetores PARALELOS: é o caminho
-# que o traço percorre, começando embaixo no centro e subindo pela esquerda,
-# como no logo oficial. Dois vetores em vez de "x,y" numa string evitam
-# fatiar texto no laço mais quente do render.
-HA_W=48
-HA_H=48
+# Geometria conferida contra o vídeo oficial: beiral, ápice pontudo,
+# base com raio moderado. Máscara por pixel: . fora · # casa · o circuito.
+# HA_TX/HA_TY/HA_TT: faixa do traço ordenada pela posição no caminho —
+# cabeça e cauda animam por posição de ARCO, não por índice de pixel.
+# HA_PX/HA_PY/HA_PD: pixels dos 3 discos (1 topo · 2 direita · 3 esquerda).
+HA_W=34
+HA_H=34
+HA_CAMINHO=324
 HA_MASK=(
-'................................................'
-'................................................'
-'.....................######.....................'
-'....................########....................'
-'...................##########...................'
-'..................############..................'
-'.................##############.................'
-'................################................'
-'...............##################...............'
-'..............####################..............'
-'.............######################.............'
-'...........#########################............'
-'..........###########oooooo###########..........'
-'.........############oooooo############.........'
-'........############oooooooo############........'
-'.......#############oooooooo#############.......'
-'......##############oooooooo##############......'
-'.....###############oooooooo###############.....'
-'....#################oooooo#################....'
-'...###################oooo###################...'
-'..####################oooo####################..'
-'.#####################oooo#####################.'
-'######################oooo######################'
-'######################oooo######################'
-'######################oooo#######oooooo#########'
-'######################oooo#######oooooo#########'
-'######################oooo######oooooooo########'
-'######################oooo######oooooooo########'
-'######################oooo######oooooooo########'
-'######################oooo#####ooooooooo########'
-'######################oooo####ooooooooo#########'
-'##########oooo########oooo###ooooooooo##########'
-'#########oooooo#######oooo#ooooooo##############'
-'########oooooooo######oooooooooo################'
-'########oooooooo######ooooooooo#################'
-'########oooooooo######oooooooo##################'
-'########ooooooooo#####ooooooo###################'
-'#########ooooooooo####oooooo####################'
-'##########oooooooooo##oooo######################'
-'##############ooooooo#oooo######################'
-'################oooooooooo######################'
-'#################ooooooooo######################'
-'##################oooooooo######################'
-'###################ooooooo######################'
-'#####################ooooo######################'
-'.#####################oooo#####################.'
-'.######################oo######################.'
-'...##########################################...'
+'..................................'
+'..................................'
+'..................................'
+'..................................'
+'..................................'
+'...............####...............'
+'..............######..............'
+'.............########.............'
+'............##########............'
+'..........##############..........'
+'.........#######oo#######.........'
+'........#######oooo#######........'
+'.......#######oooooo#######.......'
+'......#########oooo#########......'
+'.....##########oooo##########.....'
+'.....###########oo###########.....'
+'......##########oo###ooo####......'
+'......##########oo##ooooo###......'
+'......##########oo##ooooo###......'
+'......##########oo##ooooo###......'
+'......####ooo###oo#oooooo###......'
+'......###ooooo##ooooo#######......'
+'......###ooooo##oooo########......'
+'......###ooooo##ooo#########......'
+'......####ooooo#oo##########......'
+'......#######ooooo##########......'
+'......########oooo##########......'
+'......#########ooo##########......'
+'......##########oo##########......'
+'.......####################.......'
+'..................................'
+'..................................'
+'..................................'
+'..................................'
 )
-HA_BX=(23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 46 46 45 44 43 42 41 40 39 38 37 36 35 34 33 32 31 30 29 28 27 26 25 24)
-HA_BY=(47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 46 46 45 44 43 42 41 40 39 38 37 36 35 34 33 32 31 30 29 28 27 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 11 10 9 8 7 6 5 4 3 2 2 2 2 2 2 3 4 5 6 7 8 9 10 11 12 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 46 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47)
+HA_TX=(16 16 15 15 14 14 13 13 12 12 11 11 10 10 9 9 8 8 7 7 7 6 6 5 6 5 4 5 6 4 5 6 4 5 6 4 5 6 4 5 6 4 5 6 4 5 6 4 5 6 4 5 6 4 5 6 4 5 6 6 5 5 4 4 3 3 3 4 3 4 4 5 5 5 6 6 7 7 7 8 8 8 9 9 9 10 10 10 11 11 11 12 12 13 12 13 13 14 14 14 15 15 15 16 16 17 17 18 18 18 19 19 20 19 21 20 20 21 21 22 22 23 22 23 24 23 24 24 25 25 26 25 26 26 27 27 28 28 29 28 29 30 29 30 30 29 30 29 28 28 27 27 28 29 27 28 29 27 28 29 27 28 29 27 28 29 27 28 29 27 28 29 27 28 29 27 28 29 27 28 29 27 28 29 28 27 28 27 27 26 26 26 25 25 24 24 23 23 22 22 21 21 20 20 19 19 18 18 17 17)
+HA_TY=(30 31 30 31 30 31 30 31 30 31 30 31 30 31 30 31 30 31 30 31 29 30 29 29 28 28 27 27 27 26 26 26 25 25 25 24 24 24 23 23 23 22 22 22 21 21 21 20 20 20 19 19 19 18 18 18 17 17 17 16 16 15 16 15 16 15 14 14 13 13 12 13 12 11 12 11 12 11 10 11 10 9 10 9 8 9 8 7 8 7 6 7 6 7 5 6 5 6 5 4 5 4 3 4 3 3 4 3 4 5 4 5 5 6 5 6 7 6 7 6 7 7 8 8 8 9 9 10 9 10 10 11 11 12 11 12 11 12 12 13 13 13 14 14 15 15 16 16 15 16 16 17 17 17 18 18 18 19 19 19 20 20 20 21 21 21 22 22 22 23 23 23 24 24 24 25 25 25 26 26 26 27 27 27 28 28 29 29 30 29 30 31 30 31 30 31 30 31 30 31 30 31 30 31 30 31 30 31 30 31)
+HA_TT=(2 2 6 6 10 10 14 14 18 18 22 22 26 26 30 30 34 34 36 36 38 39 40 42 43 44 47 47 47 51 51 51 55 55 55 59 59 59 63 63 63 67 67 67 71 71 71 75 75 75 79 79 79 83 83 83 87 87 87 90 93 95 96 97 97 98 99 99 100 101 104 104 107 109 110 112 113 115 118 118 121 123 124 126 129 129 132 135 135 138 140 141 143 144 146 146 149 149 152 154 155 157 159 160 161 163 164 165 167 169 170 172 175 175 178 178 180 181 183 184 186 189 189 192 195 195 198 200 201 203 206 206 209 211 212 214 215 217 220 220 223 224 225 225 226 227 227 228 229 231 234 237 237 237 241 241 241 245 245 245 249 249 249 253 253 253 257 257 257 261 261 261 265 265 265 269 269 269 273 273 273 277 277 277 280 281 282 284 285 286 288 288 290 290 294 294 298 298 302 302 306 306 310 310 314 314 318 318 322 322)
+HA_PX=(16 17 15 16 17 18 14 15 16 17 18 19 15 16 17 18 15 16 17 18 21 22 23 20 21 22 23 24 20 21 22 23 24 20 21 22 23 24 10 11 12 21 22 23 24 9 10 11 12 13 9 10 11 12 13 9 10 11 12 13 10 11 12)
+HA_PY=(10 10 11 11 11 11 12 12 12 12 12 12 13 13 13 13 14 14 14 14 16 16 16 17 17 17 17 17 18 18 18 18 18 19 19 19 19 19 20 20 20 20 20 20 20 21 21 21 21 21 22 22 22 22 22 23 23 23 23 23 24 24 24)
+HA_PD=(1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 3 3 3 2 2 2 2 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3)
+# Partículas do assemble: destino (AX,AY), origem (AOX,AOY), atraso (ADL).
+HA_AX=(15 16 17 18 14 15 16 17 18 19 13 14 15 16 17 18 19 20 12 13 14 15 16 17 18 19 20 21 10 11 12 13 14 15 16 17 18 19 20 21 22 23 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26)
+HA_AY=(5 5 5 5 6 6 6 6 6 6 7 7 7 7 7 7 7 7 8 8 8 8 8 8 8 8 8 8 9 9 9 9 9 9 9 9 9 9 9 9 9 9 10 10 10 10 10 10 10 10 10 10 10 10 10 10 10 10 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 13 13 13 13 13 13 13 13 13 13 13 13 13 13 13 13 13 13 13 13 13 13 14 14 14 14 14 14 14 14 14 14 14 14 14 14 14 14 14 14 14 14 14 14 14 14 15 15 15 15 15 15 15 15 15 15 15 15 15 15 15 15 15 15 15 15 15 15 15 15 16 16 16 16 16 16 16 16 16 16 16 16 16 16 16 16 16 16 16 16 16 16 17 17 17 17 17 17 17 17 17 17 17 17 17 17 17 17 17 17 17 17 17 17 18 18 18 18 18 18 18 18 18 18 18 18 18 18 18 18 18 18 18 18 18 18 19 19 19 19 19 19 19 19 19 19 19 19 19 19 19 19 19 19 19 19 19 19 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 21 21 21 21 21 21 21 21 21 21 21 21 21 21 21 21 21 21 21 21 21 21 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 23 23 23 23 23 23 23 23 23 23 23 23 23 23 23 23 23 23 23 23 23 23 24 24 24 24 24 24 24 24 24 24 24 24 24 24 24 24 24 24 24 24 24 24 25 25 25 25 25 25 25 25 25 25 25 25 25 25 25 25 25 25 25 25 25 25 26 26 26 26 26 26 26 26 26 26 26 26 26 26 26 26 26 26 26 26 26 26 27 27 27 27 27 27 27 27 27 27 27 27 27 27 27 27 27 27 27 27 27 27 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 29 29 29 29 29 29 29 29 29 29 29 29 29 29 29 29 29 29 29 29)
+HA_AOX=(33 36 39 41 32 35 39 42 45 41 27 30 34 37 41 44 47 50 23 26 30 33 37 41 45 48 51 45 16 19 22 25 30 34 39 43 40 43 46 48 50 52 11 13 16 19 23 27 32 37 41 46 49 52 46 48 49 50 6 8 10 13 17 21 25 30 36 41 46 50 52 54 47 48 49 50 2 3 5 7 9 14 18 23 29 36 42 48 52 54 47 48 49 50 50 51 -2 -1 0 4 5 7 9 13 19 27 36 45 44 47 49 50 51 51 52 52 53 45 -2 -2 -2 -2 -1 0 0 3 9 14 22 33 44 50 53 54 54 46 46 47 47 48 48 49 -8 -8 -3 -3 -3 -3 -2 -1 0 4 13 28 43 49 50 50 50 50 50 50 43 44 44 45 -8 -9 -9 -10 -10 -4 -4 -4 -4 -1 13 53 51 50 42 43 43 44 44 45 46 46 -13 -7 -8 -9 -10 -11 -12 -14 -15 -18 -13 19 34 38 40 41 42 43 44 39 40 40 -11 -12 -13 -15 -16 -18 -11 -13 -15 -16 -12 3 20 29 34 33 35 36 38 39 40 41 -16 -17 -11 -12 -13 -15 -16 -18 -19 -18 -13 2 12 19 25 29 32 34 36 38 34 35 -13 -14 -15 -17 -18 -20 -21 -13 -13 -12 -8 -1 6 14 20 25 26 28 30 32 34 35 -18 -19 -20 -13 -14 -15 -16 -16 -16 -14 -10 -4 5 11 15 19 23 26 28 31 33 30 -13 -15 -16 -17 -18 -19 -19 -19 -10 -8 -6 -2 2 7 12 16 20 22 24 26 28 30 -18 -19 -20 -21 -13 -14 -14 -14 -13 -11 -8 -4 0 7 10 13 17 20 22 24 27 29 -13 -14 -15 -16 -17 -17 -17 -17 -15 -6 -4 -2 0 4 7 11 14 17 19 21 23 25 -17 -18 -19 -20 -20 -12 -12 -11 -10 -9 -7 -4 -1 1 7 10 12 15 17 20 22 24 -21 -13 -14 -14 -15 -15 -15 -14 -13 -12 -3 -2 0 2 5 7 10 13 15 17 19 21 -16 -17 -17 -18 -18 -18 -10 -9 -9 -8 -6 -4 -2 0 2 8 10 12 14 16 18 20 -20 -20 -12 -13 -13 -13 -13 -12 -11 -10 -9 -1 0 1 3 5 8 10 12 14 16 18 -14 -15 -15 -15 -15 -15 -14 -6 -6 -4 -3 -1 0 1 4 6 10 12 13 15)
+HA_AOY=(-8 -8 -7 -5 -13 -13 -12 -10 -8 -1 -12 -12 -11 -10 -9 -7 -4 -2 -12 -13 -12 -12 -10 -8 -6 -3 0 5 -14 -15 -16 -16 -16 -15 -13 -10 -2 0 3 6 8 11 -19 -20 -21 -13 -13 -13 -12 -11 -8 -5 -1 2 8 11 14 16 -16 -17 -19 -20 -21 -13 -13 -12 -10 -7 -3 1 5 9 14 16 19 21 -14 -15 -17 -19 -20 -13 -14 -15 -14 -11 -7 -2 3 8 14 17 20 22 24 26 -14 -15 -17 -10 -12 -14 -15 -17 -18 -18 -14 -8 3 9 14 18 21 24 26 28 30 28 -7 -9 -10 -11 -13 -15 -16 -19 -12 -14 -15 -12 -4 5 13 19 24 25 27 28 30 31 32 34 -10 -11 -6 -7 -8 -9 -11 -13 -15 -18 -21 -11 0 14 22 27 30 32 34 35 32 33 34 35 -6 -7 -8 -9 -10 -4 -5 -7 -9 -12 -18 13 30 35 33 34 35 36 37 38 39 39 -6 -1 -1 -2 -2 -2 -2 -2 -1 2 19 48 44 43 42 42 42 43 43 38 38 39 0 0 0 0 0 0 5 7 11 19 35 50 53 52 51 43 42 43 43 43 43 44 0 0 4 5 6 7 10 14 20 29 41 43 48 49 49 49 49 49 49 49 41 42 5 5 6 7 9 12 15 19 24 31 39 46 51 53 54 54 46 46 46 46 47 47 6 7 8 12 14 16 19 24 29 36 42 49 45 48 49 50 50 51 51 51 52 44 10 11 12 14 17 20 23 28 30 35 39 44 48 51 53 54 55 47 47 48 48 48 11 13 15 17 19 22 25 29 33 38 43 47 51 45 47 49 50 51 52 52 53 53 14 16 17 19 22 25 28 32 37 36 39 43 46 49 51 53 54 55 47 48 48 49 16 18 20 22 25 25 28 32 35 39 42 46 49 52 46 47 49 50 51 52 53 53 18 19 21 23 26 28 31 35 38 42 39 42 44 47 49 51 53 54 55 47 48 49 19 21 23 26 28 31 30 33 36 39 42 45 48 50 52 46 47 49 50 51 52 53 21 23 24 26 28 30 33 36 39 42 45 41 43 45 47 49 51 52 54 55 47 48 24 26 28 30 33 35 38 36 38 41 43 45 48 50 52 54 46 48 49 50)
+HA_ADL=(9 10 11 9 10 11 9 10 11 9 9 10 8 9 10 8 9 10 8 9 10 8 9 10 8 9 10 8 9 10 8 9 10 8 9 10 8 9 10 8 9 10 7 8 9 7 8 9 7 8 9 7 8 9 7 8 9 7 8 9 7 8 9 7 8 9 7 8 9 7 8 9 7 8 9 7 8 9 7 8 9 7 8 9 7 8 9 7 8 9 7 8 9 7 8 9 6 7 8 6 7 8 6 7 8 6 7 8 6 7 8 6 7 8 6 7 8 6 7 8 6 7 8 6 7 8 6 7 8 6 7 8 6 7 8 6 7 8 6 7 8 6 7 8 6 7 8 6 7 8 6 7 8 6 7 8 6 7 8 6 7 8 6 7 8 6 6 7 5 6 7 5 6 7 5 6 7 5 6 7 5 6 7 5 6 7 5 6 7 5 6 7 5 6 7 5 6 7 5 6 7 5 6 7 5 6 7 5 6 7 5 6 7 5 6 7 5 6 7 5 6 7 5 6 7 5 6 7 5 6 7 5 5 6 4 5 6 4 5 6 4 5 6 4 5 6 4 5 6 4 5 6 4 5 6 4 5 6 4 5 6 4 5 6 4 5 6 4 5 6 4 5 6 4 5 6 4 5 6 4 5 6 4 5 6 4 5 6 4 5 6 4 5 6 4 5 6 4 4 5 3 4 5 3 4 5 3 4 5 3 4 5 3 4 5 3 4 5 3 4 5 3 4 5 3 4 5 3 4 5 3 4 5 3 4 5 3 4 5 3 4 5 3 4 5 3 4 5 3 4 5 3 4 5 3 4 5 3 4 5 3 4 5 3 3 4 2 3 4 2 3 4 2 3 4 2 3 4 2 3 4 2 3 4 2 3 4 2 3 4 2 3 4 2 3 4 2 3 4 2 3 4 2 3 4 2 3 4 2 3 4 2 3 4 2 3 4 2 3 4 2 3 4 2 3 4 2 3 4 2 2 3 1 2 3 1 2 3 1 2 3 1 2 3 1 2 3 1 2 3 1 2 3 1 2 3 1 2 3 1 2 3 1 2 3 1 2 3 1 2 3 1)
+# Centros dos discos (sonar), em pixel inteiro: topo, direita, esquerda.
+HA_SCX=(17 22 11)
+HA_SCY=(12 18 22)
 
-# ── logo: meio-bloco, dois pixels por célula ─────────────────────────────────
-# A célula do terminal é ~2:1. Com "▀" ela vira DOIS pixels de cor
-# independente — frente em cima, fundo embaixo — e o pixel resultante fica
-# quase quadrado. É a maior resolução com cor por subpixel que o terminal dá.
-# Braille daria 2x4, mas só UMA cor por célula: o azul e o branco não caberiam
-# juntos no mesmo caractere, e o logo tem os dois encostados.
-#
-# A animação é a oficial do Home Assistant: um traço branco percorre o
-# CONTORNO da casa, como uma caneta desenhando o perímetro.
+# ── a abertura: constelação → traço → sonar → respiração ─────────────────────
+# Quatro atos, ~3 s. O que cada um é, e por quê:
+#   1. CONSTELAÇÃO — cada pixel da casa é uma partícula que voa de fora da
+#      tela em trajetória radial (com um giro de 40°) e ASSENTA no lugar,
+#      construindo a casa de baixo para cima. Trajetórias pré-computadas pelo
+#      gerador; o runtime só interpola inteiros.
+#   2. O TRAÇO OFICIAL — a caneta branca desenha o contorno INTEIRO e se
+#      retrai, por posição de arco (conferido contra o vídeo do logo).
+#   3. SONAR — cada disco do circuito emite dois anéis ciano que varrem o
+#      corpo azul: os dispositivos entrando na rede, visível.
+#   4. RESPIRAÇÃO — o azul pulsa uma vez mais claro e assenta.
+# O corpo azul tem GRADIENTE VERTICAL (mais claro no topo): volume, não sprite.
+# Sem animação: um quadro final parado. Sem UTF-8 ou sem cor: só o título.
 
-HA_MIN_COLS=50
-HA_ATRASO=0.016
-HA_QUADROS=44       # quadros da volta: metade desenha, metade retrai. 44 x ~55ms
-                    # = ~2,4 s — o vídeo de referência leva ~4,2 s por ciclo, mas
-                    # numa abertura que roda UMA vez isso é tempo demais parado.
+HA_MIN_COLS=36
+HA_ATRASO=0.03
+HA_A_DUR=8           # quadros de voo de cada partícula
+HA_Q_MONTA=22        # constelação (delay máx + voo)
+HA_Q_TRACO=34        # metade desenha, metade retrai
+HA_Q_SONAR=15        # 3 discos x 5 raios
+HA_Q_GLOW=5
+HA_QUADROS=$(( HA_Q_MONTA + HA_Q_TRACO + HA_Q_SONAR + HA_Q_GLOW ))
+HA_LINHAS=$(( HA_H / 2 ))
 
-# Escapes pré-computados: montar cor por célula com $(...) seria um subshell
-# por pixel — 1152 por quadro. Aqui o laço interno é só concatenação.
 ha_logo_init() {
   [ -n "${HA_LOGO_PRONTO:-}" ] && return 0
+  local y r g b t
+  # Azul HA com gradiente vertical: do #35b6f8 (topo) ao #0277BD (base).
+  # Um escape de frente e um de fundo POR LINHA, pré-computados uma vez.
+  HA_FGA=(); HA_BGA=()
+  for (( y = 0; y < HA_H; y++ )); do
+    t=$(( y * 100 / (HA_H - 1) ))
+    r=$(( 53 - (53 - 2) * t / 100 ))
+    g=$(( 182 - (182 - 119) * t / 100 ))
+    b=$(( 248 - (248 - 189) * t / 100 ))
+    if [[ "$HAOS_UI_DEPTH" == 24 ]]; then
+      HA_FGA[y]=$'\033[38;2;'"$r;$g;$b"m
+      HA_BGA[y]=$'\033[48;2;'"$r;$g;$b"m
+    else
+      HA_FGA[y]=$'\033[38;5;39m'; HA_BGA[y]=$'\033[48;5;39m'
+    fi
+  done
   if [[ "$HAOS_UI_DEPTH" == 24 ]]; then
-    HA_FG_AZUL=$'\033[38;2;3;169;244m';   HA_BG_AZUL=$'\033[48;2;3;169;244m'
     HA_FG_BRANCO=$'\033[38;2;236;242;248m'; HA_BG_BRANCO=$'\033[48;2;236;242;248m'
     HA_FG_TRACO=$'\033[38;2;255;255;255m';  HA_BG_TRACO=$'\033[48;2;255;255;255m'
+    HA_FG_PULSO=$'\033[38;2;0;229;255m';    HA_BG_PULSO=$'\033[48;2;0;229;255m'
+    HA_FG_FAGULHA=$'\033[38;2;120;220;255m'
+    HA_FG_GLOW=$'\033[38;2;120;214;255m';   HA_BG_GLOW=$'\033[48;2;120;214;255m'
   else
-    HA_FG_AZUL=$'\033[38;5;39m';  HA_BG_AZUL=$'\033[48;5;39m'
     HA_FG_BRANCO=$'\033[38;5;255m'; HA_BG_BRANCO=$'\033[48;5;255m'
     HA_FG_TRACO=$'\033[38;5;231m';  HA_BG_TRACO=$'\033[48;5;231m'
+    HA_FG_PULSO=$'\033[38;5;51m';   HA_BG_PULSO=$'\033[48;5;51m'
+    HA_FG_FAGULHA=$'\033[38;5;117m'
+    HA_FG_GLOW=$'\033[38;5;117m';   HA_BG_GLOW=$'\033[48;5;117m'
   fi
   HA_LOGO_PRONTO=1
 }
 
-# ha_logo_quadro <n> — pinta o logo no quadro n de HA_QUADROS.
-# n < 0 desenha o logo parado, sem traço.
-#
-# O movimento é o do logo oficial, conferido quadro a quadro no vídeo que ele
-# mandou: NÃO é um cometa de comprimento fixo dando voltas. A cabeça sai de
-# baixo, no centro, e corre o perímetro INTEIRO; só então a cauda a persegue e
-# o traço se retrai até sumir. É o stroke-dashoffset de sempre — e a diferença
-# aparece na tela: com comprimento fixo o desenho nunca fecha, e fechar é o que
-# dá a sensação de conclusão.
-ha_logo_quadro() {
-  local n="$1" y1 y2 x c1 c2 saida chave
-  ha_logo_init
+# O quadro é montado num buffer de MÁSCARA mutável (QM), linha a linha, e um
+# render único pinta as classes: . fora · # azul · o branco · t traço ·
+# p pulso ciano · a partícula em voo · g glow. Substituição posicional de
+# string é O(1) por pixel — é o que deixa 470 partículas por quadro baratas.
+ha_qm_reset_vazio() { local y; QM=(); for (( y = 0; y < HA_H; y++ )); do QM[y]="$HA_QM_VAZIA"; done; }
+ha_qm_reset_mask()  { local y; QM=(); for (( y = 0; y < HA_H; y++ )); do QM[y]="${HA_MASK[y]}"; done; }
+ha_qm_poe() { # <x> <y> <classe>
+  [ "$2" -ge 0 ] && [ "$2" -lt "$HA_H" ] && [ "$1" -ge 0 ] && [ "$1" -lt "$HA_W" ] || return 0
+  QM[$2]="${QM[$2]:0:$1}$3${QM[$2]:$(( $1 + 1 ))}"
+}
 
-  # Índice POR LINHA. A primeira versão guardava um conjunto único "x,y" e
-  # buscava nele a cada pixel: 2.300 buscas de substring em string de 140
-  # elementos por quadro, e o quadro levava 51 ms. Indexando por linha, cada
-  # busca varre só os poucos pixels de contorno daquela linha.
-  # Índice POR LINHA. A primeira versão guardava um conjunto único "x,y" e
-  # buscava nele a cada pixel: 2.300 buscas de substring por quadro, e o quadro
-  # levava 51 ms. Por linha, cada busca varre só os poucos pixels daquela linha.
-  local -a linha_acesa
-  if [ "$n" -ge 0 ]; then
-    local total=${#HA_BX[@]} meio=$(( HA_QUADROS / 2 )) cabeca cauda i k by
-    if [ "$n" -lt "$meio" ]; then
-      cabeca=$(( n * total / meio )); cauda=0                  # desenha
-    else
-      cabeca=$total; cauda=$(( (n - meio) * total / meio ))    # retrai
-    fi
-    for (( i = cauda; i < cabeca; i++ )); do
-      k=$(( i % total ))
-      by=${HA_BY[k]}
-      linha_acesa[by]="${linha_acesa[by]:- } ${HA_BX[k]} "
-    done
-  fi
-
+ha_render_qm() {
+  local y1 y2 x c1 c2 saida
   for (( y1 = 0; y1 < HA_H; y1 += 2 )); do
     y2=$(( y1 + 1 ))
     saida=''
+    local fa1="${HA_FGA[y1]}" fa2bg="${HA_BGA[y2]}" fa2="${HA_FGA[y2]}"
     for (( x = 0; x < HA_W; x++ )); do
-      c1="${HA_MASK[$y1]:$x:1}"
-      c2="${HA_MASK[$y2]:$x:1}"
-      # o traço sobrepõe a máscara
-      case "${linha_acesa[$y1]:-}" in *" $x "*) c1='t' ;; esac
-      case "${linha_acesa[$y2]:-}" in *" $x "*) c2='t' ;; esac
-      chave="$c1$c2"
-      case "$chave" in
+      c1="${QM[$y1]:$x:1}"; c2="${QM[$y2]:$x:1}"
+      case "$c1$c2" in
         '..') saida+="${NC} " ;;
-        '.#') saida+="${NC}${HA_FG_AZUL}▄" ;;
+        '.#') saida+="${NC}${fa2}▄" ;;
+        '#.') saida+="${NC}${fa1}▀" ;;
+        '##') saida+="${fa1}${fa2bg}▀" ;;
         '.o') saida+="${NC}${HA_FG_BRANCO}▄" ;;
-        '.t') saida+="${NC}${HA_FG_TRACO}▄" ;;
-        '#.') saida+="${NC}${HA_FG_AZUL}▀" ;;
         'o.') saida+="${NC}${HA_FG_BRANCO}▀" ;;
-        't.') saida+="${NC}${HA_FG_TRACO}▀" ;;
-        '##') saida+="${HA_FG_AZUL}${HA_BG_AZUL}▀" ;;
         'oo') saida+="${HA_FG_BRANCO}${HA_BG_BRANCO}▀" ;;
+        '#o') saida+="${fa1}${HA_BG_BRANCO}▀" ;;
+        'o#') saida+="${HA_FG_BRANCO}${fa2bg}▀" ;;
+        '.t') saida+="${NC}${HA_FG_TRACO}▄" ;;
+        't.') saida+="${NC}${HA_FG_TRACO}▀" ;;
         'tt') saida+="${HA_FG_TRACO}${HA_BG_TRACO}▀" ;;
-        '#o') saida+="${HA_FG_AZUL}${HA_BG_BRANCO}▀" ;;
-        'o#') saida+="${HA_FG_BRANCO}${HA_BG_AZUL}▀" ;;
-        '#t') saida+="${HA_FG_AZUL}${HA_BG_TRACO}▀" ;;
-        't#') saida+="${HA_FG_TRACO}${HA_BG_AZUL}▀" ;;
+        '#t') saida+="${fa1}${HA_BG_TRACO}▀" ;;
+        't#') saida+="${HA_FG_TRACO}${fa2bg}▀" ;;
         'ot') saida+="${HA_FG_BRANCO}${HA_BG_TRACO}▀" ;;
         'to') saida+="${HA_FG_TRACO}${HA_BG_BRANCO}▀" ;;
+        '.p') saida+="${NC}${HA_FG_PULSO}▄" ;;
+        'p.') saida+="${NC}${HA_FG_PULSO}▀" ;;
+        'pp') saida+="${HA_FG_PULSO}${HA_BG_PULSO}▀" ;;
+        '#p') saida+="${fa1}${HA_BG_PULSO}▀" ;;
+        'p#') saida+="${HA_FG_PULSO}${fa2bg}▀" ;;
+        'op') saida+="${HA_FG_BRANCO}${HA_BG_PULSO}▀" ;;
+        'po') saida+="${HA_FG_PULSO}${HA_BG_BRANCO}▀" ;;
+        '.a') saida+="${NC}${HA_FG_FAGULHA}▄" ;;
+        'a.') saida+="${NC}${HA_FG_FAGULHA}▀" ;;
+        'aa') saida+="${HA_FG_FAGULHA}${HA_BG_PULSO}▀" ;;
+        'a#') saida+="${HA_FG_FAGULHA}${fa2bg}▀" ;;
+        '#a') saida+="${fa1}${HA_BG_PULSO}▀" ;;
+        'ao') saida+="${HA_FG_FAGULHA}${HA_BG_BRANCO}▀" ;;
+        'oa') saida+="${HA_FG_BRANCO}${HA_BG_PULSO}▀" ;;
+        '.g') saida+="${NC}${HA_FG_GLOW}▄" ;;
+        'g.') saida+="${NC}${HA_FG_GLOW}▀" ;;
+        'gg') saida+="${HA_FG_GLOW}${HA_BG_GLOW}▀" ;;
+        'go') saida+="${HA_FG_GLOW}${HA_BG_BRANCO}▀" ;;
+        'og') saida+="${HA_FG_BRANCO}${HA_BG_GLOW}▀" ;;
         *)    saida+="${NC} " ;;
       esac
     done
@@ -271,14 +289,89 @@ ha_logo_quadro() {
   done
 }
 
-HA_LINHAS=$(( 48 / 2 ))
+# ha_logo_quadro <n> — compõe o quadro n. n < 0: quadro final parado.
+ha_logo_quadro() {
+  local n="$1"
+  ha_logo_init
+  [ -n "${HA_QM_VAZIA:-}" ] || printf -v HA_QM_VAZIA '%*s' "$HA_W" ''; HA_QM_VAZIA="${HA_QM_VAZIA// /.}"
+  local -a QM
+
+  if [ "$n" -lt 0 ]; then
+    ha_qm_reset_mask; ha_render_qm; return 0
+  fi
+
+  if [ "$n" -lt "$HA_Q_MONTA" ]; then
+    # ── ato 1: constelação ──────────────────────────────────────────────────
+    ha_qm_reset_vazio
+    local total=${#HA_AX[@]} i d t x y
+    for (( i = 0; i < total; i++ )); do
+      d=${HA_ADL[i]}
+      if [ "$n" -ge $(( d + HA_A_DUR )) ]; then
+        ha_qm_poe "${HA_AX[i]}" "${HA_AY[i]}" "${HA_MASK[${HA_AY[i]}]:${HA_AX[i]}:1}"
+      elif [ "$n" -ge "$d" ]; then
+        t=$(( (n - d) * 100 / HA_A_DUR ))
+        x=$(( HA_AOX[i] + (HA_AX[i] - HA_AOX[i]) * t / 100 ))
+        y=$(( HA_AOY[i] + (HA_AY[i] - HA_AOY[i]) * t / 100 ))
+        ha_qm_poe "$x" "$y" a
+      fi
+    done
+    ha_render_qm; return 0
+  fi
+
+  if [ "$n" -lt $(( HA_Q_MONTA + HA_Q_TRACO )) ]; then
+    # ── ato 2: o traço desenha e retrai, por posição de ARCO ────────────────
+    ha_qm_reset_mask
+    local k=$(( n - HA_Q_MONTA )) meio=$(( HA_Q_TRACO / 2 )) cabeca cauda i tt
+    if [ "$k" -lt "$meio" ]; then
+      cabeca=$(( k * HA_CAMINHO / meio )); cauda=0
+    else
+      cabeca=$HA_CAMINHO; cauda=$(( (k - meio) * HA_CAMINHO / meio ))
+    fi
+    local total=${#HA_TX[@]}
+    for (( i = 0; i < total; i++ )); do
+      tt=${HA_TT[i]}
+      [ "$tt" -lt "$cauda" ] && continue
+      [ "$tt" -ge "$cabeca" ] && break
+      ha_qm_poe "${HA_TX[i]}" "${HA_TY[i]}" t
+    done
+    ha_render_qm; return 0
+  fi
+
+  if [ "$n" -lt $(( HA_Q_MONTA + HA_Q_TRACO + HA_Q_SONAR )) ]; then
+    # ── ato 3: sonar — anéis ciano saindo de cada disco ─────────────────────
+    ha_qm_reset_mask
+    local k=$(( n - HA_Q_MONTA - HA_Q_TRACO ))
+    local disco=$(( k / 5 )) passo=$(( k % 5 ))
+    local cx=${HA_SCX[disco]} cy=${HA_SCY[disco]}
+    local r=$(( (passo + 1) * 3 )) r2min r2max x y dx dy d2
+    r2min=$(( (r - 2) * (r - 2) )); r2max=$(( r * r ))
+    for (( y = 0; y < HA_H; y++ )); do
+      for (( x = 0; x < HA_W; x++ )); do
+        [ "${HA_MASK[$y]:$x:1}" = '#' ] || continue
+        dx=$(( x - cx )); dy=$(( y - cy ))
+        d2=$(( dx * dx + dy * dy ))
+        if [ "$d2" -ge "$r2min" ] && [ "$d2" -le "$r2max" ]; then
+          ha_qm_poe "$x" "$y" p
+        fi
+      done
+    done
+    ha_render_qm; return 0
+  fi
+
+  # ── ato 4: respiração — o azul pulsa e assenta ────────────────────────────
+  local k=$(( n - HA_Q_MONTA - HA_Q_TRACO - HA_Q_SONAR )) y
+  ha_qm_reset_mask
+  if [ "$k" = "1" ] || [ "$k" = "2" ]; then
+    for (( y = 0; y < HA_H; y++ )); do QM[y]="${QM[y]//#/g}"; done
+  fi
+  ha_render_qm
+}
 
 # ha_banner [título] [subtítulo]
 ha_banner() {
   local title="${1:-Home Assistant OS}" sub="${2:-}" n cols
   cols="$(tput cols 2>/dev/null || echo 0)"
   case "$cols" in ''|*[!0-9]*) cols=0 ;; esac
-  HA_LINHAS=$(( HA_H / 2 ))
 
   # Sem UTF-8 os glifos sairiam partidos; sem cor o logo vira mancha.
   if [[ "$HAOS_UI_UTF8" == 0 ]] || [[ "$HAOS_UI_DEPTH" == 0 ]]; then
@@ -288,7 +381,7 @@ ha_banner() {
     return 0
   fi
 
-  # Terminal estreito ou sem animação: UM quadro, o logo parado. Nunca meia
+  # Terminal estreito ou sem animação: UM quadro, tudo assentado. Nunca meia
   # animação, e nada que o movimento mostre existe só nele.
   if [[ "$HAOS_UI_ANIM" == 0 ]] || [ "$cols" -lt "$HA_MIN_COLS" ]; then
     ha_logo_quadro -1
@@ -298,15 +391,13 @@ ha_banner() {
     return 0
   fi
 
-  # Sem trap aqui: a lib não instala trap, e o cursor volta pelo cleanup de
-  # quem chama, via ha_show_cursor.
   _hide
   for (( n = 0; n < HA_QUADROS; n++ )); do
     (( n > 0 )) && { tput cuu "$HA_LINHAS" 2>/dev/null || break; }
     ha_logo_quadro "$n"
     sleep "$HA_ATRASO"
   done
-  tput cuu "$HA_LINHAS" 2>/dev/null && ha_logo_quadro -1   # assenta sem o traço
+  tput cuu "$HA_LINHAS" 2>/dev/null && ha_logo_quadro -1   # assenta
   _show
   printf '\n'
   ha_shimmer "  ${title}"

@@ -6,7 +6,22 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
 
 ## [Unreleased]
 
-_Nada ainda._
+### Added
+- **Abertura em 4 atos** (constelação → traço oficial → sonar → respiração):
+  cada pixel da casa voa de fora da tela e se monta de baixo para cima; o
+  traço branco desenha o contorno e se retrai (movimento do vídeo oficial);
+  os discos do circuito emitem anéis ciano; o azul pulsa e assenta. Preview
+  fiel em `docs/previews/2026-08-24-abertura/abertura.gif`.
+- **Geometria do logo refeita contra o vídeo oficial**: BEIRAL (o telhado
+  ultrapassa as paredes, com degrau), ápice pontudo, base com raio moderado,
+  traço 1,75 px abraçando a borda (come 9% da casa; a tentativa reprovada
+  comia 42%), gradiente vertical no azul.
+- Cerca nova do logo no `verify.sh`: além da integridade da máscara, o limiar
+  de RAZÃO traço/casa (≤ 12%) — a cerca que teria pego a tentativa reprovada.
+
+### Removed
+- `tools/escolhe-logo.sh` (andaime da escolha, superado pela direção do dono;
+  preservado em `.lixo-24-08/`).
 
 ## [0.2.0] — 2026-08-24
 

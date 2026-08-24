@@ -91,5 +91,11 @@ mundo, não a árvore.
 - **F4 VM · F5 boot · F5b auto-start** — bloqueados até o VirtualBox existir
   no Mac mini (probe de `list ostypes`/`storagectl --help` no binário real).
 - Push dos 7 commits (**só sob ordem**) e `git pull` no clone do Mac mini.
-- Pendências do dono: **logo** (`./tools/escolhe-logo.sh`) · `$TMPDIR/ha.tok`
-  · troca da senha da HGU que passou pelo chat.
+- **Logo: RESOLVIDO em código, aguardando ratificação do dono.** Geometria
+  refeita contra o vídeo oficial (beiral, ápice pontudo, base r2.2, traço
+  1.75) + abertura em 4 atos (constelação → traço → sonar → respiração).
+  Ver `docs/previews/2026-08-24-abertura/abertura.gif` e rodar
+  `./tools/ui-demo.sh` no terminal. O escolhedor antigo foi para
+  `.lixo-24-08/`.
+- Pendências do dono: ratificar a abertura · `$TMPDIR/ha.tok` · troca da
+  senha da HGU que passou pelo chat.

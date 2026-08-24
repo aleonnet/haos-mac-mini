@@ -2,107 +2,47 @@
 """
 gera-logo.py — gera a máscara do logo do Home Assistant para o terminal.
 
-Desenhar arte ASCII à mão erra proporção e não escala. Aqui a geometria é
-calculada e o resultado sai como fragmento bash pronto para a lib.
+Geometria conferida contra o vídeo oficial (homeassistant_animated_logo.mp4,
+frames extraídos em 24/08/2026): a casa tem BEIRAL — o telhado ultrapassa as
+paredes e degrauza para dentro por baixo —, ápice pontudo, cantos de base com
+raio moderado, e o traço branco desenha o contorno e se retrai.
 
 Resolução: meio-bloco. Cada célula do terminal vira DOIS pixels — o de cima
 pinta a frente do "▀", o de baixo pinta o fundo. Como a célula é ~2:1, o pixel
-resultante fica quase quadrado, e a resolução vertical dobra.
+resultante fica quase quadrado.
 
 Máscara por pixel:
-    .  fora           #  corpo da casa (azul)          o  circuito (branco)
+    .  fora        #  corpo da casa (azul)        o  circuito (branco)
 
-O traço branco é uma FAIXA, não um contorno de um pixel: cada pixel dela sabe
-onde está ao longo do caminho (HA_TT), e é isso que permite animar espessura —
-cabeça e cauda andam em posição de arco, não em índice de pixel. O contorno de
-um pixel é o caso degenerado da faixa, com espessura pequena.
+Além da máscara saem, em vetores paralelos:
+    HA_TX/HA_TY/HA_TT   a FAIXA do traço, ordenada pela posição no caminho
+                        (cabeça e cauda animam por posição de ARCO)
+    HA_PX/HA_PY/HA_PD   os pixels dos três DISCOS do circuito (1=topo,
+                        2=direita, 3=esquerda) — o ato "circuito conecta"
+                        acende um disco por vez
 
-    ./tools/gera-logo.py                imprime o fragmento bash
-    ./tools/gera-logo.py --preview      desenha no terminal para conferir
-    ./tools/gera-logo.py --medir        só os números, para comparar geometrias
-    ./tools/gera-logo.py --variante 2   usa um dos presets do escolhedor
-    ./tools/gera-logo.py --casa 24 --espessura 2.6 --raio 5 --dmin 0 --margem 6
+    ./tools/gera-logo.py            imprime o fragmento bash
+    ./tools/gera-logo.py --preview  desenha no terminal para conferir
+    ./tools/gera-logo.py --medir    só os números (casa, traço, come)
 """
 import math, sys
 
-# ── presets ──────────────────────────────────────────────────────────────────
-# São as variantes que tools/escolhe-logo.sh desenha em sequência. A 0 é a
-# geometria de 48 px que está em produção; as demais encolhem a casa e engrossam
-# o traço, que foi o pedido.
-#
-# dmin é o que separa uma faixa que RESPEITA a casa de uma que a come: com
-# dmin < 0 a faixa entra no corpo azul, e num telhado a 45° as duas bordas
-# convergem perto do ápice — a faixa se sobrepõe a si mesma e entope o bico.
-# Medido: casa 28 / esp 2.6 / raio 3 / dmin -0.9 come 42% da casa.
-# A variante 0 do escolhedor NÃO está aqui de propósito: ela é o lib/haos-ui.sh
-# atual, sourceado como está, para a comparação ser com o que roda hoje e não
-# com uma reconstrução. Reconstruir os 48 px por esta fórmula dá come=20,3%, que
-# não é a geometria em produção.
-VARIANTES = {
-    1: dict(casa=24.0, margem=6.0, espessura=2.0, raio=5.0, dmin=0.0),
-    2: dict(casa=24.0, margem=6.0, espessura=2.6, raio=5.0, dmin=0.0),
-    3: dict(casa=24.0, margem=6.0, espessura=3.0, raio=5.0, dmin=0.0),
-    4: dict(casa=20.0, margem=6.0, espessura=2.6, raio=5.0, dmin=0.0),
-    5: dict(casa=28.0, margem=7.0, espessura=2.6, raio=6.0, dmin=0.0),
-    6: dict(casa=28.0, margem=6.0, espessura=2.6, raio=5.0, dmin=0.0),
-    7: dict(casa=24.0, margem=7.0, espessura=3.6, raio=6.0, dmin=0.0),
-}
-
-# ── parâmetros ───────────────────────────────────────────────────────────────
-P = dict(casa=24.0, margem=6.0, espessura=2.6, raio=5.0, dmin=0.0, telhado=0.46)
-
-def _arg(nome, conv=float):
-    """--nome valor; devolve None se ausente. Erro explícito em valor inválido:
-    um typo aqui sai como geometria silenciosamente errada, e foi assim que a
-    tentativa anterior chegou ao commit."""
-    flag = "--" + nome
-    if flag not in sys.argv:
-        return None
-    i = sys.argv.index(flag)
-    if i + 1 >= len(sys.argv):
-        sys.exit(f"gera-logo.py: {flag} exige um valor")
-    try:
-        return conv(sys.argv[i + 1])
-    except ValueError:
-        sys.exit(f"gera-logo.py: valor inválido para {flag}: {sys.argv[i + 1]!r}")
-
-_v = _arg("variante", int)
-if _v is not None:
-    if _v not in VARIANTES:
-        _ok = " ".join(str(k) for k in sorted(VARIANTES))
-        sys.exit(f"gera-logo.py: variante {_v} não existe (há: {_ok}; "
-                 f"a 0 é o lib atual, desenhada por tools/escolhe-logo.sh)")
-    P.update(VARIANTES[_v])
-for _nome in ("casa", "margem", "espessura", "raio", "dmin", "telhado"):
-    _x = _arg(_nome)
-    if _x is not None:
-        P[_nome] = _x
-
-CASA      = P["casa"]
-MARGEM    = P["margem"]
-ESPESSURA = P["espessura"]
-RAIO      = P["raio"]
-DMIN      = P["dmin"]
-TELHADO   = P["telhado"]
+# ── dimensões ────────────────────────────────────────────────────────────────
+CASA    = 26.0   # lado (largura total, beiral incluído)
+MARGEM  = 4.0    # folga para o traço respirar (>= ESPESSURA + 1)
+ESP     = 1.75   # meia-espessura do traço — pedido: entre 1.5 e 2
+DMIN    = 0.0    # a faixa fica POR FORA da borda (come 0% da casa — medido)
 W = int(CASA + MARGEM * 2)
 H = W
 
-# A faixa cresce ESPESSURA para fora da casa; sem margem para isso ela sai
-# cortada na borda do canvas e o traço "some" de um lado só.
-# O render é meio-bloco: lê as linhas aos pares (y, y+1). Com H ímpar a última
-# linha não tem par, e em bash o índice fora do array vira string vazia — o
-# desenho perde a base sem nenhum erro.
-if H % 2 != 0:
-    sys.exit(f"gera-logo.py: casa {CASA:g} + 2*margem {MARGEM:g} = {H}, que é ímpar; "
-             f"o render é meio-bloco e exige altura par")
-
-if MARGEM < ESPESSURA + 1.0:
-    sys.exit(f"gera-logo.py: margem {MARGEM} é curta para espessura {ESPESSURA} "
-             f"(precisa de pelo menos {ESPESSURA + 1.0})")
-
-# A geometria vai gravada no fragmento para o portão poder regerar e comparar.
-GEOMETRIA = (f"--casa {CASA:g} --margem {MARGEM:g} --espessura {ESPESSURA:g} "
-             f"--raio {RAIO:g} --dmin {DMIN:g} --telhado {TELHADO:g}")
+# proporções do logo oficial (medidas nos frames)
+OMBRO   = 0.42   # altura do beiral (fração de CASA)
+BEIRAL  = 0.085  # quanto o telhado ultrapassa a parede, por lado
+ESPBEI  = 0.055  # espessura vertical do degrau do beiral
+R_APICE = 1.3    # topo pontudo
+R_OMBRO = 1.0    # canto externo do beiral
+R_NOTCH = 0.5    # degrau interno do beiral — quase vivo
+R_BASE  = 2.2    # cantos de baixo: raio MENOR que a tentativa anterior
 
 def _dist_seg(px, py, x1, y1, x2, y2):
     dx, dy = x2 - x1, y2 - y1
@@ -110,106 +50,131 @@ def _dist_seg(px, py, x1, y1, x2, y2):
     t = 0.0 if L == 0 else max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / L))
     return math.hypot(px - (x1 + t * dx), py - (y1 + t * dy))
 
-def _casa_encolhida():
-    """Pentágono do HA arredondado por Minkowski: encolhe por RAIO e depois
-    toma tudo a distância <= RAIO. Arredondar cada canto com um arco à parte
-    deixa degrau na junção com a rampa do telhado."""
-    x0, y0 = MARGEM, MARGEM
-    cx = x0 + CASA / 2.0
-    ombro = y0 + CASA * TELHADO
-    V = [(cx, y0), (x0 + CASA, ombro), (x0 + CASA, y0 + CASA),
-         (x0, y0 + CASA), (x0, ombro)]
-    N = []
-    for i in range(len(V)):
-        x1, y1 = V[i]; x2, y2 = V[(i + 1) % len(V)]
-        ex, ey = x2 - x1, y2 - y1
-        L = math.hypot(ex, ey)
-        nx, ny = ey / L, -ex / L
-        N.append((nx, ny, nx * x1 + ny * y1))
-    Vs = []
-    for i in range(len(N)):
-        a1, b1, c1 = N[i - 1]; a2, b2, c2 = N[i]
-        c1 -= RAIO; c2 -= RAIO
-        det = a1 * b2 - a2 * b1
-        if abs(det) < 1e-9:
-            continue
-        Vs.append(((c1 * b2 - c2 * b1) / det, (a1 * c2 - a2 * c1) / det))
-    return Vs
-
-CASA_VS = _casa_encolhida()
-
-def _dist_ao_contorno(px, py):
-    """distância ao contorno do polígono encolhido, e se está dentro"""
-    n = len(CASA_VS)
-    dentro = True
-    for i in range(n):
-        x1, y1 = CASA_VS[i]; x2, y2 = CASA_VS[(i + 1) % n]
-        if (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1) < 0:
-            dentro = False; break
-    d = min(_dist_seg(px, py, CASA_VS[i][0], CASA_VS[i][1],
-                      CASA_VS[(i + 1) % n][0], CASA_VS[(i + 1) % n][1])
-            for i in range(len(CASA_VS)))
-    return d, dentro
-
-def dentro_casa(x, y):
-    d, dentro = _dist_ao_contorno(x + 0.5, y + 0.5)
-    return dentro or d <= RAIO
-
-def dentro_circuito(x, y):
-    """Circuito do HA. Proporções medidas no logo oficial:
-    disco de cima 50%/33% · direita 75%/58% · esquerda 25%/73%."""
-    px, py = x + 0.5, y + 0.5
-    x0, y0 = MARGEM, MARGEM
-    ESP = CASA * 0.042          # traço fino: ele pediu delicado
-    R_DISCO = CASA * 0.085
-
-    topo    = (x0 + CASA * 0.50, y0 + CASA * 0.33)
-    direita = (x0 + CASA * 0.75, y0 + CASA * 0.58)
-    esq     = (x0 + CASA * 0.25, y0 + CASA * 0.73)
-    base    = (x0 + CASA * 0.50, y0 + CASA * 0.93)
-
-    if _dist_seg(px, py, topo[0], topo[1], base[0], base[1]) <= ESP: return True
-    if _dist_seg(px, py, direita[0], direita[1], x0 + CASA * 0.50, y0 + CASA * 0.79) <= ESP: return True
-    if _dist_seg(px, py, esq[0], esq[1], base[0], base[1]) <= ESP: return True
-    for cxx, cyy in (topo, direita, esq):
-        if math.hypot(px - cxx, py - cyy) <= R_DISCO: return True
-    return False
-
-# ── caminho do traço: o contorno amostrado denso, com comprimento de arco ────
-def _caminho():
-    n = len(CASA_VS)
+# ── contorno: polígono de 7 vértices com raio POR CANTO ──────────────────────
+# Arredondamento clássico de canto: recua r/tan(θ/2) em cada aresta e amostra o
+# arco. Um raio único (Minkowski) não serve aqui — o pedido é ápice pontudo COM
+# base arredondada, e o beiral exige canto quase vivo no degrau.
+def _caminho_arredondado():
+    x0 = y0 = MARGEM
+    C = CASA
+    cx = x0 + C / 2.0
+    hy = y0 + C * OMBRO
+    et = C * ESPBEI
+    wx = C * BEIRAL
+    V = [
+        ((cx, y0),              R_APICE),   # ápice
+        ((x0 + C, hy),          R_OMBRO),   # beiral direito, canto externo
+        ((x0 + C - wx, hy + et), R_NOTCH),  # degrau do beiral, direita
+        ((x0 + C - wx, y0 + C), R_BASE),    # base direita
+        ((x0 + wx, y0 + C),     R_BASE),    # base esquerda
+        ((x0 + wx, hy + et),    R_NOTCH),   # degrau do beiral, esquerda
+        ((x0, hy),              R_OMBRO),   # beiral esquerdo, canto externo
+    ]
+    n = len(V)
     pts = []
     for i in range(n):
-        x1, y1 = CASA_VS[i]; x2, y2 = CASA_VS[(i + 1) % n]
+        (px_, py_), r = V[i]
+        (ax, ay), _ = V[(i - 1) % n]
+        (bx, by), _ = V[(i + 1) % n]
+        ux, uy = ax - px_, ay - py_
+        vx, vy = bx - px_, by - py_
+        lu, lv = math.hypot(ux, uy), math.hypot(vx, vy)
+        ux, uy, vx, vy = ux / lu, uy / lu, vx / lv, vy / lv
+        ang = math.acos(max(-1.0, min(1.0, ux * vx + uy * vy)))
+        t = min(r / math.tan(ang / 2.0), lu / 2.5, lv / 2.5)
+        p1 = (px_ + ux * t, py_ + uy * t)   # entra no canto
+        p2 = (px_ + vx * t, py_ + vy * t)   # sai do canto
+        # centro do arco: pela bissetriz, a distância r/sin(θ/2)
+        bx_, by_ = ux + vx, uy + vy
+        lb = math.hypot(bx_, by_)
+        passos = max(2, int(r * 3))
+        if lb < 1e-9 or r < 0.2:
+            pts.append(p1); pts.append(p2)
+            continue
+        cxa = px_ + bx_ / lb * (t / math.cos(ang / 2.0) if ang < math.pi else t)
+        cya = py_ + by_ / lb * (t / math.cos(ang / 2.0) if ang < math.pi else t)
+        # amostra o arco de p1 a p2 em volta de (cxa, cya)
+        a1 = math.atan2(p1[1] - cya, p1[0] - cxa)
+        a2 = math.atan2(p2[1] - cya, p2[0] - cxa)
+        while a2 - a1 > math.pi:  a2 -= 2 * math.pi
+        while a1 - a2 > math.pi:  a2 += 2 * math.pi
+        ra = math.hypot(p1[0] - cxa, p1[1] - cya)
+        for k in range(passos + 1):
+            a = a1 + (a2 - a1) * k / passos
+            pts.append((cxa + ra * math.cos(a), cya + ra * math.sin(a)))
+    # densifica as retas entre cantos
+    dens = []
+    m = len(pts)
+    for i in range(m):
+        x1, y1 = pts[i]; x2, y2 = pts[(i + 1) % m]
         L = math.hypot(x2 - x1, y2 - y1)
-        passos = max(2, int(L * 4))
+        passos = max(1, int(L * 4))
         for k in range(passos):
             t = k / passos
-            pts.append((x1 + (x2 - x1) * t, y1 + (y2 - y1) * t))
-    # começa embaixo no centro e sobe pela ESQUERDA, como no logo oficial
-    mx = sum(p[0] for p in pts) / len(pts)
-    my = sum(p[1] for p in pts) / len(pts)
-    pts.sort(key=lambda p: (math.atan2(p[1] - my, p[0] - mx) - math.pi / 2) % (2 * math.pi))
-    return pts
+            dens.append((x1 + (x2 - x1) * t, y1 + (y2 - y1) * t))
+    # começa embaixo no centro e sobe pela ESQUERDA, como no vídeo oficial
+    mx = sum(p[0] for p in dens) / len(dens)
+    my = sum(p[1] for p in dens) / len(dens)
+    dens.sort(key=lambda p: (math.atan2(p[1] - my, p[0] - mx) - math.pi / 2) % (2 * math.pi))
+    return dens
 
-CAMINHO = _caminho()
+CAMINHO = _caminho_arredondado()
 M = len(CAMINHO)
 
-# ── monta a máscara ──────────────────────────────────────────────────────────
-mask = []
+def dentro_casa(x, y):
+    """ray casting contra o caminho denso"""
+    px, py = x + 0.5, y + 0.5
+    dentro = False
+    j = M - 1
+    for i in range(M):
+        xi, yi = CAMINHO[i]; xj, yj = CAMINHO[j]
+        if (yi > py) != (yj > py) and px < (xj - xi) * (py - yi) / (yj - yi) + xi:
+            dentro = not dentro
+        j = i
+    return dentro
+
+# ── circuito: tronco, dois ramos, três discos ────────────────────────────────
+# Proporções medidas no logo oficial. O tronco TERMINA 1,8 px acima da borda
+# interna da base: encosta visualmente sem furar o contorno — era o defeito
+# circulado na variante 1.
+x0 = y0 = MARGEM
+ESPC    = CASA * 0.045
+R_DISCO = CASA * 0.10
+topo    = (x0 + CASA * 0.50, y0 + CASA * 0.335)
+direita = (x0 + CASA * 0.72, y0 + CASA * 0.565)
+esq     = (x0 + CASA * 0.28, y0 + CASA * 0.715)
+base    = (x0 + CASA * 0.50, y0 + CASA - 1.8)
+
+def classe_circuito(x, y):
+    """0 = não é circuito · 1..3 = disco (topo/direita/esquerda) · 4 = linha"""
+    px, py = x + 0.5, y + 0.5
+    for i, (cxx, cyy) in enumerate((topo, direita, esq), start=1):
+        if math.hypot(px - cxx, py - cyy) <= R_DISCO:
+            return i
+    if _dist_seg(px, py, topo[0], topo[1], base[0], base[1]) <= ESPC: return 4
+    if _dist_seg(px, py, direita[0], direita[1], x0 + CASA * 0.50, y0 + CASA * 0.76) <= ESPC: return 4
+    if _dist_seg(px, py, esq[0], esq[1], base[0], base[1]) <= ESPC: return 4
+    return 0
+
+# ── máscara e discos ─────────────────────────────────────────────────────────
+mask, discos = [], []
 for y in range(H):
     linha = []
     for x in range(W):
         if not dentro_casa(x, y):
             linha.append('.')
-        elif dentro_circuito(x, y):
-            linha.append('o')
         else:
-            linha.append('#')
+            c = classe_circuito(x, y)
+            if c == 0:
+                linha.append('#')
+            else:
+                linha.append('o')
+                if c in (1, 2, 3):
+                    discos.append((x, y, c))
     mask.append(''.join(linha))
 
-# ── faixa do traço: pixels perto do contorno, com sua posição no caminho ─────
-traco = []          # (x, y, indice_no_caminho)
+# ── faixa do traço ───────────────────────────────────────────────────────────
+traco = []
 for y in range(H):
     for x in range(W):
         px, py = x + 0.5, y + 0.5
@@ -218,30 +183,44 @@ for y in range(H):
             d = (px - cx_) ** 2 + (py - cy_) ** 2
             if d < melhor:
                 melhor, idx = d, i
-        # A faixa monta na borda VERDADEIRA da casa, que fica a RAIO do
-        # polígono encolhido — não no encolhido. Centrar no encolhido escondia
-        # o traço inteiro sob o corpo azul.
-        d = math.sqrt(melhor) - RAIO
-        if DMIN <= d <= ESPESSURA:
+        d = math.sqrt(melhor)
+        # Distância COM sinal: fora da casa a faixa engorda até ESP; por dentro
+        # só meio pixel de abraço — é o que cola o traço na borda (como no
+        # vídeo) sem comer o corpo azul (o defeito medido da tentativa velha).
+        dentro = dentro_casa(x, y)
+        if (not dentro and DMIN <= d <= ESP) or (dentro and d <= 0.5):
             traco.append((x, y, idx))
 traco.sort(key=lambda t: t[2])
 
-# ── quanto a faixa come da casa ──────────────────────────────────────────────
-casa_px = sum(1 for y in range(H) for x in range(W) if mask[y][x] in '#o')
+# ── partículas do assemble ───────────────────────────────────────────────────
+# Cada pixel da casa ganha uma ORIGEM fora do canvas (direção radial a partir
+# do centro, com um giro de 40 graus — a partícula chega "orbitando") e um
+# DELAY que constrói a casa de baixo para cima. Determinístico: nada de
+# aleatório em build reproduzível.
+cx0, cy0 = W / 2.0, H / 2.0
+particulas = []   # (destino x, y, origem ox, oy, delay)
+i = 0
+for y in range(H):
+    for x in range(W):
+        if mask[y][x] == '.':
+            continue
+        dx, dy = x + 0.5 - cx0, y + 0.5 - cy0
+        ang = math.atan2(dy, dx) + math.radians(40)
+        raio = W * 0.9 + (i % 9)
+        ox = int(cx0 + math.cos(ang) * raio)
+        oy = int(cy0 + math.sin(ang) * raio)
+        delay = (H - 1 - y) // 3 + (i % 3)
+        particulas.append((x, y, ox, oy, delay))
+        i += 1
+
+casa_px = sum(1 for l in mask for c in l if c in '#o')
 come_px = sum(1 for x, y, _ in traco if mask[y][x] in '#o')
 
 if '--medir' in sys.argv:
     pct = 100.0 * come_px / casa_px if casa_px else 0.0
-    print(f"{GEOMETRIA}")
     print(f"canvas={W}x{H}px ({W} col x {H//2} linhas)  casa={casa_px}  "
-          f"traco={len(traco)}  come={come_px} ({pct:.1f}%)  "
-          f"traco/casa={len(traco)/casa_px:.2f}  caminho={M}")
-    sys.exit(0)
-
-if '--mask' in sys.argv:
-    for y in range(H):
-        sys.stdout.write(''.join('  ' if c == '.' else ('##' if c == '#' else '@@')
-                                 for c in mask[y]) + '\n')
+          f"traco={len(traco)}  come={come_px} ({pct:.1f}%)  caminho={M}  "
+          f"discos={len(discos)}px")
     sys.exit(0)
 
 if '--preview' in sys.argv:
@@ -260,14 +239,11 @@ if '--preview' in sys.argv:
     sys.exit(0)
 
 print("# ── GERADO por tools/gera-logo.py — NÃO editar à mão ──────────────────────")
-print(f"# Regerar com: ./tools/gera-logo.py {GEOMETRIA}")
-print("# Máscara do logo do Home Assistant, por pixel:")
-print("#   .  fora    #  corpo da casa    o  circuito")
-print("# HA_TX/HA_TY/HA_TT são a FAIXA do traço, em vetores paralelos e já")
-print("# ordenados pela posição no caminho. HA_TT guarda essa posição, que é o")
-print("# que permite animar uma faixa ESPESSA: cabeça e cauda andam em posição")
-print("# de arco, não em índice de pixel.")
-print(f"HA_GEOMETRIA='{GEOMETRIA}'")
+print("# Geometria conferida contra o vídeo oficial: beiral, ápice pontudo,")
+print("# base com raio moderado. Máscara por pixel: . fora · # casa · o circuito.")
+print("# HA_TX/HA_TY/HA_TT: faixa do traço ordenada pela posição no caminho —")
+print("# cabeça e cauda animam por posição de ARCO, não por índice de pixel.")
+print("# HA_PX/HA_PY/HA_PD: pixels dos 3 discos (1 topo · 2 direita · 3 esquerda).")
 print(f"HA_W={W}")
 print(f"HA_H={H}")
 print(f"HA_CAMINHO={M}")
@@ -278,3 +254,15 @@ print(")")
 print("HA_TX=(" + " ".join(str(t[0]) for t in traco) + ")")
 print("HA_TY=(" + " ".join(str(t[1]) for t in traco) + ")")
 print("HA_TT=(" + " ".join(str(t[2]) for t in traco) + ")")
+print("HA_PX=(" + " ".join(str(d[0]) for d in discos) + ")")
+print("HA_PY=(" + " ".join(str(d[1]) for d in discos) + ")")
+print("HA_PD=(" + " ".join(str(d[2]) for d in discos) + ")")
+print("# Partículas do assemble: destino (AX,AY), origem (AOX,AOY), atraso (ADL).")
+print("HA_AX=("  + " ".join(str(pp[0]) for pp in particulas) + ")")
+print("HA_AY=("  + " ".join(str(pp[1]) for pp in particulas) + ")")
+print("HA_AOX=(" + " ".join(str(pp[2]) for pp in particulas) + ")")
+print("HA_AOY=(" + " ".join(str(pp[3]) for pp in particulas) + ")")
+print("HA_ADL=(" + " ".join(str(pp[4]) for pp in particulas) + ")")
+print("# Centros dos discos (sonar), em pixel inteiro: topo, direita, esquerda.")
+print(f"HA_SCX=({int(topo[0])} {int(direita[0])} {int(esq[0])})")
+print(f"HA_SCY=({int(topo[1])} {int(direita[1])} {int(esq[1])})")
