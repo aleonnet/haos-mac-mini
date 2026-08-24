@@ -261,6 +261,17 @@ MSG_DB=(
 "gum_ok|seletor rico carregado (gum %s, SHA-256 verificado, temporário)|rich selector loaded (gum %s, SHA-256 verified, temporary)"
 "gum_fallback|seletor rico indisponível (%s) - usando o seletor simples|rich selector unavailable (%s) - using the simple one"
 "sel_gum_degrau|Qual degrau instalar? (os degraus somam)|Which tier to install? (tiers stack)"
+"sel_gum_op_repetir|Repetir a última: %s|Repeat the last one: %s"
+"sel_gum_op_vanilla|Vanilla - só o piso, o que o HAOS cria sozinho|Vanilla - floor only, what HAOS creates by itself"
+"sel_gum_op_conectado|Conectado - + MQTT, Matter, Thread, ESPHome, Cast|Conectado - + MQTT, Matter, Thread, ESPHome, Cast"
+"sel_gum_op_casa|Casa - + Hue, Tuya, Shelly, TP-Link, SmartThings (recomendado)|Casa - + Hue, Tuya, Shelly, TP-Link, SmartThings (recommended)"
+"sel_gum_op_perso|Personalizado - escolher componente a componente, com busca|Custom - pick component by component, with search"
+"sel_gum_ex_a|ferramentas - SSH e Web Terminal, File editor, Samba|ferramentas - SSH and Web Terminal, File editor, Samba"
+"sel_gum_ex_b|casa_abhome - custos BR na fatura: energia, gás, água|casa_abhome - BR utility costs: energy, gas, water"
+"sel_gum_ex_c|extensoes - HACS (código de terceiros; sempre opt-in)|extensoes - HACS (third-party code; always opt-in)"
+"sel_gum_vm1|vm_minimo - 2048 MiB - 2 vCPU (doc oficial)|vm_minimo - 2048 MiB - 2 vCPU (official doc)"
+"sel_gum_vm2|vm_equilibrado - 4096 MiB - 2 vCPU (recomendado)|vm_equilibrado - 4096 MiB - 2 vCPU (recommended)"
+"sel_gum_vm3|vm_recomendado - %s MiB - %s vCPU (desta máquina)|vm_recomendado - %s MiB - %s vCPU (this machine)"
 "sel_gum_extras|Extras - espaço marca, enter confirma|Extras - space marks, enter confirms"
 "sel_gum_itens|Ajustar item a item? Digite para buscar - espaço marca - enter confirma|Fine-tune items? Type to search - space marks - enter confirms"
 "sel_gum_vm|Perfil da VM|VM profile"
@@ -2329,73 +2340,96 @@ gum_filter()  { "$GUM" filter  "$@" </dev/tty; }
 gum_confirm() { "$GUM" confirm "$@" </dev/tty; }
 
 # ── seletor rico: choose/filter, com busca e marcação por espaço ─────────────
+# Personalizado é opção do MENU, no início — o desenho do mac-env: todos os
+# componentes do catálogo num filtro com busca (digite filtra, espaço marca,
+# enter confirma), com os padrões do Casa+ferramentas+casa_abhome
+# pré-marcados. HACS nunca vem pré-marcado: opt-in é opt-in.
+SEL_PERSO=0
+seletor_personalizado() {
+    local it iid icat irot iorigem islug ipadrao resto ops=() presel='' op sel linha novo='' extras=''
+    for it in "${ITEM_DB[@]}"; do
+        IFS='|' read -r iid icat irot iorigem islug ipadrao resto <<< "$it"
+        op="$iid — $irot ($icat)"
+        ops+=("$op")
+        if [ "$ipadrao" = "1" ] && [ "$icat" != "extensoes" ]; then
+            if [ -n "$presel" ]; then presel="$presel,$op"; else presel="$op"; fi
+        fi
+    done
+    sel="$(gum_filter --no-limit --height 16 --header "$(msg sel_gum_itens)" \
+        --placeholder "..." --selected "$presel" "${ops[@]}")" \
+        || { ha_info "$(msg cancelado)"; exit "$E_CANCELADO"; }
+    [ -n "$sel" ] || { ha_info "$(msg cancelado)"; exit "$E_CANCELADO"; }
+    while IFS= read -r linha; do
+        [ -n "$linha" ] || continue
+        iid="${linha%% *}"
+        novo="$novo $iid"
+        icat="$(item_campo "$iid" 2)"
+        if tem_na_lista "$icat" "${ORTOGONAL_DB[*]}" && ! tem_na_lista "$icat" "$extras"; then
+            extras="$extras $icat"
+        fi
+    done <<EOF
+$sel
+EOF
+    SEL_DEGRAU="haos_casa"
+    SEL_EXTRAS="${extras# }"
+    SEL_ITENS="${novo# }"
+    SEL_PERSO=1
+    return 0
+}
+
 seletor_gum() {
-    local sel linha id tem_ultima=0 resumo=''
+    local sel linha tem_ultima=0 resumo=''
     if carregar_selecao; then
         tem_ultima=1
         resumo="$LAST_DEGRAU"; [ -n "$LAST_EXTRAS" ] && resumo="$resumo + $LAST_EXTRAS"
     fi
 
-    local ops=()
-    [ "$tem_ultima" = "1" ] && ops+=("Repetir a última: $resumo")
-    ops+=("Vanilla — só o piso, o que o HAOS cria sozinho"
-          "Conectado — + MQTT, Matter, Thread, ESPHome, Cast"
-          "Casa — + Hue, Tuya, Shelly, TP-Link, SmartThings (recomendado)")
-    sel="$(gum_choose --header "$(msg sel_gum_degrau)" "${ops[@]}")"         || { ha_info "$(msg cancelado)"; exit "$E_CANCELADO"; }
+    local op_r='' op_v op_c op_h op_p ops=()
+    op_v="$(msg sel_gum_op_vanilla)"; op_c="$(msg sel_gum_op_conectado)"
+    op_h="$(msg sel_gum_op_casa)";    op_p="$(msg sel_gum_op_perso)"
+    if [ "$tem_ultima" = "1" ]; then
+        op_r="$(msg sel_gum_op_repetir "$resumo")"
+        ops+=("$op_r")
+    fi
+    ops+=("$op_h" "$op_c" "$op_v" "$op_p")
+    sel="$(gum_choose --header "$(msg sel_gum_degrau)" "${ops[@]}")" \
+        || { ha_info "$(msg cancelado)"; exit "$E_CANCELADO"; }
     case "$sel" in
-        Repetir*)   SEL_DEGRAU="$LAST_DEGRAU"
-                    [ -n "$LAST_EXTRAS" ] && SEL_EXTRAS="$LAST_EXTRAS"
-                    [ -n "$LAST_VM" ] && OP_VM_PERFIL="${OP_VM_PERFIL:-$LAST_VM}"
-                    return 0 ;;
-        Vanilla*)   SEL_DEGRAU="haos_vanilla" ;;
-        Conectado*) SEL_DEGRAU="haos_conectado" ;;
-        *)          SEL_DEGRAU="haos_casa" ;;
+        "$op_p") seletor_personalizado ;;
+        "$op_v") SEL_DEGRAU="haos_vanilla" ;;
+        "$op_c") SEL_DEGRAU="haos_conectado" ;;
+        "$op_h") SEL_DEGRAU="haos_casa" ;;
+        *)  SEL_DEGRAU="$LAST_DEGRAU"
+            [ -n "$LAST_EXTRAS" ] && SEL_EXTRAS="$LAST_EXTRAS"
+            [ -n "$LAST_VM" ] && OP_VM_PERFIL="${OP_VM_PERFIL:-$LAST_VM}"
+            SEL_PERSO=2 ;;
     esac
 
-    sel="$(gum_choose --no-limit --header "$(msg sel_gum_extras)"         "ferramentas — SSH e Web Terminal, File editor, Samba"         "casa_abhome — custos BR na fatura: energia, gás, água"         "extensoes — HACS (código de terceiros; sempre opt-in)")" || sel=""
-    SEL_EXTRAS=""
-    while IFS= read -r linha; do
-        [ -n "$linha" ] && SEL_EXTRAS="$SEL_EXTRAS ${linha%% *}"
-    done <<EOF
+    # Preset é preset: extras só são perguntados fora do Personalizado e fora
+    # da repetição — o Personalizado já os derivou dos itens escolhidos.
+    if [ "$SEL_PERSO" = "0" ]; then
+        sel="$(gum_choose --no-limit --header "$(msg sel_gum_extras)" \
+            "$(msg sel_gum_ex_a)" "$(msg sel_gum_ex_b)" "$(msg sel_gum_ex_c)")" || sel=""
+        SEL_EXTRAS=""
+        while IFS= read -r linha; do
+            [ -n "$linha" ] && SEL_EXTRAS="$SEL_EXTRAS ${linha%% *}"
+        done <<EOF
 $sel
 EOF
-    SEL_EXTRAS="${SEL_EXTRAS# }"
+        SEL_EXTRAS="${SEL_EXTRAS# }"
+    fi
 
     if [ -z "$OP_VM_PERFIL" ]; then
-        sel="$(gum_choose --header "$(msg sel_gum_vm)"             "vm_minimo — 2048 MiB · 2 vCPU (doc oficial)"             "vm_equilibrado — 4096 MiB · 2 vCPU (recomendado)"             "vm_recomendado — $(vm_derivado_ram) MiB · $(vm_derivado_cpu) vCPU (desta máquina)")"             || { ha_info "$(msg cancelado)"; exit "$E_CANCELADO"; }
+        sel="$(gum_choose --header "$(msg sel_gum_vm)" \
+            "$(msg sel_gum_vm1)" "$(msg sel_gum_vm2)" \
+            "$(msg sel_gum_vm3 "$(vm_derivado_ram)" "$(vm_derivado_cpu)")")" \
+            || { ha_info "$(msg cancelado)"; exit "$E_CANCELADO"; }
         OP_VM_PERFIL="${sel%% *}"
     fi
     return 0
 }
 
-# Ajuste item a item, com BUSCA (o modo Personalizado do mac-env): lista os
-# itens das categorias escolhidas com os padrões pré-marcados; digite para
-# filtrar, espaço marca, enter confirma. Chamado DEPOIS de resolver a seleção.
-afinar_itens_gum() {
-    [ -n "$GUM" ] || return 0
-    local cats it iid icat irot iorigem islug ipadrao resto ops=() presel='' op
-    cats="$(degrau_categorias "$SEL_DEGRAU") $SEL_EXTRAS"
-    for it in "${ITEM_DB[@]}"; do
-        IFS='|' read -r iid icat irot iorigem islug ipadrao resto <<< "$it"
-        tem_na_lista "$icat" "$cats" || continue
-        op="$iid — $irot"
-        ops+=("$op")
-        if tem_na_lista "$iid" "$SEL_ITENS"; then
-            if [ -n "$presel" ]; then presel="$presel,$op"; else presel="$op"; fi
-        fi
-    done
-    [ "${#ops[@]}" -gt 0 ] || return 0
-    local sel linha novo=''
-    sel="$(gum_filter --no-limit --height 14 --header "$(msg sel_gum_itens)"         --placeholder "..." --selected "$presel" "${ops[@]}")" || return 0
-    [ -n "$sel" ] || return 0
-    while IFS= read -r linha; do
-        [ -n "$linha" ] && novo="$novo ${linha%% *}"
-    done <<EOF
-$sel
-EOF
-    SEL_ITENS="${novo# }"
-    return 0
-}
+
 
 # ── o cardápio ───────────────────────────────────────────────────────────────
 # Sem flags e com terminal, o instalador PERGUNTA — o norte de UX: o leigo
@@ -2537,7 +2571,9 @@ resolver_selecao() {
     for r in "${VM_PROFILE_DB[@]}"; do [ "${r%%|*}" = "$SEL_VM" ] && achou=1; done
     [ "$achou" = "1" ] || morrer "$E_USO" "perfil de VM desconhecido: $SEL_VM"
 
-    # itens: os de padrao=1 das categorias escolhidas
+    # itens: os de padrao=1 das categorias escolhidas — a menos que o modo
+    # Personalizado já os tenha escolhido um a um, com busca.
+    [ "${SEL_PERSO:-0}" = "1" ] && { ha_ok "$(msg degrau): Personalizado ${HA_G_SEP} $(msg itens): $(printf '%s' "$SEL_ITENS" | wc -w | tr -d ' ')"; return 0; }
     local cats; cats="$(degrau_categorias "$SEL_DEGRAU") $SEL_EXTRAS"
     local it iid icat irot iorigem islug ipadrao
     for it in "${ITEM_DB[@]}"; do
@@ -2545,7 +2581,6 @@ resolver_selecao() {
         tem_na_lista "$icat" "$cats" || continue
         [ "$ipadrao" = "1" ] && SEL_ITENS="$SEL_ITENS $iid"
     done
-    afinar_itens_gum
     ha_ok "$(msg degrau): $(cat_rotulo "${SEL_DEGRAU#haos_}") ${HA_G_SEP} $(msg ortogonais): ${SEL_EXTRAS:--}"
 }
 

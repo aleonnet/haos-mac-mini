@@ -19,6 +19,12 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
   os 153 MB de novo. O `--uninstall` sabe removê-lo.
 
 ### Added
+- **Personalizado é opção do MENU, no início** (o desenho do mac-env): todos
+  os componentes do catálogo num filtro com busca, padrões do Casa
+  pré-marcados, HACS nunca pré-marcado; extras derivados do que foi
+  escolhido. Preset voltou a ser preset — o filtro não aparece mais depois
+  de escolher Casa/Conectado/Vanilla. E as opções do gum agora saem do
+  `msg()`: o menu misturava pt e en conforme o locale.
 - **Relatório final** no fechamento do mac-env: `╰──` fecha a calha, placar
   com tempo total e passos executados, artefatos prontos (VirtualBox, imagem)
   — em cartão gum quando o seletor rico está ativo — e **próximos passos
