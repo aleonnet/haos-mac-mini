@@ -2595,7 +2595,7 @@ relatorio_final() {
     local total=$(( SECONDS - ${MAIN_T0:-0} )) linha segs n=0
     ha_bar_limpa
     printf '%s\n' "$HA_GUT"
-    if [[ "${HAOS_UI_UTF8:-0}" == 1 ]]; then printf '╰'; else printf '\\'; fi
+    if [[ "${HAOS_UI_UTF8:-0}" == 1 ]]; then printf '%s' '╰'; else printf '%s' '+'; fi
     printf '%s\n' "$(ha_gradient "$(printf '%*s' 76 '' | tr ' ' "$HA_G_REGUA")")"
     printf '\n'
     ha_shimmer "  $(msg rel_titulo) ${HA_G_SEP} $(msg rel_tempo "$(fmt_seg "$total")")"
@@ -2608,8 +2608,10 @@ relatorio_final() {
         [ -n "${HAOS_VDI:-}" ] && [ -f "${HAOS_VDI:-/nonexistent}" ] \
             && corpo="${corpo}$(msg rel_vdi "$HAOS_VDI")
 "
-        [ -n "$corpo" ] && "$GUM" style --border rounded --border-foreground "#03A9F4" \
-            --padding "0 2" "$corpo" 2>/dev/null || true
+        if [ -n "$corpo" ]; then
+            "$GUM" style --border rounded --border-foreground "#03A9F4" \
+                --padding "0 2" "$corpo" 2>/dev/null || true
+        fi
     fi
     while IFS='|' read -r linha segs; do
         [ -n "$linha" ] && n=$((n+1))
