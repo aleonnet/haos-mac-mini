@@ -87,6 +87,19 @@ mundo, não a árvore.
 4. Uninstall não remove o Extension Pack (ainda não é instalado por ninguém).
 5. `HAOS_LANG=pt` sob locale C imprime acentos que o terminal não desenha.
 
+## 4b. O COMANDO DE TESTE NO MAC MINI — pelo cano, NUNCA pelo clone
+
+O contrato do produto (o mesmo do mac-env-setup e do AtlasFile): o usuário —
+o dono incluído — roda o one-liner. O clone em `~/haos-mac-mini` é artefato
+de desenvolvimento; instrução que mande `cd` nele está ERRADA por definição.
+
+```
+curl -fsSL https://raw.githubusercontent.com/aleonnet/haos-mac-mini/main/haos-install.sh | bash -s -- --profile haos_casa --install-deps
+```
+
+(Opcional, só para reaproveitar o .zip que já está no disco do mini:
+`--image ~/haos-mac-mini/haos_generic-aarch64-18.2.vdi.zip`.)
+
 ## 5. O QUE FALTA (a frente seguinte)
 
 - **F4 VM · F5 boot · F5b auto-start** — bloqueados até o VirtualBox existir
