@@ -1,7 +1,9 @@
 # HANDOFF — teste de campo no Mac mini: F1–F4 REAIS concluídas, VM BOOTA · 2026-08-24
 
-> **LEIA-ME PRIMEIRO.** Porta de entrada da frente do instalador. Supersede
-> `HANDOFF-2026-08-24-reforma-fechada.md`.
+> **SUPERADO por `HANDOFF-2026-08-24-ha-no-ar.md`.** Mantido como registro
+> do fechamento da F4.
+>
+> Supersede `HANDOFF-2026-08-24-reforma-fechada.md`.
 
 ## 0b. F4 FECHADA NO MESMO DIA — a VM existe, boota e o HA responde
 

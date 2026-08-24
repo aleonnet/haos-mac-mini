@@ -335,6 +335,30 @@ def cmd_repo_ensure(url, sufixo):
     erro(f"/store (sem app _{sufixo} no repositório)", 0)
 
 
+def _opt_mescla(atu, nov):
+    m = dict(atu)
+    for k, v in nov.items():
+        if isinstance(v, dict):
+            m[k] = _opt_mescla(atu.get(k) or {}, v)
+        else:
+            m[k] = v
+    return m
+
+
+def _opt_difere(atu, nov):
+    for k, v in nov.items():
+        if isinstance(v, dict):
+            if _opt_difere(atu.get(k) or {}, v):
+                return True
+        elif isinstance(v, list):
+            tem = atu.get(k) or []
+            if not all(x in tem for x in v):
+                return True
+        elif atu.get(k) != v:
+            return True
+    return False
+
+
 def cmd_addon_ensure(slug, com_options):
     """Instala (se preciso), aplica options (stdin, se pedido) e inicia.
     Pós-condição: info.state == started. exit 100 quando nada mudou.
@@ -354,13 +378,24 @@ def cmd_addon_ensure(slug, com_options):
         mudou = True
     if opcoes:
         atuais = st_info.get("options") or {}
-        if any(atuais.get(k) != v for k, v in opcoes.items()):
+        # options podem ser ANINHADAS (advanced_ssh guarda em ssh.*, medido
+        # em campo: o merge raso deixava a chave fora e o diff nunca zerava).
+        # Lista: em dia quando tudo que pedimos está lá (o app normaliza).
+        if _opt_difere(atuais, opcoes):
             sup(ws, f"/addons/{slug}/options", "post",
-                {"options": dict(atuais, **opcoes)})
+                {"options": _opt_mescla(atuais, opcoes)})
             mudou = True
+            aplicou_opts = True
+        else:
+            aplicou_opts = False
+    else:
+        aplicou_opts = False
     if st_info.get("state") != "started":
         sup(ws, f"/addons/{slug}/start", "post", timeout=300)
         mudou = True
+    elif aplicou_opts:
+        # option nova num app RODANDO só vale depois de reiniciá-lo
+        sup(ws, f"/addons/{slug}/restart", "post", timeout=300)
     st_info = sup(ws, f"/addons/{slug}/info")
     if st_info.get("state") != "started":
         erro(f"/addons/{slug}/start (pós-condição)", 0)

@@ -6,7 +6,65 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-08-24
+
+**O instalador agora entrega o Home Assistant NO AR**: um comando, cardápio,
+senha — e o navegador abre no endereço real. F5–F10 fechadas no mesmo dia,
+testadas de ponta a ponta contra a VM real (3 execuções: instala → converge →
+idempotente em 18 s).
+
 ### Added
+- **F5 — Boot e espera (fase 06)**: `startvm --type headless` com três
+  estados (rodando espera, pausada retoma, resto liga); a espera acha a VM
+  **pelo MAC no ARP** e sonda as duas portas candidatas — no HAOS 18.2 a URL
+  canônica é a **porta 80** (medido; a 8123 fecha pós-onboarding).
+  `homeassistant.local` nunca é consultado: com outro HA vivo na rede o nome
+  resolve para ELE (medido nesta casa — aponta para a instância antiga).
+- **F5b — auto-start no login**: LaunchAgent desired-state com argv direto
+  (sem `sh -c` — banca: nome interpolado em shell seria injeção persistente);
+  caminho completo do bundle porque launchd não tem `/usr/local/bin`.
+  `--vm-name` validado no parser.
+- **F6 — Conta (fase 07)**: onboarding real pelo helper Python embutido
+  (users → core_config → **analytics DESLIGADO** → integration) com
+  pós-condição; já onboardado valida a credencial via login_flow e converge.
+  Senha pedida oculta (2x) no terminal ou `HAOS_HA_USER`/`HAOS_HA_PASSWORD`;
+  segredo SÓ por stdin do helper — cerca de sentinela prova que não vaza
+  para log, estado nem manifesto.
+- **F7 — Apps (fase 08)** via WebSocket `supervisor/api` (cliente RFC 6455
+  completo em stdlib: máscara, comprimentos 126/127, PING/PONG): instala,
+  configura e inicia por item do catálogo; prefixo de repositório de
+  terceiro **descoberto** (`a0d7b954` confirmado), nunca fixado; samba ganha
+  usuário `haos` + senha gerada (releitura desired-state do Supervisor);
+  `advanced_ssh` recebe a chave ed25519 `~/.ssh/haos-mac-mini` — **options
+  aninhadas** (`ssh.authorized_keys`, medido) com merge/diff recursivos e
+  restart do app quando a option muda. SSH à VM provado em campo.
+- **F8 — Integrações (fase 09)**: só flow que fecha **sem dado do usuário**
+  (systemmonitor `{}`, workday por defaults — provados 0→100); flow que pede
+  credencial/escolha (ou aborta, como o tuya sem nuvem) é DESFEITO e vira
+  "espera você no painel"; cerca de conjunto lê a entry de volta e REMOVE se
+  `source` fora do `setup` do catálogo. Descobertas reais contadas via WS
+  `flow/progress` (a rota REST dá 405, medido).
+- **F9 — Arquivos (fase 10)**: `/config` montado por SMB com `expect`
+  respondendo o prompt (senha nunca em argv; keychain não abre em SSH,
+  medido); os 3 packages BR embutidos escritos desired-state com backup
+  datado; `configuration.yaml` ganha o bloco `homeassistant:/packages:` só
+  no formato reconhecido (estranho = aborta com instrução); **HACS 2.0.5
+  fixado por SHA-256 + tamanho** — download adulterado é recusado;
+  `check_config` antes do restart; espera o Core CAIR e VOLTAR. O umount
+  mora no `limpar()` ANTES do rm dos temporários (um rm com SMB montado
+  apagaria o /config da VM).
+- **F10 — Relatório final**: endereço REAL do HA + navegador aberto
+  (`--no-open` desliga), credencial do samba para o Finder, chave SSH,
+  descobertas aguardando, aviso sobre `homeassistant.local`.
+- **`--profile last` agora preserva o Personalizado** (a lista de itens vai
+  ao state; ids mortos caem fora) — antes regredia aos padrões e derrubava
+  hacs/systemmonitor (pego em campo).
+- Portão: **HA dublado** (REST + WebSocket com frame >64 KiB), cerca de
+  sentinela de segredo, `conf_estado` nos 3 formatos, HACS adulterado,
+  cerca negativa do caminho do LaunchAgent; verify: metade **en** de toda
+  mensagem é ASCII pura (estática). `embed.sh` com blocos `var:` para
+  python/yaml e cerca de completude de `packages/`.
+
 - **F4 — a máquina virtual**: fase 05 cria e registra a VM no VirtualBox com
   o disco da fase anterior conectado. Cada argumento foi **sondado no
   VBoxManage 7.2.16 ARM real** (24/08, com uma VM descartável): `createvm`
@@ -21,40 +79,6 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
   dublado que grava cada chamada. O relatório final lista a VM e o aviso
   agora diz a verdade nova: falta só o primeiro boot.
 
-### Fixed
-- **VirtualBox instalado era "not found" em shell sem `/usr/local/bin`**
-  (SSH não-interativo, launchd): a sonda agora cai para
-  `/Applications/VirtualBox.app/Contents/MacOS` quando o symlink não está no
-  PATH — o app bundle é o fato, o PATH é detalhe. Pego no teste de campo por
-  SSH.
-- **O relatório final responde "o que foi instalado e onde"**: VirtualBox com
-  versão e caminho em `/Applications`, o disco do HAOS verificado por SHA-256
-  com o caminho completo, a seleção salva — e, em aviso destacado, **o que
-  AINDA NÃO existe**: a VM e o Home Assistant rodando; nada responde em
-  `http://homeassistant.local:8123` nesta versão, que para na preparação
-  verificada. Saíram a duplicação cartão+linhas e a contagem enganosa de
-  passos.
-- **A barra de download é a nossa**, não o "jogo da velha" do curl: bytes
-  gravados no disco contra o total da tabela, no estilo da calha, a cada
-  300 ms.
-- **As teclas do seletor, medidas com expect num pty real**: ESPAÇO marca no
-  `gum choose` (extras); TAB marca no `gum filter` (Personalizado — o espaço
-  pertence à busca). O cabeçalho do Personalizado ensinava a tecla errada.
-  Cerca no portão dirige o gum de verdade e confere que cada tela ensina a
-  SUA tecla. O binário do gum ganhou cache por versão em
-  `~/Library/Caches/haos-mac-mini/`.
-- **F1 morria em "Could not mount"** no primeiro teste real: `hdiutil attach
-  -quiet` SUPRIME a listagem do ponto de montagem e o parse recebia vazio.
-  Agora o parse é do `-plist`, com `</dev/null` (em `curl | bash` o stdin é o
-  cano) e diagnóstico de log na falha.
-- **Prompt colado na barra de fase** (`fase 1/4Download and install...?`):
-  perguntas agora SUSPENDEM a barra (disciplina do ask() do AtlasFile) e
-  escrevem o prompt no stdout, não direto no tty.
-- O DMG do VirtualBox agora mora no CACHE com SHA conferido: a reexecução
-  após o macOS bloquear a extensão (o desfecho provável da 1ª vez) não paga
-  os 153 MB de novo. O `--uninstall` sabe removê-lo.
-
-### Added
 - **Personalizado é opção do MENU, no início** (o desenho do mac-env): todos
   os componentes do catálogo num filtro com busca, padrões do Casa
   pré-marcados, HACS nunca pré-marcado; extras derivados do que foi
@@ -101,6 +125,39 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
   comia 42%), gradiente vertical no azul.
 - Cerca nova do logo no `verify.sh`: além da integridade da máscara, o limiar
   de RAZÃO traço/casa (≤ 12%) — a cerca que teria pego a tentativa reprovada.
+
+### Fixed
+- **VirtualBox instalado era "not found" em shell sem `/usr/local/bin`**
+  (SSH não-interativo, launchd): a sonda agora cai para
+  `/Applications/VirtualBox.app/Contents/MacOS` quando o symlink não está no
+  PATH — o app bundle é o fato, o PATH é detalhe. Pego no teste de campo por
+  SSH.
+- **O relatório final responde "o que foi instalado e onde"**: VirtualBox com
+  versão e caminho em `/Applications`, o disco do HAOS verificado por SHA-256
+  com o caminho completo, a seleção salva — e, em aviso destacado, **o que
+  AINDA NÃO existe**: a VM e o Home Assistant rodando; nada responde em
+  `http://homeassistant.local:8123` nesta versão, que para na preparação
+  verificada. Saíram a duplicação cartão+linhas e a contagem enganosa de
+  passos.
+- **A barra de download é a nossa**, não o "jogo da velha" do curl: bytes
+  gravados no disco contra o total da tabela, no estilo da calha, a cada
+  300 ms.
+- **As teclas do seletor, medidas com expect num pty real**: ESPAÇO marca no
+  `gum choose` (extras); TAB marca no `gum filter` (Personalizado — o espaço
+  pertence à busca). O cabeçalho do Personalizado ensinava a tecla errada.
+  Cerca no portão dirige o gum de verdade e confere que cada tela ensina a
+  SUA tecla. O binário do gum ganhou cache por versão em
+  `~/Library/Caches/haos-mac-mini/`.
+- **F1 morria em "Could not mount"** no primeiro teste real: `hdiutil attach
+  -quiet` SUPRIME a listagem do ponto de montagem e o parse recebia vazio.
+  Agora o parse é do `-plist`, com `</dev/null` (em `curl | bash` o stdin é o
+  cano) e diagnóstico de log na falha.
+- **Prompt colado na barra de fase** (`fase 1/4Download and install...?`):
+  perguntas agora SUSPENDEM a barra (disciplina do ask() do AtlasFile) e
+  escrevem o prompt no stdout, não direto no tty.
+- O DMG do VirtualBox agora mora no CACHE com SHA conferido: a reexecução
+  após o macOS bloquear a extensão (o desfecho provável da 1ª vez) não paga
+  os 153 MB de novo. O `--uninstall` sabe removê-lo.
 
 ### Removed
 - `tools/escolhe-logo.sh` (andaime da escolha, superado pela direção do dono;

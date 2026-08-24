@@ -7,11 +7,18 @@ Instalador de **Home Assistant OS** numa VM VirtualBox em **Mac Apple Silicon**,
 rodar direto via `curl`. Identidade visual do próprio Home Assistant, com degradação
 verificada: em log, CI ou terminal sem UTF-8 a saída vira texto limpo e grepável.
 
-> **Estado: em desenvolvimento.** Hoje o script valida a máquina, conduz a instalação do
-> VirtualBox (download da Oracle com SHA-256 conferido, sem interface gráfica), monta o
-> plano por perfis e **baixa, confere e prepara a imagem oficial do HAOS**. A criação da
-> VM, o boot e a configuração das integrações chegam nas próximas versões — o
-> [CHANGELOG](CHANGELOG.md) diz exatamente o que já existe.
+> **Estado: funcional de ponta a ponta (0.3.0).** Um comando leva do Mac vazio ao
+> **Home Assistant no ar**: valida a máquina, instala o VirtualBox (SHA-256 da
+> Oracle), baixa e confere a imagem oficial do HAOS, cria a VM (argumentos
+> sondados no VBoxManage ARM real), dá o boot e espera pelo MAC da VM, cria sua
+> conta (onboarding com analytics desligado), instala os apps escolhidos via
+> WebSocket do Supervisor, configura as integrações que fecham sem credencial,
+> escreve os packages em `/config` por SMB — e termina com o **endereço real**
+> na tela e o navegador aberto. Auto-start no login incluído. O
+> [CHANGELOG](CHANGELOG.md) diz exatamente o que existe em cada versão.
+>
+> ⚠️ Se você JÁ tem um Home Assistant na rede, `homeassistant.local` continua
+> apontando para ele — o instalador acha a VM pelo MAC e imprime o IP real.
 
 ## Instalação
 
@@ -24,8 +31,8 @@ curl -fsSL https://raw.githubusercontent.com/aleonnet/haos-mac-mini/main/haos-in
 Em terminal interativo, **sem flag nenhuma**, abre o cardápio com
 [gum](https://github.com/charmbracelet/gum) (baixado em temp com SHA-256
 verificado, nunca instalado): degrau com setas, extras marcados por **espaço**,
-**ajuste item a item com busca** (digite para filtrar, espaço marca, enter
-confirma) e perfil de VM — depois o plano e a confirmação, antes de escrever
+**ajuste item a item com busca** (digite para filtrar, **TAB** marca, enter
+confirma — no filtro o espaço pertence à busca) e perfil de VM — depois o plano e a confirmação, antes de escrever
 qualquer coisa. Sem TTY ou com `HAOS_USE_GUM=0`, degrada para o seletor
 numerado simples. O pré-voo ainda avisa quando há instalador ou release do
 HAOS mais novos publicados. As flags existem para o modo headless/CI. Cada execução real salva a seleção (`--profile last` a repete) e um relatório em

@@ -16,7 +16,7 @@
 # =============================================================================
 set -Eeuo pipefail
 
-HAOS_INSTALL_VERSION="0.2.0"
+HAOS_INSTALL_VERSION="0.3.0"
 HAOS_REF_CORE="2026.8.3"      # versão do HA contra a qual o contrato foi verificado
 HAOS_REF_OS="18.2"
 HAOS_RAW_URL="https://raw.githubusercontent.com/aleonnet/haos-mac-mini/main/haos-install.sh"
@@ -718,10 +718,16 @@ salvar_selecao() {
         printf 'extras=%s\n'  "$SEL_EXTRAS"
         printf 'vm=%s\n'      "$SEL_VM"
         printf 'vm_nome=%s\n' "$OP_VM_NOME"
+        # Personalizado é uma LISTA, não um degrau — sem ela o --profile last
+        # regride aos padrões e derruba itens como hacs (pego em campo)
+        if [ "${SEL_PERSO:-0}" = "1" ]; then
+            printf 'perso=1\n'
+            printf 'itens=%s\n' "$SEL_ITENS"
+        fi
     } > "$d/state" 2>/dev/null || true
     return 0
 }
-LAST_DEGRAU=""; LAST_EXTRAS=""; LAST_VM=""; LAST_VM_NOME=""
+LAST_DEGRAU=""; LAST_EXTRAS=""; LAST_VM=""; LAST_VM_NOME=""; LAST_PERSO=0; LAST_ITENS=""
 carregar_selecao() {
     local f linha e filtrado=""
     f="$(haos_state_dir)/state"
@@ -732,6 +738,8 @@ carregar_selecao() {
             extras=*)  LAST_EXTRAS="${linha#*=}" ;;
             vm=*)      LAST_VM="${linha#*=}" ;;
             vm_nome=*) LAST_VM_NOME="${linha#*=}" ;;
+            perso=1)   LAST_PERSO=1 ;;
+            itens=*)   LAST_ITENS="${linha#*=}" ;;
         esac
     done < "$f"
     perfil_valido "$LAST_DEGRAU" || return 1
@@ -739,6 +747,12 @@ carregar_selecao() {
         tem_na_lista "$e" "${ORTOGONAL_DB[*]}" && filtrado="$filtrado $e"
     done
     LAST_EXTRAS="${filtrado# }"
+    # ids mortos caem fora (catálogo pode ter mudado entre execuções)
+    filtrado=""
+    for e in $LAST_ITENS; do
+        item_campo "$e" 1 >/dev/null 2>&1 && filtrado="$filtrado $e"
+    done
+    LAST_ITENS="${filtrado# }"
     local r achou=0
     for r in "${VM_PROFILE_DB[@]}"; do [ "${r%%|*}" = "$LAST_VM" ] && achou=1; done
     [ "$achou" = "1" ] || LAST_VM=""
@@ -1314,8 +1328,9 @@ fase_apps() {
                 garantir_smb_senha || return 1
                 opts="{\"username\":\"haos\",\"password\":\"$SMB_SENHA\"}" ;;
             *_ssh)
+                # as options deste app são aninhadas em ssh.* (medido)
                 garantir_chave_ssh || return 1
-                opts="{\"authorized_keys\":[\"$CHAVE_SSH_PUB\"]}" ;;
+                opts="{\"ssh\":{\"authorized_keys\":[\"$CHAVE_SSH_PUB\"]}}" ;;
         esac
         ha_info "$(msg apps_instalando "$it")"
         rc=0
@@ -2991,6 +3006,30 @@ def cmd_repo_ensure(url, sufixo):
     erro(f"/store (sem app _{sufixo} no repositório)", 0)
 
 
+def _opt_mescla(atu, nov):
+    m = dict(atu)
+    for k, v in nov.items():
+        if isinstance(v, dict):
+            m[k] = _opt_mescla(atu.get(k) or {}, v)
+        else:
+            m[k] = v
+    return m
+
+
+def _opt_difere(atu, nov):
+    for k, v in nov.items():
+        if isinstance(v, dict):
+            if _opt_difere(atu.get(k) or {}, v):
+                return True
+        elif isinstance(v, list):
+            tem = atu.get(k) or []
+            if not all(x in tem for x in v):
+                return True
+        elif atu.get(k) != v:
+            return True
+    return False
+
+
 def cmd_addon_ensure(slug, com_options):
     """Instala (se preciso), aplica options (stdin, se pedido) e inicia.
     Pós-condição: info.state == started. exit 100 quando nada mudou.
@@ -3010,13 +3049,24 @@ def cmd_addon_ensure(slug, com_options):
         mudou = True
     if opcoes:
         atuais = st_info.get("options") or {}
-        if any(atuais.get(k) != v for k, v in opcoes.items()):
+        # options podem ser ANINHADAS (advanced_ssh guarda em ssh.*, medido
+        # em campo: o merge raso deixava a chave fora e o diff nunca zerava).
+        # Lista: em dia quando tudo que pedimos está lá (o app normaliza).
+        if _opt_difere(atuais, opcoes):
             sup(ws, f"/addons/{slug}/options", "post",
-                {"options": dict(atuais, **opcoes)})
+                {"options": _opt_mescla(atuais, opcoes)})
             mudou = True
+            aplicou_opts = True
+        else:
+            aplicou_opts = False
+    else:
+        aplicou_opts = False
     if st_info.get("state") != "started":
         sup(ws, f"/addons/{slug}/start", "post", timeout=300)
         mudou = True
+    elif aplicou_opts:
+        # option nova num app RODANDO só vale depois de reiniciá-lo
+        sup(ws, f"/addons/{slug}/restart", "post", timeout=300)
     st_info = sup(ws, f"/addons/{slug}/info")
     if st_info.get("state") != "started":
         erro(f"/addons/{slug}/start (pós-condição)", 0)
@@ -4619,6 +4669,10 @@ resolver_selecao() {
         [ -z "$OP_WITH" ] && [ -n "$LAST_EXTRAS" ] && SEL_EXTRAS="$LAST_EXTRAS"
         [ -z "$OP_VM_PERFIL" ] && [ -n "$LAST_VM" ] && OP_VM_PERFIL="$LAST_VM"
         [ "$OP_VM_NOME" = "HomeAssistant" ] && [ -n "$LAST_VM_NOME" ] && OP_VM_NOME="$LAST_VM_NOME"
+        if [ "$LAST_PERSO" = "1" ] && [ -n "$LAST_ITENS" ]; then
+            SEL_PERSO=1
+            SEL_ITENS="$LAST_ITENS"
+        fi
     elif [ -n "$OP_PERFIL" ]; then
         perfil_valido "$OP_PERFIL" || morrer "$E_USO" "perfil desconhecido: $OP_PERFIL"
         SEL_DEGRAU="$OP_PERFIL"
