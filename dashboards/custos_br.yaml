@@ -1,0 +1,65 @@
+# =============================================================================
+# custos_br.yaml — dashboard "Custos": energia (Convencional × Branca),
+#                  gás canalizado e água/esgoto, das entidades dos packages BR.
+#
+# Entregue pelo instalador como dashboard yaml-mode PRÓPRIO (barra lateral),
+# sem tocar no dashboard principal do usuário (.storage é do dono).
+# Fonte de verdade: dashboards/custos_br.yaml no repositório; o instalador
+# escreve /config/dashboards/custos_br.yaml desired-state, com backup datado.
+# =============================================================================
+title: Custos
+views:
+  - title: Custos
+    path: custos
+    icon: mdi:cash-multiple
+    cards:
+      - type: entities
+        title: Energia — Convencional × Branca
+        entities:
+          - entity: sensor.fatura_mensal_convencional
+            name: Fatura Convencional (o que pago)
+          - entity: sensor.fatura_mensal_branca
+            name: Fatura Branca (simulada)
+          - entity: sensor.economia_com_tarifa_branca
+            name: Economia se migrar
+          - type: divider
+          - entity: input_number.fatura_conferencia
+            name: Valor da conta do mês (conferência)
+          - entity: sensor.desvio_da_conferencia
+            name: Desvio vs conta real
+          - entity: sensor.dias_ate_reajuste_tarifario
+            name: Dias até o reajuste
+          - entity: sensor.posto_tarifario_atual
+            name: Posto tarifário agora
+
+      - type: entities
+        title: Energia — preços por posto (R$/kWh)
+        entities:
+          - sensor.preco_convencional
+          - sensor.preco_ponta
+          - sensor.preco_intermediario
+          - sensor.preco_fora_ponta
+
+      - type: entities
+        title: Gás canalizado
+        entities:
+          - entity: input_number.gas_consumo_ciclo_m3
+            name: Leitura do ciclo (m³)
+          - entity: sensor.gas_volume_corrigido
+          - entity: sensor.gas_custo_fornecimento
+          - entity: sensor.gas_tributos_total
+          - type: divider
+          - entity: input_number.gas_fatura_conferencia
+            name: Valor da conta de gás (conferência)
+          - entity: sensor.gas_desvio_da_conferencia
+
+      - type: entities
+        title: Água e esgoto
+        entities:
+          - entity: input_select.agua_area
+          - entity: input_number.agua_consumo_m3
+          - entity: input_number.agua_valor_condominio
+          - entity: sensor.agua_e_esgoto_simulado
+          - entity: sensor.agua_diferenca_vs_condominio
+          - entity: sensor.agua_preco_efetivo_concessionaria
+          - entity: sensor.agua_preco_efetivo_condominio

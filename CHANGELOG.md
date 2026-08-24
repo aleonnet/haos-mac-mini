@@ -6,6 +6,18 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
 
 ## [Unreleased]
 
+### Added
+- **Dashboard "Custos" entregue pelo instalador** (barra lateral): energia
+  Convencional × Branca (faturas, economia, conferência), gás e água — como
+  dashboard yaml-mode PRÓPRIO (`dashboards/custos_br.yaml` + bloco
+  `lovelace:` no configuration.yaml, ambos desired-state com backup); o
+  dashboard principal do usuário (`.storage`) nunca é tocado; bloco
+  `lovelace:` alheio = aviso, nunca palpite.
+- **gas_br cria a própria fonte de consumo**: `input_number.
+  gas_consumo_ciclo_m3` + `sensor.gas_consumo_medido` nascem do package —
+  caiu o "crie um input na mão" do comentário (mesma classe do
+  energy_total).
+
 ### Changed
 - **Studio Code Server substitui o File editor** no catálogo (decisão do
   dono, 24/08; reversão registrada no NAO_APLICA). `DESCOBRIR_<sufixo>`

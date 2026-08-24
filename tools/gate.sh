@@ -720,6 +720,9 @@ if [ -s "$sb_ha/porta" ]; then
         rc_f9=0; fase_arquivos >/dev/null 2>&1 || rc_f9=$?
         pkg_ok=0
         if [ -f "${PONTO_GRAVADO:-/nada}/packages/energia_br.yaml" ]; then pkg_ok=1; fi
+        dash_ok=0
+        if [ -f "${PONTO_GRAVADO:-/nada}/dashboards/custos_br.yaml" ] \
+            && grep -q "custos-br:" "${PONTO_GRAVADO:-/nada}/configuration.yaml"; then dash_ok=1; fi
         # sem credencial e sem terminal: erro claro
         HA_USER=""; HA_SENHA=""; HAOS_HA_USER=""; HAOS_HA_PASSWORD=""
         rc_sem=0; obter_credencial >/dev/null 2>&1 || rc_sem=$?
@@ -729,9 +732,9 @@ if [ -s "$sb_ha/porta" ]; then
             [ -e "$alvo" ] || continue
             if grep -r "SENTINELA-9f3a7c" "$alvo" >/dev/null 2>&1; then vaz=1; fi
         done
-        printf "c1=%s c2=%s a1=%s a2=%s i=%s fl=%s cj=%s f9=%s pkg=%s sem=%s vaz=%s" \
-            "$rc_c1" "$rc_c2" "$rc_a1" "$rc_a2" "$rc_i" "$n_flows" "$rc_cj" "$rc_f9" "$pkg_ok" "$rc_sem" "$vaz"')"
-    esp_ha="c1=0 c2=100 a1=0 a2=100 i=0 fl=2 cj=1 f9=0 pkg=1 sem=1 vaz=0"
+        printf "c1=%s c2=%s a1=%s a2=%s i=%s fl=%s cj=%s f9=%s pkg=%s dash=%s sem=%s vaz=%s" \
+            "$rc_c1" "$rc_c2" "$rc_a1" "$rc_a2" "$rc_i" "$n_flows" "$rc_cj" "$rc_f9" "$pkg_ok" "$dash_ok" "$rc_sem" "$vaz"')"
+    esp_ha="c1=0 c2=100 a1=0 a2=100 i=0 fl=2 cj=1 f9=0 pkg=1 dash=1 sem=1 vaz=0"
     if [ "$saida_ha" = "$esp_ha" ]; then
         ok "F6–F9 no dublado: conta 0→100, apps 0→100 (repo hash descoberto), conjunto reprova, F9 escreve, sentinela ausente"
     else
@@ -769,12 +772,16 @@ saida_conf="$(HAOS_INSTALL_LIB=1 "${BASH:-/bin/bash}" -c '
     printf "default_config:\n" > "$d/a.yaml"
     printf "default_config:\nhomeassistant:\n  packages: !include_dir_named packages\n" > "$d/b.yaml"
     printf "homeassistant:\n  name: Casa\n" > "$d/c.yaml"
-    printf "%s %s %s" "$(conf_estado "$d/a.yaml")" "$(conf_estado "$d/b.yaml")" "$(conf_estado "$d/c.yaml")"
+    printf "lovelace:\n  dashboards:\n    x:\n      filename: dashboards/custos_br.yaml\n" > "$d/d.yaml"
+    printf "lovelace:\n  mode: yaml\n" > "$d/e.yaml"
+    printf "%s %s %s %s %s %s" \
+        "$(conf_estado "$d/a.yaml")" "$(conf_estado "$d/b.yaml")" "$(conf_estado "$d/c.yaml")" \
+        "$(conf_lovelace_estado "$d/a.yaml")" "$(conf_lovelace_estado "$d/d.yaml")" "$(conf_lovelace_estado "$d/e.yaml")"
     rm -rf "$d"')"
-if [ "$saida_conf" = "append ja estranho" ]; then
-    ok "conf_estado: append no virgem, 100 no já-feito, ABORTA no formato estranho"
+if [ "$saida_conf" = "append ja estranho append ja estranho" ]; then
+    ok "conf_estado e conf_lovelace_estado: append no virgem, 100 no já-feito, nunca adivinham"
 else
-    falha "conf_estado: esperado 'append ja estranho', obtido '$saida_conf'"
+    falha "conf_estado/lovelace: esperado 'append ja estranho append ja estranho', obtido '$saida_conf'"
 fi
 
 # ── HACS: download adulterado é RECUSADO (supply chain) ──────────────────────

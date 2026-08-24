@@ -339,6 +339,11 @@ MSG_DB=(
 "painel_energia_ok|painel de Energia configurado: 3 conexões de rede (ponta, intermediário, fora ponta) com o preço da sua tarifa.|Energy dashboard configured: 3 grid connections (peak, shoulder, off-peak) with your tariff price."
 "painel_energia_ja|painel de Energia já configurado - o que é seu não é tocado.|Energy dashboard already configured - yours is not touched."
 "painel_energia_falhou|não consegui configurar o painel de Energia - faça na tela: 3 conexões monthly_energy_* com preço sensor.preco_convencional.|could not configure the Energy dashboard - do it in the UI: 3 monthly_energy_* connections priced by sensor.preco_convencional."
+"arq_dash_ok|dashboard Custos escrito - aparece na barra lateral após o restart.|Custos dashboard written - shows in the sidebar after restart."
+"arq_dash_ja|dashboard Custos já em dia.|Custos dashboard up to date."
+"arq_lovelace_ok|configuration.yaml agora registra o dashboard Custos.|configuration.yaml now registers the Custos dashboard."
+"arq_lovelace_ja|dashboard Custos já registrado no configuration.yaml.|Custos dashboard already registered in configuration.yaml."
+"arq_lovelace_estranho|configuration.yaml tem um bloco lovelace: que não reconheço - não vou adivinhar. Registre você o dashboard: dashboards/custos_br.yaml (mode yaml).|configuration.yaml has a lovelace: block I do not recognize - not guessing. Register the dashboard yourself: dashboards/custos_br.yaml (yaml mode)."
 "int_falhou|%s falhou - veja o log.|%s failed - see the log."
 "int_flows|sua rede já acena: %s descoberta(s) esperando no painel (%s)|your network is waving: %s discovery(ies) waiting in the panel (%s)"
 "fase_arq|Arquivos|Files"
@@ -1459,6 +1464,12 @@ conf_estado() { # <arquivo> → ja | append | estranho (nunca adivinhar)
     else printf 'append'; fi
 }
 
+conf_lovelace_estado() { # <arquivo> → ja | append | estranho — mesma disciplina
+    if grep -q 'custos_br.yaml' "$1" 2>/dev/null; then printf 'ja'
+    elif grep -qE '^lovelace:' "$1" 2>/dev/null; then printf 'estranho'
+    else printf 'append'; fi
+}
+
 fase_arquivos() {
     ha_fase "$(msg fase_arq)"
     local it pkgs="" quer_hacs=0
@@ -1519,6 +1530,33 @@ fase_arquivos() {
                 mudou=1 ;;
             estranho)
                 ha_err "$(msg arq_conf_estranho)"; desmontar_smb; return 1 ;;
+        esac
+
+        # ── dashboard Custos: yaml-mode próprio, barra lateral — o dashboard
+        # principal do usuário (.storage) nunca é tocado. Best-effort: bloco
+        # lovelace estranho AVISA e segue, não derruba a fase.
+        mkdir -p "$SMB_PONTO/dashboards" || { desmontar_smb; return 1; }
+        alvo="$SMB_PONTO/dashboards/custos_br.yaml"
+        tmpf="$(mktempfile)"
+        printf '%s\n' "$HAOS_DASH_CUSTOS" > "$tmpf"
+        if [ -f "$alvo" ] && cmp -s "$tmpf" "$alvo"; then
+            ha_ok "$(msg arq_dash_ja)"
+        else
+            [ -f "$alvo" ] && cp "$alvo" "$alvo.antes-$carimbo"
+            cp "$tmpf" "$alvo" || { desmontar_smb; return 1; }
+            ha_ok "$(msg arq_dash_ok)"
+            mudou=1
+        fi
+        alvo="$SMB_PONTO/configuration.yaml"
+        case "$(conf_lovelace_estado "$alvo")" in
+            ja) ha_ok "$(msg arq_lovelace_ja)" ;;
+            append)
+                [ -n "$backup_conf" ] || { backup_conf="$alvo.antes-$carimbo"; cp "$alvo" "$backup_conf" || { desmontar_smb; return 1; }; }
+                printf '\nlovelace:\n  mode: storage\n  dashboards:\n    custos-br:\n      mode: yaml\n      title: Custos\n      icon: mdi:cash-multiple\n      filename: dashboards/custos_br.yaml\n      show_in_sidebar: true\n' >> "$alvo"
+                ha_ok "$(msg arq_lovelace_ok)"
+                mudou=1 ;;
+            estranho)
+                ha_warn "$(msg arq_lovelace_estranho)" ;;
         esac
     fi
 
@@ -3780,6 +3818,15 @@ template:
           icms_aliquota: 0.20
           pis_cofins_aliquota: 0.0925 # 1,65 + 7,60, sobre líquido de ICMS
 
+      # ── Consumo medido: nasce AQUI, do input do ciclo — nada manual a criar
+      # (sem medidor físico, a leitura da fatura entra no input; com medidor,
+      # troque o template para o utility_meter dele)
+      - name: "Gás Consumo Medido"
+        unique_id: gas_consumo_medido
+        unit_of_measurement: "m³"
+        icon: mdi:meter-gas
+        state: "{{ states('input_number.gas_consumo_ciclo_m3') | float(0) }}"
+
       # ── Volume corrigido: medido × fator, arredondado ao m³ inteiro
       - name: "Gás Volume Corrigido"
         unique_id: gas_volume_corrigido
@@ -3875,6 +3922,18 @@ input_number:
   #       Verificado: 19 × 1,03372 = 19,6407 e 19 × 1,034 = 19,646 — os dois
   #       arredondam para 20. A perda só importaria a ~0,05% de uma fronteira
   #       de arredondamento. Se a sua fatura divergir, ajuste este valor.
+  # ── Leitura do ciclo, em m³ (diferença das leituras da fatura) — alimenta
+  #    o sensor Gás Consumo Medido acima
+  gas_consumo_ciclo_m3:
+    name: "Gás — leitura do ciclo"
+    initial: 19
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: "m³"
+    icon: mdi:counter
+    mode: box
+
   gas_fator_correcao:
     name: "Gás — fator de correção (P,T,Z × PCS)"
     initial: 1.034
@@ -3898,9 +3957,9 @@ input_number:
 # -----------------------------------------------------------------------------
 # FONTE DE CONSUMO
 #
-# `sensor.gas_consumo_medido` é o volume do MEDIDOR no ciclo, em m³.
-# Sem medidor conectado ao HA, crie um input_number e digite a diferença de
-# leituras da fatura (ex.: 4218 − 4199 = 19).
+# `sensor.gas_consumo_medido` é o volume do MEDIDOR no ciclo, em m³ — e JÁ
+# nasce deste package, lendo `input_number.gas_consumo_ciclo_m3` (digite a
+# diferença de leituras da fatura, ex.: 4218 − 4199 = 19). Nada a criar à mão.
 #
 # Com medidor, use utility_meter sobre o sensor de volume acumulado:
 #
@@ -4128,6 +4187,76 @@ input_number:
 FIM_EMB_PKG_AGUA
 )
 # <<< PKG_AGUA EMBUTIDO <<<
+# >>> DASH_CUSTOS EMBUTIDO >>>
+HAOS_DASH_CUSTOS=$(cat <<'FIM_EMB_DASH_CUSTOS'
+# =============================================================================
+# custos_br.yaml — dashboard "Custos": energia (Convencional × Branca),
+#                  gás canalizado e água/esgoto, das entidades dos packages BR.
+#
+# Entregue pelo instalador como dashboard yaml-mode PRÓPRIO (barra lateral),
+# sem tocar no dashboard principal do usuário (.storage é do dono).
+# Fonte de verdade: dashboards/custos_br.yaml no repositório; o instalador
+# escreve /config/dashboards/custos_br.yaml desired-state, com backup datado.
+# =============================================================================
+title: Custos
+views:
+  - title: Custos
+    path: custos
+    icon: mdi:cash-multiple
+    cards:
+      - type: entities
+        title: Energia — Convencional × Branca
+        entities:
+          - entity: sensor.fatura_mensal_convencional
+            name: Fatura Convencional (o que pago)
+          - entity: sensor.fatura_mensal_branca
+            name: Fatura Branca (simulada)
+          - entity: sensor.economia_com_tarifa_branca
+            name: Economia se migrar
+          - type: divider
+          - entity: input_number.fatura_conferencia
+            name: Valor da conta do mês (conferência)
+          - entity: sensor.desvio_da_conferencia
+            name: Desvio vs conta real
+          - entity: sensor.dias_ate_reajuste_tarifario
+            name: Dias até o reajuste
+          - entity: sensor.posto_tarifario_atual
+            name: Posto tarifário agora
+
+      - type: entities
+        title: Energia — preços por posto (R$/kWh)
+        entities:
+          - sensor.preco_convencional
+          - sensor.preco_ponta
+          - sensor.preco_intermediario
+          - sensor.preco_fora_ponta
+
+      - type: entities
+        title: Gás canalizado
+        entities:
+          - entity: input_number.gas_consumo_ciclo_m3
+            name: Leitura do ciclo (m³)
+          - entity: sensor.gas_volume_corrigido
+          - entity: sensor.gas_custo_fornecimento
+          - entity: sensor.gas_tributos_total
+          - type: divider
+          - entity: input_number.gas_fatura_conferencia
+            name: Valor da conta de gás (conferência)
+          - entity: sensor.gas_desvio_da_conferencia
+
+      - type: entities
+        title: Água e esgoto
+        entities:
+          - entity: input_select.agua_area
+          - entity: input_number.agua_consumo_m3
+          - entity: input_number.agua_valor_condominio
+          - entity: sensor.agua_e_esgoto_simulado
+          - entity: sensor.agua_diferenca_vs_condominio
+          - entity: sensor.agua_preco_efetivo_concessionaria
+          - entity: sensor.agua_preco_efetivo_condominio
+FIM_EMB_DASH_CUSTOS
+)
+# <<< DASH_CUSTOS EMBUTIDO <<<
 
 # ── acessores do catálogo ────────────────────────────────────────────────────
 cat_rotulo() {

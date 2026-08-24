@@ -89,6 +89,15 @@ template:
           icms_aliquota: 0.20
           pis_cofins_aliquota: 0.0925 # 1,65 + 7,60, sobre líquido de ICMS
 
+      # ── Consumo medido: nasce AQUI, do input do ciclo — nada manual a criar
+      # (sem medidor físico, a leitura da fatura entra no input; com medidor,
+      # troque o template para o utility_meter dele)
+      - name: "Gás Consumo Medido"
+        unique_id: gas_consumo_medido
+        unit_of_measurement: "m³"
+        icon: mdi:meter-gas
+        state: "{{ states('input_number.gas_consumo_ciclo_m3') | float(0) }}"
+
       # ── Volume corrigido: medido × fator, arredondado ao m³ inteiro
       - name: "Gás Volume Corrigido"
         unique_id: gas_volume_corrigido
@@ -184,6 +193,18 @@ input_number:
   #       Verificado: 19 × 1,03372 = 19,6407 e 19 × 1,034 = 19,646 — os dois
   #       arredondam para 20. A perda só importaria a ~0,05% de uma fronteira
   #       de arredondamento. Se a sua fatura divergir, ajuste este valor.
+  # ── Leitura do ciclo, em m³ (diferença das leituras da fatura) — alimenta
+  #    o sensor Gás Consumo Medido acima
+  gas_consumo_ciclo_m3:
+    name: "Gás — leitura do ciclo"
+    initial: 19
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: "m³"
+    icon: mdi:counter
+    mode: box
+
   gas_fator_correcao:
     name: "Gás — fator de correção (P,T,Z × PCS)"
     initial: 1.034
@@ -207,9 +228,9 @@ input_number:
 # -----------------------------------------------------------------------------
 # FONTE DE CONSUMO
 #
-# `sensor.gas_consumo_medido` é o volume do MEDIDOR no ciclo, em m³.
-# Sem medidor conectado ao HA, crie um input_number e digite a diferença de
-# leituras da fatura (ex.: 4218 − 4199 = 19).
+# `sensor.gas_consumo_medido` é o volume do MEDIDOR no ciclo, em m³ — e JÁ
+# nasce deste package, lendo `input_number.gas_consumo_ciclo_m3` (digite a
+# diferença de leituras da fatura, ex.: 4218 − 4199 = 19). Nada a criar à mão.
 #
 # Com medidor, use utility_meter sobre o sensor de volume acumulado:
 #
