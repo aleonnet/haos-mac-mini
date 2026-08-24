@@ -6,6 +6,23 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
 
 ## [Unreleased]
 
+### Changed
+- **Studio Code Server substitui o File editor** no catálogo (decisão do
+  dono, 24/08; reversão registrada no NAO_APLICA). `DESCOBRIR_<sufixo>`
+  generalizado para qualquer app do repositório hassio-addons.
+- **energia_br define `sensor.energy_total` sozinho** (soma dinâmica das
+  fases da Shelly via `integration_entities`) — nenhum auxiliar manual;
+  `utility_meter` já nasce ligado.
+- **Mensagem de integração diz o lugar certo**: com descoberta pendente,
+  "espera você no painel"; sem descoberta (tuya, tplink ainda mudo no DHCP),
+  "precisa ser adicionado por você" — apontado contra o painel real.
+
+### Fixed
+- Packages conforme a doc do template integration: `attributes` são
+  TEMPLATES — listas embrulhadas em Jinja, `null` eliminado
+  (`vigencia_fim`, `faixa_4_ate`) e `|float(default)` em toda leitura com
+  aritmética (a soma virava concatenação de strings).
+
 ## [0.3.0] — 2026-08-24
 
 **O instalador agora entrega o Home Assistant NO AR**: um comando, cardápio,
