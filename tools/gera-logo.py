@@ -35,14 +35,14 @@ DMIN    = 0.0    # a faixa fica POR FORA da borda (come 0% da casa — medido)
 W = int(CASA + MARGEM * 2)
 H = W
 
-# proporções do logo oficial (medidas nos frames)
-OMBRO   = 0.42   # altura do beiral (fração de CASA)
-BEIRAL  = 0.085  # quanto o telhado ultrapassa a parede, por lado
-ESPBEI  = 0.055  # espessura vertical do degrau do beiral
-R_APICE = 1.3    # topo pontudo
-R_OMBRO = 1.0    # canto externo do beiral
-R_NOTCH = 0.5    # degrau interno do beiral — quase vivo
-R_BASE  = 2.2    # cantos de baixo: raio MENOR que a tentativa anterior
+# proporções do logo oficial (medidas na imagem em alta que ele mandou):
+# pentágono LIMPO — o telhado morre em QUINAS nos ombros e a parede desce
+# alinhada com elas; não há beiral na marca atual (a leitura de "degrau" nos
+# frames do vídeo era anti-aliasing do traço).
+OMBRO   = 0.44   # altura dos ombros (fração de CASA)
+R_APICE = 1.5    # topo pontudo, só quebra de serrilhado
+R_OMBRO = 0.8    # as quinas laterais — quase vivas
+R_BASE  = 2.4    # cantos de baixo, os únicos redondos de verdade
 
 def _dist_seg(px, py, x1, y1, x2, y2):
     dx, dy = x2 - x1, y2 - y1
@@ -59,16 +59,12 @@ def _caminho_arredondado():
     C = CASA
     cx = x0 + C / 2.0
     hy = y0 + C * OMBRO
-    et = C * ESPBEI
-    wx = C * BEIRAL
     V = [
-        ((cx, y0),              R_APICE),   # ápice
-        ((x0 + C, hy),          R_OMBRO),   # beiral direito, canto externo
-        ((x0 + C - wx, hy + et), R_NOTCH),  # degrau do beiral, direita
-        ((x0 + C - wx, y0 + C), R_BASE),    # base direita
-        ((x0 + wx, y0 + C),     R_BASE),    # base esquerda
-        ((x0 + wx, hy + et),    R_NOTCH),   # degrau do beiral, esquerda
-        ((x0, hy),              R_OMBRO),   # beiral esquerdo, canto externo
+        ((cx, y0),         R_APICE),   # ápice
+        ((x0 + C, hy),     R_OMBRO),   # quina direita do telhado
+        ((x0 + C, y0 + C), R_BASE),    # base direita
+        ((x0, y0 + C),     R_BASE),    # base esquerda
+        ((x0, hy),         R_OMBRO),   # quina esquerda do telhado
     ]
     n = len(V)
     pts = []

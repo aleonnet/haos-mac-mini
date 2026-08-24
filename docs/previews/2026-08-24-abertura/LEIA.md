@@ -12,11 +12,15 @@ terminal executa em meio-bloco:
    os dispositivos entrando na rede.
 4. **Respiração** — o azul pulsa uma vez e assenta.
 
-Geometria conferida contra os frames do vídeo oficial: BEIRAL (o telhado
-ultrapassa as paredes), ápice pontudo (r 1.3), degrau do beiral quase vivo
-(r 0.5), base moderada (r 2.2), traço 1.75 px abraçando a borda (come 9% —
-o contorno antigo comia 8%; a tentativa reprovada comia 42%). Gradiente
-vertical no azul: #35b6f8 → #0277BD.
+Geometria conferida contra a imagem em alta da marca atual: pentágono LIMPO —
+o telhado morre em QUINAS quase vivas nos ombros (r 0.8) e a parede desce
+alinhada; ápice pontudo (r 1.5); só a base é redonda de verdade (r 2.4).
+Traço 1.75 px abraçando a borda (come 4% da casa; a tentativa reprovada comia
+42%). Gradiente vertical no azul: #35b6f8 → #0277BD.
+
+> Correção de 24/08: a primeira leitura dos frames do vídeo viu um "beiral" —
+> era anti-aliasing do traço. A imagem em alta que o dono mandou desfez o
+> engano; a marca atual não tem beiral.
 
 **Ver no terminal de verdade:** `./tools/ui-demo.sh`
 **Ratificação é do dono** — a animação em meio-bloco é o juiz final.
