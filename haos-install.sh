@@ -152,6 +152,7 @@ MSG_DB=(
 "pede_senha|O próximo passo instala o VirtualBox e precisa da senha de administrador. Quem pergunta é o sudo; o instalador não guarda nem repassa a senha.|The next step installs VirtualBox and needs the administrator password. sudo is what asks; this installer never stores or forwards it."
 "sudo_sem_tty|sudo precisa de senha e não há terminal interativo. Rode \x27sudo -v\x27 antes, ou use --install-deps num terminal.|sudo needs a password and there is no interactive terminal. Run \x27sudo -v\x27 first, or use --install-deps from a terminal."
 "vbox_ausente|VirtualBox não encontrado.|VirtualBox not found."
+"vbox_dmg_cache|Instalador do VirtualBox já em cache, hash conferido: %s|VirtualBox installer already cached, hash verified: %s"
 "vbox_instalar|Baixar e instalar o VirtualBox %s da Oracle?|Download and install Oracle VirtualBox %s?"
 "vbox_baixando|Baixando VirtualBox %s (~153 MB)...|Downloading VirtualBox %s (~153 MB)..."
 "vbox_download_falhou|Falha ao baixar o VirtualBox.|Failed to download VirtualBox."
@@ -308,8 +309,13 @@ tem_tty() {
 perguntar() {
     local prompt="$1" resp=""
     tem_tty || return 1
-    printf '%s' "$prompt" >/dev/tty
-    IFS= read -r resp </dev/tty || true
+    # Prompt no STDOUT (a mesma tela onde a calha vive) e leitura do terminal
+    # real; a barra fica suspensa enquanto a pergunta existe — prompt e barra
+    # disputando a última linha foi o defeito medido no primeiro teste real.
+    ha_bar_suspende
+    printf '%s' "$prompt"
+    IFS= read -r resp < "$TTY_DEV" || true
+    ha_bar_retoma
     [[ "${resp:-N}" =~ ^[sSyY]$ ]]
 }
 
@@ -326,12 +332,14 @@ garantir_sudo() {
     command -v sudo >/dev/null 2>&1 || { ha_err "$(msg sem_sudo)"; return 1; }
     if sudo -n true 2>/dev/null; then return 0; fi
     if [ -r "$TTY_DEV" ]; then
+        ha_bar_suspende
         ha_info "$(msg pede_senha)"
         # shellcheck disable=SC2024
         # O aviso é sobre redirecionar SAÍDA com sudo. Aqui o redirecionamento é
         # de ENTRADA, e é o ponto: o sudo tem de ler a senha do terminal real,
         # porque em `curl | bash` o stdin do script é o cano.
-        sudo -v < "$TTY_DEV" || return 1
+        sudo -v < "$TTY_DEV" || { ha_bar_retoma; return 1; }
+        ha_bar_retoma
         return 0
     fi
     ha_err "$(msg sudo_sem_tty)"
@@ -345,8 +353,10 @@ confirmar_dep() {
     [ "$OP_INSTALL_DEPS" = "1" ] && return 0
     [ -r "$TTY_DEV" ] || return 1
     [ "$OP_NOINPUT" = "1" ] && return 1
-    printf '%s [s/N] ' "$q" > "$TTY_DEV"
+    ha_bar_suspende
+    printf '%s [s/N] ' "$q"
     IFS= read -r r < "$TTY_DEV" || true
+    ha_bar_retoma
     case "${r:-N}" in s|S|y|Y) return 0 ;; *) return 1 ;; esac
 }
 
@@ -396,29 +406,54 @@ garantir_virtualbox() {
     # `pending` ANTES de tentar: morrer entre o installer e o registro deixa a
     # prova de que ESTE instalador mexeu aqui (regra 1 do manifesto).
     host_set vbox pending
+    garantir_log
 
-    local dir dmg sha_arq esperado obtido ponto pkg
-    dir="$(mktempdir)"; dmg="$dir/$VBOX_DMG"
+    # O DMG mora no CACHE, não em tempdir: o desfecho mais provável da 1ª vez
+    # é o macOS bloquear a extensão da Oracle e o usuário reexecutar depois de
+    # permitir — medido no primeiro teste real. Reexecução não recompra 153 MB.
+    local dir sha_arq esperado obtido ponto pkg
+    local cache="$HOME/Library/Caches/haos-mac-mini" dmg
+    dmg="$cache/$VBOX_DMG"
+    dir="$(mktempdir)"
 
-    ha_run_step "$(msg vbox_baixando "$VBOX_VERSAO")" \
-        curl -fL -sS --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2 \
-        -o "$dmg" "$VBOX_BASE/$VBOX_DMG" || { ha_err "$(msg vbox_download_falhou)"; return 1; }
-
-    # Hash SEMPRE. --force não pula isto: montar imagem não verificada é
-    # executar binário de origem não confirmada.
+    # O SHA da Oracle vem primeiro: é ele que valida tanto o cache quanto o
+    # download novo.
     sha_arq="$dir/SHA256SUMS"
-    curl -fsSL --proto '=https' -o "$sha_arq" "$VBOX_BASE/SHA256SUMS" 2>/dev/null         || { ha_err "$(msg vbox_sem_sha)"; return 1; }
+    curl -fsSL --proto '=https' -o "$sha_arq" "$VBOX_BASE/SHA256SUMS" 2>>"$LOG_FILE" \
+        || { ha_err "$(msg vbox_sem_sha)"; diagnostico_log; return 1; }
     esperado="$(awk -v f="$VBOX_DMG" '$0 ~ f {print $1; exit}' "$sha_arq")"
-    obtido="$(shasum -a 256 "$dmg" | awk '{print $1}')"
-    if [ -z "$esperado" ] || [ "$esperado" != "$obtido" ]; then
-        ha_err "$(msg vbox_sha_diverge)"
-        printf '    esperado: %s\n    obtido  : %s\n' "${esperado:-<ausente>}" "$obtido" >&2
-        return 1
-    fi
-    ha_ok "$(msg vbox_sha_ok)"
+    [ -n "$esperado" ] || { ha_err "$(msg vbox_sem_sha)"; return 1; }
 
-    ponto="$(hdiutil attach -nobrowse -readonly -quiet "$dmg" 2>/dev/null              | awk -F'\t' '/Volumes/{print $NF}' | tail -1)"
-    [ -n "$ponto" ] || { ha_err "$(msg vbox_mount_falhou)"; return 1; }
+    if [ -f "$dmg" ] && [ "$(shasum -a 256 "$dmg" | awk '{print $1}')" = "$esperado" ]; then
+        ha_ok "$(msg vbox_dmg_cache "$dmg")"
+    else
+        mkdir -p "$cache" || return 1
+        rm -f "$dmg.parcial"
+        ha_run_step "$(msg vbox_baixando "$VBOX_VERSAO")" \
+            curl -fL -sS --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2 \
+            -o "$dmg.parcial" "$VBOX_BASE/$VBOX_DMG" \
+            || { rm -f "$dmg.parcial"; ha_err "$(msg vbox_download_falhou)"; return 1; }
+        obtido="$(shasum -a 256 "$dmg.parcial" | awk '{print $1}')"
+        if [ "$esperado" != "$obtido" ]; then
+            rm -f "$dmg.parcial"
+            ha_err "$(msg vbox_sha_diverge)"
+            printf '    esperado: %s\n    obtido  : %s\n' "$esperado" "$obtido" >&2
+            return 1
+        fi
+        mv "$dmg.parcial" "$dmg"
+        host_set dmg_cache created
+        host_set dmg_path "$dmg"
+        ha_ok "$(msg vbox_sha_ok)"
+    fi
+
+    # O parse do ponto de montagem vem do -plist: `hdiutil attach -quiet`
+    # SUPRIME a listagem, o parse recebia vazio e a instalação morria com
+    # "Could not mount" sobre um DMG perfeitamente montável — medido no
+    # primeiro teste real, no Mac mini. </dev/null porque em curl|bash o
+    # stdin é o cano do script.
+    ponto="$(hdiutil attach -nobrowse -readonly -plist "$dmg" </dev/null 2>>"$LOG_FILE" \
+        | sed -n 's:.*<string>\(/Volumes/[^<]*\)</string>.*:\1:p' | head -1)"
+    [ -n "$ponto" ] || { ha_err "$(msg vbox_mount_falhou)"; diagnostico_log; return 1; }
     # desmonta aconteça o que acontecer, inclusive em erro no meio
     VBOX_PONTO="$ponto"
 
@@ -872,7 +907,7 @@ un_act()        { UN_ACOES="${UN_ACOES}$1\n"; }
 un_caminho_seguro() { # <caminho> <classe: vdi|zip|estado>
     case "$2" in
         vdi)    case "$1" in "$HOME/VirtualBox VMs/"*.vdi|"$HOME/VirtualBox VMs/"*.vdi.origem) return 0 ;; esac ;;
-        zip)    case "$1" in "$HOME/Library/Caches/haos-mac-mini/"*.zip) return 0 ;; esac ;;
+        zip)    case "$1" in "$HOME/Library/Caches/haos-mac-mini/"*.zip|"$HOME/Library/Caches/haos-mac-mini/"*.dmg) return 0 ;; esac ;;
         estado) case "$1" in "$(haos_state_dir)/"*) return 0 ;; esac ;;
     esac
     return 1
@@ -917,6 +952,14 @@ un_montar_plano() {
         un_add_remove "$(msg un_zip "$zip_path")"
         un_act "rm-zip"
     fi
+    local dmg_st dmg_path
+    dmg_st="$(manifest_get "$(host_manifest)" dmg_cache)"
+    dmg_path="$(manifest_get "$(host_manifest)" dmg_path)"
+    if [ "$dmg_st" = "created" ] && [ -n "$dmg_path" ] && [ -f "$dmg_path" ] \
+        && un_caminho_seguro "$dmg_path" zip; then
+        un_add_remove "$(msg un_zip "$dmg_path")"
+        un_act "rm-dmg"
+    fi
 
     if [ -f "$d/state" ] || [ -f "$d/last-run.log" ] || [ -f "$(host_manifest)" ] || [ -f "$(vm_manifest)" ]; then
         un_add_remove "$(msg un_registro)"
@@ -949,6 +992,9 @@ un_executar() {
                 rmdir "$(dirname "$vdi_path")" 2>/dev/null || true ;;
             rm-zip)
                 un_rm "$zip_path" zip
+                rmdir "$HOME/Library/Caches/haos-mac-mini" 2>/dev/null || true ;;
+            rm-dmg)
+                un_rm "$(manifest_get "$(host_manifest)" dmg_path)" zip
                 rmdir "$HOME/Library/Caches/haos-mac-mini" 2>/dev/null || true ;;
             rm-registro)
                 # o registro sai POR ÚLTIMO: falhar no meio deixa artefato
@@ -1500,12 +1546,18 @@ ha_rule() {
 # nenhuma. Só aparece depois da 1ª fase, e só com animação — em log seria lixo.
 # Apagar ANTES de qualquer mensagem é o que impede a barra de virar sujeira no
 # meio do texto; `\033[2K` apaga a linha inteira sem depender de TERM.
-HA_BAR_TOTAL=0; HA_BAR_N=0; HA_BAR_VISIVEL=0
+HA_BAR_TOTAL=0; HA_BAR_N=0; HA_BAR_VISIVEL=0; HA_BAR_SUSPENSA=0
 ha_bar_limpa() {
   if [[ "$HA_BAR_VISIVEL" == 1 ]]; then printf '\r\033[2K'; HA_BAR_VISIVEL=0; fi
   return 0
 }
+# Durante uma PERGUNTA a barra não existe: prompt e barra disputando a última
+# linha foi medido em campo (o "[s/N]" colado em "fase 1/4"). É a disciplina
+# do ask() do AtlasFile: quem pergunta suspende, quem termina retoma.
+ha_bar_suspende() { ha_bar_limpa; HA_BAR_SUSPENSA=1; }
+ha_bar_retoma()   { HA_BAR_SUSPENSA=0; ha_bar_mostra; }
 ha_bar_mostra() {
+  [[ "${HA_BAR_SUSPENSA:-0}" == 0 ]] || return 0
   [[ "$HAOS_UI_ANIM" == 1 && "$HA_BAR_TOTAL" -gt 0 && "$HA_BAR_N" -gt 0 ]] || return 0
   local w=20 f i out=''
   f=$(( HA_BAR_N * w / HA_BAR_TOTAL ))
@@ -2065,7 +2117,9 @@ pre_voo() {
             portao "$E_DEP" "$(msg sem_vbox)"
         else
             local rc_vb=0
+            ha_bar_suspende
             garantir_virtualbox || rc_vb=$?
+            ha_bar_retoma
             if [ "$rc_vb" != "0" ] && [ "$rc_vb" != "100" ]; then
                 exit "$E_DEP"
             fi
@@ -2176,6 +2230,7 @@ ler_opcao() { # <prompt já traduzido> -> resposta em $RESP
 
 seletor_interativo() {
     exec 4< "$TTY_DEV" || return 1
+    ha_bar_suspende
     local r tem_ultima=0 resumo=''
     if carregar_selecao; then
         tem_ultima=1
@@ -2194,6 +2249,8 @@ seletor_interativo() {
                SEL_DEGRAU="$LAST_DEGRAU"
                [ -n "$LAST_EXTRAS" ] && SEL_EXTRAS="$LAST_EXTRAS"
                [ -n "$LAST_VM" ] && OP_VM_PERFIL="${OP_VM_PERFIL:-$LAST_VM}"
+               exec 4<&-
+               ha_bar_retoma
                return 0 ;;
             1) SEL_DEGRAU="haos_vanilla"; break ;;
             2) SEL_DEGRAU="haos_conectado"; break ;;
@@ -2239,6 +2296,7 @@ seletor_interativo() {
         done
     fi
     exec 4<&-
+    ha_bar_retoma
     return 0
 }
 

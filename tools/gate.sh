@@ -263,6 +263,98 @@ else
     falha "isca no cwd: esperado 'rc=1 vdi=0', obtido '$saida_isca'"
 fi
 
+# ── F1 executa de ponta a ponta ──────────────────────────────────────────────
+# A lição mais cara do primeiro teste em campo: a cauda da F1 (montar o DMG,
+# achar o .pkg, instalar, desmontar) nunca tinha RODADO — e caiu no primeiro
+# usuário real porque `hdiutil attach -quiet` suprime a listagem que o parse
+# lia. Esta cerca roda a F1 INTEIRA com um DMG sintético e hdiutil DE VERDADE;
+# só rede (curl), sudo e VBoxManage são dublados por função.
+titulo "F1 de ponta a ponta (hdiutil real)"
+sb_f1="$(mktemp -d "${TMPDIR:-/tmp}/haos-gate-f1.XXXXXX")"
+mkdir -p "$sb_f1/vol" "$sb_f1/bin"
+touch "$sb_f1/vol/VirtualBox.pkg"
+if hdiutil create -quiet -srcfolder "$sb_f1/vol" -volname HAOSGateVBox "$sb_f1/fake.dmg" >/dev/null 2>&1; then
+    # shellcheck disable=SC2016  # o script filho expande $SB sozinho, de propósito
+    saida_f1="$(HAOS_INSTALL_LIB=1 SB="$sb_f1" "${BASH:-/bin/bash}" -c '
+        source haos-install.sh
+        HOME="$SB"; PATH="$SB/bin:$PATH"
+        OP_INSTALL_DEPS=1; OP_VERBOSE=0
+        sha="$(shasum -a 256 "$SB/fake.dmg" | awk "{print \$1}")"
+        printf "%s *%s\n" "$sha" "$VBOX_DMG" > "$SB/SHA256SUMS"
+        curl() { # dublê: entrega SHA256SUMS e o DMG sintético
+            local a out="" prev=""
+            for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; prev="$a"; done
+            case "$a" in
+                *SHA256SUMS) cp "$SB/SHA256SUMS" "$out" ;;
+                *.dmg)       cp "$SB/fake.dmg" "$out" ;;
+                *) return 22 ;;
+            esac
+        }
+        sudo() { # dublê: -n/-v ok; "installer" cria o VBoxManage no PATH
+            case "$1" in
+                -n|-v) return 0 ;;
+                installer)
+                    printf "#!/bin/sh\necho 7.2.16\n" > "$SB/bin/VBoxManage"
+                    chmod +x "$SB/bin/VBoxManage"
+                    return 0 ;;
+                *) return 0 ;;
+            esac
+        }
+        rc=0; garantir_virtualbox >/dev/null 2>&1 || rc=$?
+        vbox_st="$(manifest_get "$(host_manifest)" vbox)"
+        montado=0; [ -d /Volumes/HAOSGateVBox ] && montado=1
+        cacheado=0; [ -f "$SB/Library/Caches/haos-mac-mini/$VBOX_DMG" ] && cacheado=1
+        printf "rc=%s vbox=%s montado=%s cache=%s" "$rc" "$vbox_st" "$montado" "$cacheado"')"
+    if [ "$saida_f1" = "rc=0 vbox=created montado=0 cache=1" ]; then
+        ok "F1 inteira: SHA, cache, mount por -plist, .pkg, installer, detach, re-sonda"
+    else
+        falha "F1 de ponta a ponta: esperado 'rc=0 vbox=created montado=0 cache=1', obtido '$saida_f1'"
+    fi
+    hdiutil detach -quiet /Volumes/HAOSGateVBox 2>/dev/null || true
+else
+    ok "hdiutil indisponível aqui — a F1 de ponta a ponta fica com o runner macOS"
+fi
+rm -rf "$sb_f1"
+
+# self-update por ARQUIVO: versão maior atualiza com backup; menor é recusada.
+titulo "self-update"
+sb_su="$(mktemp -d "${TMPDIR:-/tmp}/haos-gate-su.XXXXXX")"
+cp haos-install.sh "$sb_su/eu.sh"
+# shellcheck disable=SC2016  # idem: expansão no shell filho
+saida_su="$(HAOS_INSTALL_LIB=1 SB="$sb_su" "${BASH:-/bin/bash}" -c '
+    cd "$SB"
+    source ./eu.sh
+    sed "s/^HAOS_INSTALL_VERSION=.*/HAOS_INSTALL_VERSION=\"9.9.9\"/" eu.sh > novo.sh
+    sed "s/^HAOS_INSTALL_VERSION=.*/HAOS_INSTALL_VERSION=\"0.0.1\"/" eu.sh > velho.sh
+    curl() { local a out="" prev=""; for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; prev="$a"; done; cp "$SB/$REMOTO" "$out"; }
+    BASH_SOURCE=("$SB/eu.sh")
+    OP_NOINPUT=1
+    REMOTO=novo.sh;  rc1=0; rodar_self_update >/dev/null 2>&1 || rc1=$?
+    v_apos="$(grep -m1 "^HAOS_INSTALL_VERSION=" "$SB/eu.sh" | cut -d\" -f2)"
+    tem_bak=0; [ -f "$SB/eu.sh.bak" ] && tem_bak=1
+    REMOTO=velho.sh; rc2=0; rodar_self_update >/dev/null 2>&1 || rc2=$?
+    printf "rc1=%s v=%s bak=%s rc2=%s" "$rc1" "$v_apos" "$tem_bak" "$rc2"')"
+if [ "$saida_su" = "rc1=0 v=9.9.9 bak=1 rc2=1" ]; then
+    ok "self-update: atualiza com backup e RECUSA downgrade"
+else
+    falha "self-update: esperado 'rc1=0 v=9.9.9 bak=1 rc2=1', obtido '$saida_su'"
+fi
+rm -rf "$sb_su"
+
+# diagnóstico de rede: a assinatura reconhece o erro do curl e explica.
+titulo "diagnóstico de rede"
+# shellcheck disable=SC2016  # idem
+saida_dr="$(HAOS_INSTALL_LIB=1 "${BASH:-/bin/bash}" -c '
+    source haos-install.sh
+    garantir_log
+    printf "curl: (6) Could not resolve host: exemplo.invalido\n" >> "$LOG_FILE"
+    diagnostico_log 2>&1')"
+if printf '%s' "$saida_dr" | grep -qE 'problema de REDE|NETWORK problem'; then
+    ok "falha de rede é reconhecida pela assinatura e explicada"
+else
+    falha "diagnóstico de rede não reconheceu a assinatura do curl"
+fi
+
 # ── o cardápio responde ──────────────────────────────────────────────────────
 # O seletor interativo é exercitado pela costura TTY_DEV (arquivo de respostas
 # lido em fd único, como um terminal entrega). Quatro cenários: escolha

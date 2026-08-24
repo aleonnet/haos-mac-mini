@@ -6,7 +6,25 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
 
 ## [Unreleased]
 
+### Fixed
+- **F1 morria em "Could not mount"** no primeiro teste real: `hdiutil attach
+  -quiet` SUPRIME a listagem do ponto de montagem e o parse recebia vazio.
+  Agora o parse é do `-plist`, com `</dev/null` (em `curl | bash` o stdin é o
+  cano) e diagnóstico de log na falha.
+- **Prompt colado na barra de fase** (`fase 1/4Download and install...?`):
+  perguntas agora SUSPENDEM a barra (disciplina do ask() do AtlasFile) e
+  escrevem o prompt no stdout, não direto no tty.
+- O DMG do VirtualBox agora mora no CACHE com SHA conferido: a reexecução
+  após o macOS bloquear a extensão (o desfecho provável da 1ª vez) não paga
+  os 153 MB de novo. O `--uninstall` sabe removê-lo.
+
 ### Added
+- **Cercas de ponta a ponta no portão**: a F1 INTEIRA roda com um DMG
+  sintético e `hdiutil` de verdade (rede/sudo/VBoxManage dublados por
+  função); o `--self-update` é exercitado por arquivo nos dois sentidos
+  (atualiza com backup, RECUSA downgrade); o diagnóstico de rede é provado
+  contra a assinatura real do curl. A lição: caminho que nunca rodou é
+  caminho quebrado que ainda não foi visto.
 - **O cardápio**: sem flags e com terminal, o instalador pergunta degrau,
   extras e perfil de VM (com "repetir a última" quando há seleção salva) — no
   desenho dos irmãos: menu na tela, resposta lida do terminal real

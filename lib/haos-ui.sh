@@ -438,12 +438,18 @@ ha_rule() {
 # nenhuma. Só aparece depois da 1ª fase, e só com animação — em log seria lixo.
 # Apagar ANTES de qualquer mensagem é o que impede a barra de virar sujeira no
 # meio do texto; `\033[2K` apaga a linha inteira sem depender de TERM.
-HA_BAR_TOTAL=0; HA_BAR_N=0; HA_BAR_VISIVEL=0
+HA_BAR_TOTAL=0; HA_BAR_N=0; HA_BAR_VISIVEL=0; HA_BAR_SUSPENSA=0
 ha_bar_limpa() {
   if [[ "$HA_BAR_VISIVEL" == 1 ]]; then printf '\r\033[2K'; HA_BAR_VISIVEL=0; fi
   return 0
 }
+# Durante uma PERGUNTA a barra não existe: prompt e barra disputando a última
+# linha foi medido em campo (o "[s/N]" colado em "fase 1/4"). É a disciplina
+# do ask() do AtlasFile: quem pergunta suspende, quem termina retoma.
+ha_bar_suspende() { ha_bar_limpa; HA_BAR_SUSPENSA=1; }
+ha_bar_retoma()   { HA_BAR_SUSPENSA=0; ha_bar_mostra; }
 ha_bar_mostra() {
+  [[ "${HA_BAR_SUSPENSA:-0}" == 0 ]] || return 0
   [[ "$HAOS_UI_ANIM" == 1 && "$HA_BAR_TOTAL" -gt 0 && "$HA_BAR_N" -gt 0 ]] || return 0
   local w=20 f i out=''
   f=$(( HA_BAR_N * w / HA_BAR_TOTAL ))
