@@ -622,6 +622,18 @@ class H(BaseHTTPRequestHandler):
                     manda({"id": mid, "type": "result", "success": True,
                            "result": [{"handler": "hue"}, {"handler": "shelly"}]})
                     continue
+                if m.get("type") == "energy/get_prefs":
+                    if "energia" in estado:
+                        manda({"id": mid, "type": "result", "success": True,
+                               "result": {"energy_sources": estado["energia"]}})
+                    else:
+                        manda({"id": mid, "type": "result", "success": False,
+                               "error": {"code": "not_found", "message": "No prefs"}})
+                    continue
+                if m.get("type") == "energy/save_prefs":
+                    estado["energia"] = m.get("energy_sources") or []
+                    manda({"id": mid, "type": "result", "success": True, "result": {}})
+                    continue
                 ep = m.get("endpoint", "")
                 metodo = m.get("method", "get")
                 if ep == "/store":
@@ -734,6 +746,12 @@ if [ -s "$sb_ha/porta" ]; then
         ok "prefixo de repositório de terceiro DESCOBERTO (a1b2c3d4), nunca fixado"
     else
         falha "slug community não passou pela descoberta"
+    fi
+    n_grid="$(grep -c 'stat_energy_from' "$sb_ha/req.log" || true)"
+    if grep -q 'energy/save_prefs' "$sb_ha/req.log" && [ "${n_grid:-0}" -ge 1 ]; then
+        ok "painel de Energia provisionado via energy/save_prefs (3 postos + preço)"
+    else
+        falha "energy/save_prefs não exercitado na F9 dublada"
     fi
 else
     falha "HA dublado não subiu"

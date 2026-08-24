@@ -336,6 +336,9 @@ MSG_DB=(
 "int_espera|%s já foi DESCOBERTO e espera você no painel (Dispositivos e serviços) - só falta confirmar/credenciar.|%s was DISCOVERED and waits for you in the panel (Devices and services) - just confirm/authorize it."
 "int_manual|%s pede credencial que só você tem - um clique abre o fluxo: %s|%s needs a credential only you have - one click opens the flow: %s"
 "plano_mao|Pedem a SUA mão no final (conta, botão ou confirmação - nada é inventado): %s|Will need YOUR hand at the end (account, button or confirmation - nothing is invented): %s"
+"painel_energia_ok|painel de Energia configurado: 3 conexões de rede (ponta, intermediário, fora ponta) com o preço da sua tarifa.|Energy dashboard configured: 3 grid connections (peak, shoulder, off-peak) with your tariff price."
+"painel_energia_ja|painel de Energia já configurado - o que é seu não é tocado.|Energy dashboard already configured - yours is not touched."
+"painel_energia_falhou|não consegui configurar o painel de Energia - faça na tela: 3 conexões monthly_energy_* com preço sensor.preco_convencional.|could not configure the Energy dashboard - do it in the UI: 3 monthly_energy_* connections priced by sensor.preco_convencional."
 "int_falhou|%s falhou - veja o log.|%s failed - see the log."
 "int_flows|sua rede já acena: %s descoberta(s) esperando no painel (%s)|your network is waving: %s discovery(ies) waiting in the panel (%s)"
 "fase_arq|Arquivos|Files"
@@ -1436,6 +1439,20 @@ FIM_EXPECT
     return 0
 }
 
+# Painel de Energia: conveniência best-effort — falha AVISA, nunca derruba a
+# fase. Painel já configurado pelo dono é sagrado (o helper devolve 100).
+garantir_painel_energia() {
+    case " ${SEL_ITENS:-} " in *" energia_br "*) ;; *) return 0 ;; esac
+    local rc=0
+    helper_cred energy-ensure >/dev/null 2>>"$LOG_FILE" || rc=$?
+    case "$rc" in
+        0)   ha_ok "$(msg painel_energia_ok)" ;;
+        100) ha_ok "$(msg painel_energia_ja)" ;;
+        *)   ha_warn "$(msg painel_energia_falhou)" ;;
+    esac
+    return 0
+}
+
 conf_estado() { # <arquivo> → ja | append | estranho (nunca adivinhar)
     if grep -q 'include_dir_named packages' "$1" 2>/dev/null; then printf 'ja'
     elif grep -qE '^homeassistant:' "$1" 2>/dev/null; then printf 'estranho'
@@ -1534,6 +1551,7 @@ fase_arquivos() {
 
     if [ "$mudou" = "0" ]; then
         desmontar_smb
+        garantir_painel_energia
         return 100
     fi
 
@@ -1547,6 +1565,11 @@ fase_arquivos() {
         return 1
     fi
     desmontar_smb
+
+    # o painel de Energia entra ANTES do restart (prefs não dependem dele, e
+    # o Core está comprovadamente de pé aqui — cerca pegou o caminho em que
+    # ele não volta e o painel ficava sem configurar)
+    garantir_painel_energia
 
     ha_info "$(msg arq_restart)"
     helper_cred core-restart >/dev/null 2>>"$LOG_FILE" || true
@@ -3188,6 +3211,41 @@ def cmd_flows_pendentes():
         print(d, contagem[d])
 
 
+# ── painel de Energia (F9) ───────────────────────────────────────────────────
+def cmd_energy_ensure():
+    """Provisiona as 3 conexões de rede elétrica (uma por posto tarifário)
+    com o preço da tarifa — via WS energy/save_prefs (SOURCE-PINNED,
+    schema conferido na tag 2026.8.3: entradas planas, cost_adjustment_day
+    obrigatório). Painel JÁ configurado → 100, NUNCA sobrescreve."""
+    ws, _tok = _ws_autenticado()
+    m = ws.chama({"type": "energy/get_prefs"})
+    if m.get("success") and (m.get("result") or {}).get("energy_sources"):
+        sys.exit(JA)
+    if not m.get("success") \
+            and (m.get("error") or {}).get("code") != "not_found":
+        erro("energy/get_prefs", 0)
+    fontes = []
+    for stat, nome in (("sensor.monthly_energy_peak", "Ponta"),
+                       ("sensor.monthly_energy_shoulder", "Intermediario"),
+                       ("sensor.monthly_energy_offpeak", "Fora Ponta")):
+        fontes.append({
+            "type": "grid",
+            "stat_energy_from": stat,
+            "entity_energy_price": "sensor.preco_convencional",
+            "cost_adjustment_day": 0,
+            "name": nome,
+        })
+    m = ws.chama({"type": "energy/save_prefs",
+                  "energy_sources": fontes, "device_consumption": []})
+    if not m.get("success"):
+        erro("energy/save_prefs", 0)
+    m = ws.chama({"type": "energy/get_prefs"})
+    if not (m.get("success")
+            and len((m.get("result") or {}).get("energy_sources") or []) >= 3):
+        erro("energy/get_prefs (pós-condição)", 0)
+    sys.exit(0)
+
+
 # ── configuração do Core (F9) ────────────────────────────────────────────────
 def cmd_core_check():
     usuario, senha = _le_credencial()
@@ -3226,6 +3284,8 @@ def main():
         cmd_entry_ensure(resto[0], resto[1])
     elif cmd == "flows-pendentes":
         cmd_flows_pendentes()
+    elif cmd == "energy-ensure":
+        cmd_energy_ensure()
     elif cmd == "core-check":
         cmd_core_check()
     elif cmd == "core-restart":

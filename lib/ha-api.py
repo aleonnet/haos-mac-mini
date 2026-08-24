@@ -497,6 +497,41 @@ def cmd_flows_pendentes():
         print(d, contagem[d])
 
 
+# ── painel de Energia (F9) ───────────────────────────────────────────────────
+def cmd_energy_ensure():
+    """Provisiona as 3 conexões de rede elétrica (uma por posto tarifário)
+    com o preço da tarifa — via WS energy/save_prefs (SOURCE-PINNED,
+    schema conferido na tag 2026.8.3: entradas planas, cost_adjustment_day
+    obrigatório). Painel JÁ configurado → 100, NUNCA sobrescreve."""
+    ws, _tok = _ws_autenticado()
+    m = ws.chama({"type": "energy/get_prefs"})
+    if m.get("success") and (m.get("result") or {}).get("energy_sources"):
+        sys.exit(JA)
+    if not m.get("success") \
+            and (m.get("error") or {}).get("code") != "not_found":
+        erro("energy/get_prefs", 0)
+    fontes = []
+    for stat, nome in (("sensor.monthly_energy_peak", "Ponta"),
+                       ("sensor.monthly_energy_shoulder", "Intermediario"),
+                       ("sensor.monthly_energy_offpeak", "Fora Ponta")):
+        fontes.append({
+            "type": "grid",
+            "stat_energy_from": stat,
+            "entity_energy_price": "sensor.preco_convencional",
+            "cost_adjustment_day": 0,
+            "name": nome,
+        })
+    m = ws.chama({"type": "energy/save_prefs",
+                  "energy_sources": fontes, "device_consumption": []})
+    if not m.get("success"):
+        erro("energy/save_prefs", 0)
+    m = ws.chama({"type": "energy/get_prefs"})
+    if not (m.get("success")
+            and len((m.get("result") or {}).get("energy_sources") or []) >= 3):
+        erro("energy/get_prefs (pós-condição)", 0)
+    sys.exit(0)
+
+
 # ── configuração do Core (F9) ────────────────────────────────────────────────
 def cmd_core_check():
     usuario, senha = _le_credencial()
@@ -535,6 +570,8 @@ def main():
         cmd_entry_ensure(resto[0], resto[1])
     elif cmd == "flows-pendentes":
         cmd_flows_pendentes()
+    elif cmd == "energy-ensure":
+        cmd_energy_ensure()
     elif cmd == "core-check":
         cmd_core_check()
     elif cmd == "core-restart":
