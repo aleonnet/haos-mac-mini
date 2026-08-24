@@ -98,8 +98,12 @@ Saída literal: <colar>. Diagnostique antes de alterar.`
 
 ## 6. O QUE FALTA (frentes futuras)
 
-- Onboarding de localização/nome da casa (core_config hoje vai vazio — HA
-  pergunta no primeiro acesso ao painel).
+- **core_config preenchido a partir do host** (hoje vai vazio e o dono viu a
+  tela Region em inglês): fuso do macOS (`systemsetup`/`readlink
+  /etc/localtime`), país/moeda do locale, `language` = idioma escolhido no
+  cardápio (não o do terminal), unidade métrica quando país ≠ EUA. A tela
+  Region confirmou que o HA deduz quase tudo — falta só o idioma do servidor
+  e do primeiro usuário baterem com a escolha do dono.
 - F7 para mosquitto/matter quando algum tier os trouxer por padrão.
 - Release público (tag + raw estável) — **só sob ordem**.
 - Tapo overlay/extras: seguem à parte, dentro do HAOS (contrato antigo).
