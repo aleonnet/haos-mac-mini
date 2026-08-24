@@ -335,6 +335,7 @@ MSG_DB=(
 "int_ja|%s já configurado.|%s already configured."
 "int_espera|%s já foi DESCOBERTO e espera você no painel (Dispositivos e serviços) - só falta confirmar/credenciar.|%s was DISCOVERED and waits for you in the panel (Devices and services) - just confirm/authorize it."
 "int_manual|%s pede credencial que só você tem - um clique abre o fluxo: %s|%s needs a credential only you have - one click opens the flow: %s"
+"plano_mao|Pedem a SUA mão no final (conta, botão ou confirmação - nada é inventado): %s|Will need YOUR hand at the end (account, button or confirmation - nothing is invented): %s"
 "int_falhou|%s falhou - veja o log.|%s failed - see the log."
 "int_flows|sua rede já acena: %s descoberta(s) esperando no painel (%s)|your network is waving: %s discovery(ies) waiting in the panel (%s)"
 "fase_arq|Arquivos|Files"
@@ -4804,6 +4805,21 @@ plano() {
     else
         ha_linha ""
         ha_linha "$n $(msg itens)"
+    fi
+
+    # Expectativa se ajusta AQUI, não na fase 09 (cobrança do dono): tudo
+    # que o instalador não fecha sozinho é dito antes da confirmação.
+    # Fecha sozinho = flow por schema (systemmonitor, workday); o resto das
+    # integrações core pede conta/botão/confirmação do dono.
+    local mao=""
+    for it in $SEL_ITENS; do
+        [ "$(item_campo "$it" 4)" = "core" ] || continue
+        case "$(item_campo "$it" 11)" in *schema_flow*) continue ;; esac
+        mao="$mao $it"
+    done
+    if [ -n "$mao" ]; then
+        ha_linha ""
+        ha_wrap "$HA_GUT " "$HA_GUT   " 2 "$(msg plano_mao "${mao# }")"
     fi
 }
 
