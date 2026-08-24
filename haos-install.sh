@@ -3090,7 +3090,9 @@ def cmd_entry_ensure(dominio, fontes):
             erro(f"/api/config/config_entries/flow/{dominio}", st)
     criadas = _entries(token, dominio)
     if not criadas:
-        erro(f"flow {dominio} (sem entry na pós-condição)", 0)
+        # abort (ex.: tuya sem credencial de nuvem — medido em campo) ou um
+        # flow que nunca fecha só com defaults: é do USUÁRIO, não erro nosso
+        _desiste()
     permitidas = fontes.split(",")
     for e in criadas:
         if e.get("source") not in permitidas:
