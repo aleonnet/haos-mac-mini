@@ -13,7 +13,10 @@
   funções de fase e no cano inteiro, help executado flag a flag, enumerados
   contra o parser, dry-run read-only por snapshot, segredo em arquivo
   versionado, isca no cwd.
-- Clone do Mac mini: sincronizado por SSH após o push.
+- CI do push: **verde nos 4 jobs** (portão · bash 3.2/stdin · contrato
+  fixado · contrato stable). O raw publica a **0.2.0** — medido pelo cano.
+- Clone do Mac mini: **pendente** — a máquina estava desligada na hora do
+  push (`No route to host`); sincronizar com `git pull` quando ligar.
 
 ## 1. O QUE MUDA PARA QUEM USA (resumo das 4 fases)
 
