@@ -21,6 +21,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # A cerca F6–F9 monta o /config dublado com o expect REAL respondendo o
+      # prompt de senha — o macOS o traz de fábrica, o runner Linux não.
+      - name: expect (a cerca F9 o spawna)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq expect
+
       # UM portão, o mesmo que roda na máquina de quem desenvolve.
       # Repetir os comandos aqui foi o que fez o CI e o local discordarem três
       # vezes seguidas em 23/08 — versões diferentes de shellcheck.
