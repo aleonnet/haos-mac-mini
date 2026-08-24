@@ -6,16 +6,14 @@
 
 ## 0. ESTADO — confira no git, não neste parágrafo
 
-- `main` local com **6 commits não empurrados** sobre `origin/main`=`84d15a1`:
-  logo (`9cc0070`) · F3 (`9b7d887`) · F-A (`dc14a93`) · docs→`docs/`
-  (`07df1f6`) · F-B (`5a1192b`) · F-C (`33f5c2f`) · F-D (este commit).
+- **Empurrado em 24/08/2026 sob ordem do dono** — main local = origin/main
+  (logo · F3 · F-A · docs · F-B · F-C · F-D · logo v2 · quinas).
 - Versão **0.2.0** (bump de fechamento) · CHANGELOG com a release datada.
 - Portão `./tools/gate.sh` **limpo** — inclui as cercas novas: locale nas
   funções de fase e no cano inteiro, help executado flag a flag, enumerados
   contra o parser, dry-run read-only por snapshot, segredo em arquivo
   versionado, isca no cwd.
-- Clone do Mac mini: **atrás**; `git pull` depois do push.
-- **Push só sob ordem** — e destrava `--self-update` e a bancada via `curl <raw>`.
+- Clone do Mac mini: sincronizado por SSH após o push.
 
 ## 1. O QUE MUDA PARA QUEM USA (resumo das 4 fases)
 
@@ -91,7 +89,8 @@ mundo, não a árvore.
 - **F4 VM · F5 boot · F5b auto-start** — bloqueados até o VirtualBox existir
   no Mac mini (probe de `list ostypes`/`storagectl --help` no binário real).
 - Push dos 7 commits (**só sob ordem**) e `git pull` no clone do Mac mini.
-- **Logo: RESOLVIDO em código, aguardando ratificação do dono.** Geometria
+- **Logo e abertura: RATIFICADOS pelo dono em 24/08/2026** (após a correção
+  das quinas — o "beiral" era leitura errada de anti-aliasing). Geometria
   refeita contra o vídeo oficial (beiral, ápice pontudo, base r2.2, traço
   1.75) + abertura em 4 atos (constelação → traço → sonar → respiração).
   Ver `docs/previews/2026-08-24-abertura/abertura.gif` e rodar
