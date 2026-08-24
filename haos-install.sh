@@ -268,6 +268,15 @@ MSG_DB=(
 "sel_gum_sim|Instalar|Install"
 "sel_gum_nao|Cancelar|Cancel"
 "novidade_script|Instalador %s publicado (este é %s) - atualize com --self-update|Installer %s published (this one is %s) - update with --self-update"
+"rel_titulo|Feito até aqui|Done so far"
+"rel_tempo|concluído em %s|done in %s"
+"rel_passos|%s passo(s) executado(s)|%s step(s) executed"
+"rel_vbox|VirtualBox %s pronto|VirtualBox %s ready"
+"rel_vdi|imagem do HAOS pronta: %s|HAOS image ready: %s"
+"rel_prox|Próximos passos|Next steps"
+"prox_vm|a criação da VM (F4) chega na próxima versão deste instalador - acompanhe o CHANGELOG do repositório|VM creation (F4) lands in the next release of this installer - watch the repository CHANGELOG"
+"prox_last|repita esta seleção quando quiser: --profile last|repeat this selection anytime: --profile last"
+"prox_relatorio|relatório desta execução: %s|this run's report: %s"
 "novidade_haos|HAOS %s publicado; esta versão instala a %s fixada (a tabela atualiza em release futura)|HAOS %s published; this version installs the pinned %s (the table updates in a future release)"
 )
 
@@ -2576,6 +2585,50 @@ plano() {
     fi
 }
 
+# ── relatório final ──────────────────────────────────────────────────────────
+# O fechamento do mac-env: o que aconteceu, em números e artefatos, e SÓ os
+# próximos passos que se aplicam. A execução que instalou VirtualBox e imagem
+# termina em placar — não num "não implementado" com cara de erro.
+fmt_seg() { local t="$1"; if [ "$t" -ge 60 ]; then printf '%dm%02ds' $((t/60)) $((t%60)); else printf '%ds' "$t"; fi; }
+
+relatorio_final() {
+    local total=$(( SECONDS - ${MAIN_T0:-0} )) linha segs n=0
+    ha_bar_limpa
+    printf '%s\n' "$HA_GUT"
+    if [[ "${HAOS_UI_UTF8:-0}" == 1 ]]; then printf '╰'; else printf '\\'; fi
+    printf '%s\n' "$(ha_gradient "$(printf '%*s' 76 '' | tr ' ' "$HA_G_REGUA")")"
+    printf '\n'
+    ha_shimmer "  $(msg rel_titulo) ${HA_G_SEP} $(msg rel_tempo "$(fmt_seg "$total")")"
+    # Com o seletor rico ativo, o resumo vira o cartão do mac-env.
+    if [ -n "${GUM:-}" ]; then
+        local corpo=""
+        command -v VBoxManage >/dev/null 2>&1 \
+            && corpo="${corpo}$(msg rel_vbox "$(VBoxManage --version 2>/dev/null | tr -d '\r')")
+"
+        [ -n "${HAOS_VDI:-}" ] && [ -f "${HAOS_VDI:-/nonexistent}" ] \
+            && corpo="${corpo}$(msg rel_vdi "$HAOS_VDI")
+"
+        [ -n "$corpo" ] && "$GUM" style --border rounded --border-foreground "#03A9F4" \
+            --padding "0 2" "$corpo" 2>/dev/null || true
+    fi
+    while IFS='|' read -r linha segs; do
+        [ -n "$linha" ] && n=$((n+1))
+    done <<EOF
+$RUN_STEPS
+EOF
+    [ "$n" -gt 0 ] && printf '  %s\n' "$(msg rel_passos "$n")"
+    command -v VBoxManage >/dev/null 2>&1 \
+        && printf '  %s\n' "$(msg rel_vbox "$(VBoxManage --version 2>/dev/null | tr -d '\r')")"
+    [ -n "${HAOS_VDI:-}" ] && [ -f "${HAOS_VDI:-/nonexistent}" ] \
+        && printf '  %s\n' "$(msg rel_vdi "$HAOS_VDI")"
+    printf '\n  %s\n' "$(msg rel_prox)"
+    printf '    %s %s\n' "$HA_G_INFO" "$(msg prox_vm)"
+    printf '    %s %s\n' "$HA_G_INFO" "$(msg prox_last)"
+    printf '    %s %s\n' "$HA_G_INFO" "$(msg prox_relatorio "$(haos_state_dir)/last-run.log")"
+    printf '\n'
+    return 0
+}
+
 # =============================================================================
 # MAIN
 # =============================================================================
@@ -2597,6 +2650,7 @@ main() {
     # last-run mesmo numa morte no meio — exceto em dry-run, que não escreve
     # NADA (cerca de snapshot no portão).
     MAIN_INICIADO=1
+    MAIN_T0=$SECONDS
     if [ "$OP_DRYRUN" = "1" ]; then HA_BAR_TOTAL=3; else HA_BAR_TOTAL=4; fi
 
     # O logo só aparece quando há terminal e o usuário não pediu silêncio.
@@ -2636,8 +2690,7 @@ main() {
     fase_imagem || rc_img=$?
     [ "$rc_img" = "0" ] || [ "$rc_img" = "100" ] || exit "$E_VALID"
 
-    ha_fase "$(msg fase_vm)"
-    morrer "$E_VALID" "$(msg nao_implementado "$HAOS_INSTALL_VERSION")"
+    relatorio_final
 }
 
 # ── guarda de biblioteca ─────────────────────────────────────────────────────

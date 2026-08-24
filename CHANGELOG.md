@@ -19,6 +19,11 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
   os 153 MB de novo. O `--uninstall` sabe removê-lo.
 
 ### Added
+- **Relatório final** no fechamento do mac-env: `╰──` fecha a calha, placar
+  com tempo total e passos executados, artefatos prontos (VirtualBox, imagem)
+  — em cartão gum quando o seletor rico está ativo — e **próximos passos
+  contextuais**. A execução que instala VirtualBox e imagem termina em
+  placar, não mais num "não implementado" com cara de erro.
 - **Seletor rico com gum** (porta do mac-env-setup): baixado em temp com
   SHA-256 conferido contra o checksums.txt da release, tema na paleta HA —
   degrau por setas, extras por **espaço**, **ajuste item a item com busca**
