@@ -16,46 +16,16 @@ jobs:
   # Sintaxe, lint e o catálogo. Barato, roda sempre, falha rápido.
   # ---------------------------------------------------------------------------
   shell:
-    name: shell e catálogo
+    name: portão de qualidade
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # Versão FIXADA. O shellcheck do apt varia com a imagem do runner, e o
-      # resultado do lint não pode depender de qual Ubuntu o GitHub serviu hoje:
-      # a 0.9.0 acusa SC2317 no corpo do trap onde a 0.11 acusa SC2329.
-      - name: shellcheck ${{ env.SHELLCHECK_VERSION }}
-        env:
-          SHELLCHECK_VERSION: v0.10.0
-        run: |
-          curl -fsSL --proto '=https' --tlsv1.2 \
-            "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" \
-            | tar -xJf - --strip-components=1 -C /usr/local/bin "shellcheck-${SHELLCHECK_VERSION}/shellcheck"
-          shellcheck --version
-          # SC2034        IFS='|' read descompacta campos que nem sempre se usam
-          # SC1090/SC1091 source de caminho computado
-          # SC2317/SC2329 corpo de trap e funções das fases ainda não chamadas —
-          #               o código do aviso mudou entre versões do shellcheck
-          shellcheck -e SC2034,SC1090,SC1091,SC2317,SC2329 \
-            haos-install.sh verify.sh tools/*.sh lib/*.sh extras/*.sh
-
-      - name: bash -n em tudo que é shell
-        run: |
-          for f in $(git ls-files '*.sh' 'catalog/*.bash'); do
-            bash -n "$f" && echo "  OK  $f"
-          done
-
-      - name: verify.sh — schema, conteúdo, i18n e cópia embutida
-        run: ./verify.sh
-
-      - name: a cópia embutida do catálogo não derivou
-        run: ./tools/embed.sh --check
-
-      - name: python — sintaxe
-        run: |
-          for f in $(git ls-files '*.py'); do
-            python3 -m py_compile "$f" && echo "  OK  $f"
-          done
+      # UM portão, o mesmo que roda na máquina de quem desenvolve.
+      # Repetir os comandos aqui foi o que fez o CI e o local discordarem três
+      # vezes seguidas em 23/08 — versões diferentes de shellcheck.
+      - name: ./tools/gate.sh
+        run: ./tools/gate.sh
 
   # ---------------------------------------------------------------------------
   # bash 3.2 é o que o macOS traz. Ubuntu tem 5.x e esconde incompatibilidade.

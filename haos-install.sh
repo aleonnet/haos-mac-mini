@@ -39,7 +39,9 @@ FASE_ATUAL=""
 limpar() {
     local rc=$?
     local f
-    for f in "${TMPFILES[@]:-}"; do [ -n "$f" ] && rm -rf "$f" 2>/dev/null || true; done
+    for f in "${TMPFILES[@]:-}"; do
+        if [ -n "$f" ]; then rm -rf "$f" 2>/dev/null || true; fi
+    done
     if declare -F ha_show_cursor >/dev/null 2>&1; then
         ha_show_cursor
     elif [ -t 1 ]; then

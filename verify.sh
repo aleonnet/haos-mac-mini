@@ -250,9 +250,9 @@ else
 fi
 
 # ── resultado ────────────────────────────────────────────────────────────────
-echo ""
+[ "$QUIET" = "1" ] || echo ""
 if [ "$FALHAS" = "0" ]; then
-    printf 'RESULTADO: %s checagens, 0 falhas\n' "$CHECAGENS"
+    [ "$QUIET" = "1" ] || printf 'RESULTADO: %s checagens, 0 falhas\n' "$CHECAGENS"
     exit 0
 fi
 printf 'RESULTADO: %s checagens, %s FALHA(S)\n' "$CHECAGENS" "$FALHAS" >&2
