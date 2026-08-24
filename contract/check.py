@@ -34,6 +34,10 @@ OK, FALHA, AVISO = "OK", "FALHA", "AVISO"
 # instância viva fica desligado, e as dependências de onboarding são puladas.
 INSTANCIA_NOVA = False
 
+# O componente `hassio` só carrega em HAOS/Supervised. Sem ele, as rotas do
+# Supervisor não existem — e não existir é diferente de recusar.
+TEM_SUPERVISOR = False
+
 
 class Resultado:
     def __init__(self) -> None:
@@ -139,16 +143,24 @@ def carrega_contrato() -> dict:
         )
 
 
+def pula_por_ambiente(dep: dict, res: Resultado) -> bool:
+    ident = dep["id"]
+    if dep.get("requer") == "supervisor" and not TEM_SUPERVISOR:
+        res.add(OK, ident, "requer Supervisor — pulada (alvo é Core sem Supervisor)")
+        return True
+    if dep.get("escopo") == "instancia_nova" and not INSTANCIA_NOVA:
+        res.add(OK, ident, "escopo instancia_nova — pulada (instância já onboardada)")
+        return True
+    return False
+
+
 def checa_http(base: str, token: str, dep: dict, res: Resultado) -> None:
     ident = dep["id"]
     caminho = dep.get("path")
     metodo = dep.get("method", "GET")
     esperado = dep.get("expect_status")
 
-    # Dependências de instância nova só existem enquanto o onboarding corre.
-    # Numa instância viva a rota devolve 404 — ciclo de vida, não quebra.
-    if dep.get("escopo") == "instancia_nova" and not INSTANCIA_NOVA:
-        res.add(OK, ident, "escopo instancia_nova — pulada (instância já onboardada)")
+    if pula_por_ambiente(dep, res):
         return
 
     # Só exercitamos leituras. Escritas (criar usuário, iniciar flow) mudam
@@ -195,6 +207,8 @@ def checa_http(base: str, token: str, dep: dict, res: Resultado) -> None:
 
 def checa_ws(base: str, token: str, dep: dict, res: Resultado) -> None:
     ident = dep["id"]
+    if pula_por_ambiente(dep, res):
+        return
     try:
         import asyncio
         import websockets  # type: ignore
@@ -269,6 +283,17 @@ def main() -> int:
         token = autenticar(base, a.user, a.senha)
     else:
         raise SystemExit("[ERRO] informe --token, ou --user/--pass, ou --bootstrap")
+
+    # Descobre o ambiente antes de checar: o componente `hassio` só existe em
+    # HAOS/Supervised. Contra Core puro as rotas do Supervisor não existem, e
+    # cobrar delas seria o arnês mentindo sobre o que cobriu.
+    global TEM_SUPERVISOR
+    st, cfg = http(f"{base}/api/config", token=token)
+    if st == 200 and isinstance(cfg, dict):
+        TEM_SUPERVISOR = "hassio" in cfg.get("components", [])
+    if not a.json:
+        print(f"alvo: HA {cfg.get('version','?') if isinstance(cfg,dict) else '?'} · "
+              f"Supervisor: {'sim' if TEM_SUPERVISOR else 'NÃO (Core puro)'}")
 
     for dep in contrato.get("dependencies", []):
         proto = dep.get("protocol")

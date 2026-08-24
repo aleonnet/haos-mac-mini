@@ -19,6 +19,11 @@ reference_version: "2026.8.3"
 
 # escopo: onde a dependência pode ser verificada
 #   qualquer        — instância viva serve
+#   supervisor      — exige HAOS ou Supervised. O container
+#                     home-assistant/home-assistant é Core PURO: não tem
+#                     Supervisor, o componente `hassio` não carrega, e as rotas
+#                     dele nem existem (404, não 401). Medido no CI em 23/08.
+#                     Estas dependências só se verificam contra HAOS de verdade.
 #   instancia_nova  — só antes do onboarding terminar. Depois as views somem e
 #                     a rota devolve 404. Medido em 23/08: GET /api/onboarding
 #                     dá 404 numa instância já onboardada. Isso NÃO é quebra de
@@ -112,6 +117,7 @@ dependencies:
 
   # ── Supervisor: a rota que existe ─────────────────────────────────────────
   - id: supervisor_api_ws
+    requer: supervisor
     product: home_assistant_core
     stability: source_pinned
     protocol: websocket
@@ -136,6 +142,7 @@ dependencies:
 
   # ── Supervisor: a rota que NÃO existe, e precisa continuar não existindo ──
   - id: hassio_rest_proxy_negativo
+    requer: supervisor
     product: home_assistant_core
     stability: source_pinned
     protocol: http
