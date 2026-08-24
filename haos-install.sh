@@ -1078,9 +1078,11 @@ vm_ip_pelo_mac() { # <mac-arp> — imprime o IP ou falha
 
 vm_url_de() { # <ip> — imprime a base que responde. No HAOS 18.2 a URL
     # canônica é a PORTA 80 (o console da VM a anuncia); a 8123 redireciona
-    # antes do onboarding e fecha depois — medido em 24/08. Sondar as duas.
+    # antes do onboarding e FECHA depois — medido em 24/08, e mordeu no fresh
+    # do dono: descoberta pré-onboarding fixava :8123 e a fase de apps falava
+    # com porta morta. A 80 vem PRIMEIRO por ser estável nos dois estados.
     local b code
-    for b in "http://$1:8123" "http://$1"; do
+    for b in "http://$1" "http://$1:8123"; do
         code="$(curl -s -m 3 -o /dev/null -w '%{http_code}' "$b/" 2>/dev/null || true)"
         [ -n "$code" ] && [ "$code" != "000" ] && { printf '%s' "$b"; return 0; }
     done
@@ -1270,7 +1272,16 @@ fase_conta() {
     local rc=0
     helper_cred conta >/dev/null 2>>"$LOG_FILE" || rc=$?
     case "$rc" in
-        0)   ha_ok "$(msg conta_criada "$HA_USER")"; return 0 ;;
+        0)
+            # o onboarding pode MOVER a porta do HA (8123 fecha) — redescobrir
+            # a URL antes de qualquer fase falar com ele de novo
+            local nova
+            nova="$(vm_url_de "$VM_IP" || true)"
+            if [ -n "$nova" ] && [ "$nova" != "$VM_URL" ]; then
+                VM_URL="$nova"
+                vm_set vm_url "$VM_URL"
+            fi
+            ha_ok "$(msg conta_criada "$HA_USER")"; return 0 ;;
         100) ha_ok "$(msg conta_ja)"; return 100 ;;
         *)   ha_err "$(msg conta_falhou)"; diagnostico_log; return 1 ;;
     esac
