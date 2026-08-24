@@ -60,6 +60,12 @@ Fim-a-fim REAL no Mac mini: 3 execuções — instala tudo → converge →
 3. Card de câmera no dashboard = entidade `camera.*`, que só nasce com a
    Camera Account preenchida na entry (o diagnóstico da integração REDIGE
    esse campo — comparar diagnósticos não decide; comparar entidades sim).
+4. **A C210 recusa o SEGUNDO cliente de stream na mesma Camera Account**
+   ("Operation not permitted" no SETUP/PLAY, com DESCRIBE autenticado
+   passando): com o Pi segurando o stream da câmera, a VM não valida o live
+   view — desabilitar a entry no Pi liberou na hora (medido com probe RTSP
+   digest + ffmpeg no container). Durante a migração, cada câmera deve ter
+   UM dono de stream por vez.
 
 ## 3. DECISÕES (registro, não pergunta)
 
