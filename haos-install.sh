@@ -3674,7 +3674,8 @@ template:
           faixa_2_tarifa: 12.4840
           faixa_3_ate: 83
           faixa_3_tarifa: 15.3462
-          faixa_4_ate: null
+          faixa_4_ate: ""             # sem teto (última faixa) — attribute é
+                                      # template: null é inválido
           faixa_4_tarifa: 16.1928
           volume_minimo_m3: 7         # consumo na 1ª faixa cobra a faixa cheia
           icms_reducao_base: 0.60     # Decreto RJ 25.941/1999
