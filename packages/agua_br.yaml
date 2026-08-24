@@ -64,9 +64,11 @@ template:
           area_confirmada: false
           data_referencia: "2025-12-01"
           esgoto_percentual: 1.00
-          limites: [15, 30, 45, 60]
-          area_a: [7.436291, 16.359841, 22.308872, 44.617747, 59.490329]
-          area_b: [6.523050, 14.350710, 19.569152, 39.138304, 52.184405]
+          # attributes são TEMPLATES (doc do template integration): lista
+          # literal YAML é inválida — embrulhada em Jinja rende lista nativa
+          limites: "{{ [15, 30, 45, 60] }}"
+          area_a: "{{ [7.436291, 16.359841, 22.308872, 44.617747, 59.490329] }}"
+          area_b: "{{ [6.523050, 14.350710, 19.569152, 39.138304, 52.184405] }}"
 
       # ── Cascata da água, pela área escolhida
       - name: "Água Custo Simulado"
@@ -104,7 +106,7 @@ template:
         icon: mdi:pipe-disconnected
         state: >
           {% set t = states.sensor.tabela_agua.attributes %}
-          {{ (states('sensor.agua_custo_simulado')|float(0) * t.esgoto_percentual) | round(2) }}
+          {{ (states('sensor.agua_custo_simulado')|float(0) * t.esgoto_percentual|float(1)) | round(2) }}
 
       - name: "Água e Esgoto Simulado"
         unique_id: agua_esgoto_simulado

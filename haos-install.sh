@@ -3340,28 +3340,28 @@ template:
         unit_of_measurement: "BRL/kWh"
         state: >
           {% set t = states.sensor.tabela_tarifaria.attributes %}
-          {{ ((t.convencional + t.bandeira) * states('sensor.fator_tributos')|float(1)) | round(6) }}
+          {{ ((t.convencional|float(0) + t.bandeira|float(0)) * states('sensor.fator_tributos')|float(1)) | round(6) }}
 
       - name: "Preço Ponta"
         unique_id: preco_ponta
         unit_of_measurement: "BRL/kWh"
         state: >
           {% set t = states.sensor.tabela_tarifaria.attributes %}
-          {{ ((t.ponta + t.bandeira) * states('sensor.fator_tributos')|float(1)) | round(6) }}
+          {{ ((t.ponta|float(0) + t.bandeira|float(0)) * states('sensor.fator_tributos')|float(1)) | round(6) }}
 
       - name: "Preço Intermediário"
         unique_id: preco_intermediario
         unit_of_measurement: "BRL/kWh"
         state: >
           {% set t = states.sensor.tabela_tarifaria.attributes %}
-          {{ ((t.intermediaria + t.bandeira) * states('sensor.fator_tributos')|float(1)) | round(6) }}
+          {{ ((t.intermediaria|float(0) + t.bandeira|float(0)) * states('sensor.fator_tributos')|float(1)) | round(6) }}
 
       - name: "Preço Fora Ponta"
         unique_id: preco_fora_ponta
         unit_of_measurement: "BRL/kWh"
         state: >
           {% set t = states.sensor.tabela_tarifaria.attributes %}
-          {{ ((t.fora_ponta + t.bandeira) * states('sensor.fator_tributos')|float(1)) | round(6) }}
+          {{ ((t.fora_ponta|float(0) + t.bandeira|float(0)) * states('sensor.fator_tributos')|float(1)) | round(6) }}
 
       # ── Encargos fixos do mês (independem do consumo)
       - name: "Encargos Fixos do Mês"
@@ -3664,7 +3664,8 @@ template:
           cnpj: "33938119000240"
           classe: "Residencial"
           vigencia_inicio: "2026-07-01"
-          vigencia_fim: null          # PDF não publica fim — monitorar a fonte
+          vigencia_fim: ""            # PDF não publica fim — monitorar a fonte
+                                      # (attribute é template: null é inválido)
           # faixas: [limite_superior_m3, tarifa_R$/m3_com_tributos]
           # a última faixa usa limite null = sem teto
           faixa_1_ate: 7
@@ -3711,10 +3712,10 @@ template:
           {% set u2 = [[c, l2] | min - l1, 0] | max %}
           {% set u3 = [[c, l3] | min - l2, 0] | max %}
           {% set u4 = [c - l3, 0] | max %}
-          {{ ( (u1 * t.faixa_1_tarifa) | round(2)
-             + (u2 * t.faixa_2_tarifa) | round(2)
-             + (u3 * t.faixa_3_tarifa) | round(2)
-             + (u4 * t.faixa_4_tarifa) | round(2) ) | round(2) }}
+          {{ ( (u1 * t.faixa_1_tarifa|float(0)) | round(2)
+             + (u2 * t.faixa_2_tarifa|float(0)) | round(2)
+             + (u3 * t.faixa_3_tarifa|float(0)) | round(2)
+             + (u4 * t.faixa_4_tarifa|float(0)) | round(2) ) | round(2) }}
         attributes:
           faixa_1_m3: >
             {% set t = states.sensor.tabela_gas.attributes %}
@@ -3733,11 +3734,11 @@ template:
         state: >
           {% set t = states.sensor.tabela_gas.attributes %}
           {% set v = states('sensor.gas_custo_fornecimento')|float(0) %}
-          {{ (v * t.icms_reducao_base * t.icms_aliquota) | round(2) }}
+          {{ (v * t.icms_reducao_base|float(0) * t.icms_aliquota|float(0)) | round(2) }}
         attributes:
           base_reduzida: >
             {% set t = states.sensor.tabela_gas.attributes %}
-            {{ (states('sensor.gas_custo_fornecimento')|float(0) * t.icms_reducao_base) | round(2) }}
+            {{ (states('sensor.gas_custo_fornecimento')|float(0) * t.icms_reducao_base|float(0)) | round(2) }}
           fundamento: "Decreto RJ 25.941/1999 — base de cálculo reduzida"
 
       - name: "Gás PIS COFINS"
@@ -3748,7 +3749,7 @@ template:
           {% set t = states.sensor.tabela_gas.attributes %}
           {% set v = states('sensor.gas_custo_fornecimento')|float(0) %}
           {% set icms = states('sensor.gas_icms')|float(0) %}
-          {{ ((v - icms) * t.pis_cofins_aliquota) | round(2) }}
+          {{ ((v - icms) * t.pis_cofins_aliquota|float(0)) | round(2) }}
 
       - name: "Gás Tributos Total"
         unique_id: gas_tributos_total
@@ -3886,9 +3887,11 @@ template:
           area_confirmada: false
           data_referencia: "2025-12-01"
           esgoto_percentual: 1.00
-          limites: [15, 30, 45, 60]
-          area_a: [7.436291, 16.359841, 22.308872, 44.617747, 59.490329]
-          area_b: [6.523050, 14.350710, 19.569152, 39.138304, 52.184405]
+          # attributes são TEMPLATES (doc do template integration): lista
+          # literal YAML é inválida — embrulhada em Jinja rende lista nativa
+          limites: "{{ [15, 30, 45, 60] }}"
+          area_a: "{{ [7.436291, 16.359841, 22.308872, 44.617747, 59.490329] }}"
+          area_b: "{{ [6.523050, 14.350710, 19.569152, 39.138304, 52.184405] }}"
 
       # ── Cascata da água, pela área escolhida
       - name: "Água Custo Simulado"
@@ -3926,7 +3929,7 @@ template:
         icon: mdi:pipe-disconnected
         state: >
           {% set t = states.sensor.tabela_agua.attributes %}
-          {{ (states('sensor.agua_custo_simulado')|float(0) * t.esgoto_percentual) | round(2) }}
+          {{ (states('sensor.agua_custo_simulado')|float(0) * t.esgoto_percentual|float(1)) | round(2) }}
 
       - name: "Água e Esgoto Simulado"
         unique_id: agua_esgoto_simulado

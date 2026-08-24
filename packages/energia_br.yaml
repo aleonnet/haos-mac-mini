@@ -107,28 +107,28 @@ template:
         unit_of_measurement: "BRL/kWh"
         state: >
           {% set t = states.sensor.tabela_tarifaria.attributes %}
-          {{ ((t.convencional + t.bandeira) * states('sensor.fator_tributos')|float(1)) | round(6) }}
+          {{ ((t.convencional|float(0) + t.bandeira|float(0)) * states('sensor.fator_tributos')|float(1)) | round(6) }}
 
       - name: "Preço Ponta"
         unique_id: preco_ponta
         unit_of_measurement: "BRL/kWh"
         state: >
           {% set t = states.sensor.tabela_tarifaria.attributes %}
-          {{ ((t.ponta + t.bandeira) * states('sensor.fator_tributos')|float(1)) | round(6) }}
+          {{ ((t.ponta|float(0) + t.bandeira|float(0)) * states('sensor.fator_tributos')|float(1)) | round(6) }}
 
       - name: "Preço Intermediário"
         unique_id: preco_intermediario
         unit_of_measurement: "BRL/kWh"
         state: >
           {% set t = states.sensor.tabela_tarifaria.attributes %}
-          {{ ((t.intermediaria + t.bandeira) * states('sensor.fator_tributos')|float(1)) | round(6) }}
+          {{ ((t.intermediaria|float(0) + t.bandeira|float(0)) * states('sensor.fator_tributos')|float(1)) | round(6) }}
 
       - name: "Preço Fora Ponta"
         unique_id: preco_fora_ponta
         unit_of_measurement: "BRL/kWh"
         state: >
           {% set t = states.sensor.tabela_tarifaria.attributes %}
-          {{ ((t.fora_ponta + t.bandeira) * states('sensor.fator_tributos')|float(1)) | round(6) }}
+          {{ ((t.fora_ponta|float(0) + t.bandeira|float(0)) * states('sensor.fator_tributos')|float(1)) | round(6) }}
 
       # ── Encargos fixos do mês (independem do consumo)
       - name: "Encargos Fixos do Mês"
