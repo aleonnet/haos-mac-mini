@@ -316,6 +316,63 @@ else
 fi
 rm -rf "$sb_f1"
 
+# ── F4 de ponta a ponta (VBoxManage dublado) ─────────────────────────────────
+# A criação da VM roda inteira contra um dublê que GRAVA cada chamada. As
+# asserções vêm da sonda de 24/08 no binário ARM real: --platform-architecture
+# arm, ostype Linux_arm64, SATA/IntelAhci (VirtIO SCSI é recusado no ARM),
+# ponte SONDADA (nunca nome fixo), medium = o .vdi da fase anterior. E a
+# segunda execução tem de convergir em 100 sem recriar nada.
+titulo "F4 de ponta a ponta (VBoxManage dublado)"
+sb_f4="$(mktemp -d "${TMPDIR:-/tmp}/haos-gate-f4.XXXXXX")"
+touch "$sb_f4/haos.vdi"
+# shellcheck disable=SC2016  # o script filho expande $SB sozinho, de propósito
+saida_f4="$(HAOS_INSTALL_LIB=1 SB="$sb_f4" "${BASH:-/bin/bash}" -c '
+    source haos-install.sh
+    HOME="$SB"
+    OP_VM_NOME=HomeAssistant; HAOS_VDI="$SB/haos.vdi"
+    VM_RAM_MIB=4096; VM_CPU_N=2
+    VBoxManage() { # dublê: grava a chamada e simula o 7.2.16 ARM
+        printf "%s\n" "$*" >> "$SB/calls.txt"
+        case "$1" in
+            showvminfo)
+                [ -f "$SB/created" ] || return 1
+                printf "firmware=\"EFI\"\nnic1=\"bridged\"\n\"SATA-0-0\"=\"%s\"\n" \
+                    "$(cat "$SB/medium" 2>/dev/null)"
+                return 0 ;;
+            createvm) touch "$SB/created"; return 0 ;;
+            storageattach)
+                local a prev=""
+                for a in "$@"; do
+                    [ "$prev" = "--medium" ] && printf "%s" "$a" > "$SB/medium"
+                    prev="$a"
+                done
+                return 0 ;;
+            list)
+                printf "Name:            en7: Cabo Fake\nIPAddress:       10.9.9.9\nStatus:          Up\n"
+                return 0 ;;
+            *) return 0 ;;
+        esac
+    }
+    route() { return 1; } # sem rota default: força o caminho da varredura
+    rc1=0; fase_vm >/dev/null 2>&1 || rc1=$?
+    rc2=0; fase_vm >/dev/null 2>&1 || rc2=$?
+    st="$(manifest_get "$(vm_manifest)" vm_registrada)"
+    seq=1
+    grep -q "^createvm .*--platform-architecture arm" "$SB/calls.txt" || seq=0
+    grep -q "^createvm .*--ostype Linux_arm64" "$SB/calls.txt" || seq=0
+    grep -q "^storagectl .*--add sata .*--controller IntelAhci" "$SB/calls.txt" || seq=0
+    grep -q "^modifyvm .*--bridge-adapter1 en7: Cabo Fake" "$SB/calls.txt" || seq=0
+    if grep -qi "virtio-scsi" "$SB/calls.txt"; then seq=0; fi
+    [ "$(cat "$SB/medium" 2>/dev/null)" = "$SB/haos.vdi" ] || seq=0
+    n_create="$(grep -c "^createvm" "$SB/calls.txt")"
+    printf "rc1=%s rc2=%s st=%s seq=%s criacoes=%s" "$rc1" "$rc2" "$st" "$seq" "$n_create"')"
+if [ "$saida_f4" = "rc1=0 rc2=100 st=created seq=1 criacoes=1" ]; then
+    ok "F4 inteira: args da sonda ARM, ponte sondada, medium certo, convergência em 100"
+else
+    falha "F4 de ponta a ponta: esperado 'rc1=0 rc2=100 st=created seq=1 criacoes=1', obtido '$saida_f4'"
+fi
+rm -rf "$sb_f4"
+
 # self-update por ARQUIVO: versão maior atualiza com backup; menor é recusada.
 titulo "self-update"
 sb_su="$(mktemp -d "${TMPDIR:-/tmp}/haos-gate-su.XXXXXX")"

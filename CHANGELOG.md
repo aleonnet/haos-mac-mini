@@ -6,6 +6,21 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
 
 ## [Unreleased]
 
+### Added
+- **F4 — a máquina virtual**: fase 05 cria e registra a VM no VirtualBox com
+  o disco da fase anterior conectado. Cada argumento foi **sondado no
+  VBoxManage 7.2.16 ARM real** (24/08, com uma VM descartável): `createvm`
+  exige `--platform-architecture arm`; ostype `Linux_arm64`; storage é
+  **SATA/IntelAhci** — `VirtIO` SCSI é *recusado* na plataforma ARM ("Invalid
+  controller type 11"); gráfico `qemuramfb`; firmware EFI; NIC `virtio` em
+  **ponte pela interface sondada** (rota default → varredura das ativas),
+  nunca um nome fixo. Contrato 0/100/1: VM já registrada converge sem tocar
+  nada; falha no meio desfaz o parcial **sem apagar o .vdi**. O `--uninstall`
+  ganhou o inverso (solta o medium antes de desregistrar) e o manifesto a
+  chave `vm_registrada`. Cerca de ponta a ponta no portão com VBoxManage
+  dublado que grava cada chamada. O relatório final lista a VM e o aviso
+  agora diz a verdade nova: falta só o primeiro boot.
+
 ### Fixed
 - **O relatório final responde "o que foi instalado e onde"**: VirtualBox com
   versão e caminho em `/Applications`, o disco do HAOS verificado por SHA-256

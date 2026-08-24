@@ -284,14 +284,19 @@ MSG_DB=(
 "rel_i_vbox|VirtualBox %s - /Applications/VirtualBox.app|VirtualBox %s - /Applications/VirtualBox.app"
 "rel_i_vdi|o disco do HAOS, verificado por SHA-256: %s|the HAOS disk, SHA-256 verified: %s"
 "rel_i_sel|sua seleção, salva - repita quando quiser com --profile last|your selection, saved - repeat anytime with --profile last"
-"rel_falta|O que AINDA NÃO existe: a VM e o Home Assistant rodando - nada responde em http://homeassistant.local:8123 ainda. Esta versão (%s) para na preparação verificada; criar a VM, dar o boot e abrir o navegador é a PRÓXIMA release.|What does NOT exist yet: the VM and a running Home Assistant - nothing answers at http://homeassistant.local:8123 yet. This version (%s) stops at verified preparation; creating the VM, booting it and opening the browser is the NEXT release."
+"rel_i_vm|a VM %s, registrada no VirtualBox e apontando para o disco acima|the %s VM, registered in VirtualBox and pointing at the disk above"
+"rel_falta|O que AINDA NÃO acontece: o Home Assistant rodando - nada responde em http://homeassistant.local:8123 ainda. Esta versão (%s) para na VM criada e verificada; o primeiro boot e o navegador são a PRÓXIMA release.|What does NOT happen yet: a running Home Assistant - nothing answers at http://homeassistant.local:8123 yet. This version (%s) stops at the created and verified VM; first boot and the browser are the NEXT release."
+"fase_vm|Máquina virtual|Virtual machine"
+"vm_ja|A VM %s já existe no VirtualBox - nada a criar.|The %s VM already exists in VirtualBox - nothing to create."
+"vm_sem_vbm|VBoxManage não está no PATH nem em /Applications/VirtualBox.app - a fase do VirtualBox precisa vir antes.|VBoxManage is neither on PATH nor in /Applications/VirtualBox.app - the VirtualBox phase must come first."
+"vm_sem_vdi|O disco %s não existe - a fase da imagem precisa vir antes.|Disk %s does not exist - the image phase must come first."
+"vm_bridge|rede em ponte pela interface: %s|bridged network on interface: %s"
+"vm_sem_bridge|Nenhuma interface de rede ativa para a ponte - a VM precisa aparecer na sua rede local para o homeassistant.local funcionar. Conecte o Mac à rede e reexecute.|No active network interface to bridge - the VM must appear on your LAN for homeassistant.local to work. Connect the Mac to the network and rerun."
+"vm_criando|criando a VM %s - ARM 64-bit, EFI, %s MiB RAM, %s vCPU|creating the %s VM - ARM 64-bit, EFI, %s MiB RAM, %s vCPU"
+"vm_falhou|O VBoxManage recusou um passo da criação - a VM parcial foi desfeita, o disco ficou intacto.|VBoxManage refused a creation step - the partial VM was rolled back, the disk is intact."
+"vm_pronta|VM %s criada e verificada - disco SATA conectado, ponte de rede ativa.|%s VM created and verified - SATA disk attached, network bridge on."
+"un_vm|a VM %s do VirtualBox (o registro e o arquivo .vbox)|the %s VM in VirtualBox (registration and .vbox file)"
 "rel_tempo|concluído em %s|done in %s"
-"rel_passos|%s passo(s) executado(s)|%s step(s) executed"
-"rel_vbox|VirtualBox %s pronto|VirtualBox %s ready"
-"rel_vdi|imagem do HAOS pronta: %s|HAOS image ready: %s"
-"rel_prox|Próximos passos|Next steps"
-"prox_vm|a criação da VM (F4) chega na próxima versão deste instalador - acompanhe o CHANGELOG do repositório|VM creation (F4) lands in the next release of this installer - watch the repository CHANGELOG"
-"prox_last|repita esta seleção quando quiser: --profile last|repeat this selection anytime: --profile last"
 "prox_relatorio|relatório desta execução: %s|this run's report: %s"
 "novidade_haos|HAOS %s publicado; esta versão instala a %s fixada (a tabela atualiza em release futura)|HAOS %s published; this version installs the pinned %s (the table updates in a future release)"
 )
@@ -710,6 +715,7 @@ escrever_last_run() { # <rc>
 # hash do .zip de onde saiu e o tamanho gravado. Bate os três, não refaz nada.
 # É proveniência conferível, não fé no nome do arquivo.
 HAOS_VDI=""
+VM_RAM_MIB=""; VM_CPU_N=""
 
 fase_imagem() {
     ha_fase "$(msg imagem)"
@@ -879,6 +885,96 @@ fase_imagem() {
 }
 
 
+# ── F4: a máquina virtual ────────────────────────────────────────────────────
+# Cada argumento aqui foi SONDADO no VBoxManage 7.2.16 real de um Mac ARM em
+# 24/08/2026 — nada veio de documentação: `createvm` exige
+# `--platform-architecture arm`; o ostype é `Linux_arm64` ("Other Linux, ARM
+# 64-bit"); `storagectl --add scsi --controller VirtIO` é RECUSADO na
+# plataforma ARM ("Invalid controller type 11") e o aceito é SATA/IntelAhci;
+# o controlador gráfico é qemuramfb; a NIC virtio em ponte funciona.
+# Contrato 0/100/1, como as demais fases.
+vbm() { # VBoxManage com saída no log — o stderr dele é diagnóstico, não UI
+    garantir_log
+    VBoxManage "$@" >>"$LOG_FILE" 2>&1
+}
+
+vm_bridge_iface() { # imprime o nome COMPLETO exigido pelo --bridge-adapter1
+    # O nome que o VBoxManage espera é o DELE ("en0: Ethernet"), e qual placa
+    # está ativa varia por máquina: sondar sempre, nunca fixar. Preferência:
+    # a interface da rota default; sem ela, a primeira Up com endereço real.
+    local ifc lista nome
+    lista="$(VBoxManage list bridgedifs 2>/dev/null | sed -n 's/^Name:[[:space:]]*//p')"
+    [ -n "$lista" ] || return 1
+    ifc="$(route -n get default 2>/dev/null | awk '/interface:/{print $2; exit}')"
+    if [ -n "$ifc" ]; then
+        nome="$(printf '%s\n' "$lista" | grep -m1 "^${ifc}[: ]" || true)"
+        [ -n "$nome" ] && { printf '%s' "$nome"; return 0; }
+    fi
+    nome="$(VBoxManage list bridgedifs 2>/dev/null | awk '
+        /^Name:/      { sub(/^Name:[[:space:]]*/, ""); n=$0 }
+        /^IPAddress:/ { ip=$2 }
+        /^Status:/    { if ($2=="Up" && ip!="0.0.0.0" && n!="") { print n; exit } }')"
+    [ -n "$nome" ] && { printf '%s' "$nome"; return 0; }
+    return 1
+}
+
+fase_vm() {
+    ha_fase "$(msg fase_vm)"
+    command -v VBoxManage >/dev/null 2>&1 \
+        || PATH="$PATH:/Applications/VirtualBox.app/Contents/MacOS"
+    command -v VBoxManage >/dev/null 2>&1 || { ha_err "$(msg vm_sem_vbm)"; return 1; }
+
+    # Convergência: registrada com este nome = pronta. Quem criou por fora
+    # sabe o que fez — reconfigurar uma VM alheia seria destruir trabalho.
+    if VBoxManage showvminfo "$OP_VM_NOME" >/dev/null 2>&1; then
+        vm_set vm_registrada preexisting
+        ha_ok "$(msg vm_ja "$OP_VM_NOME")"
+        return 100
+    fi
+    [ -f "${HAOS_VDI:-/nonexistent}" ] || { ha_err "$(msg vm_sem_vdi "${HAOS_VDI:-?}")"; return 1; }
+
+    local ponte ram="${VM_RAM_MIB:-4096}" cpu="${VM_CPU_N:-2}"
+    ponte="$(vm_bridge_iface)" || { ha_err "$(msg vm_sem_bridge)"; return 1; }
+    ha_info "$(msg vm_bridge "$ponte")"
+
+    vm_set vm_registrada pending
+    ha_info "$(msg vm_criando "$OP_VM_NOME" "$ram" "$cpu")"
+    if ! { vbm createvm --name "$OP_VM_NOME" --platform-architecture arm \
+               --ostype Linux_arm64 --basefolder "$HOME/VirtualBox VMs" --register \
+        && vbm modifyvm "$OP_VM_NOME" --memory "$ram" --cpus "$cpu" \
+               --firmware efi --graphicscontroller qemuramfb \
+               --rtc-use-utc on --audio-driver none \
+        && vbm modifyvm "$OP_VM_NOME" --nic1 bridged \
+               --bridge-adapter1 "$ponte" --nic-type1 virtio \
+        && vbm storagectl "$OP_VM_NOME" --name SATA --add sata \
+               --controller IntelAhci --bootable on \
+        && vbm storageattach "$OP_VM_NOME" --storagectl SATA --port 0 --device 0 \
+               --type hdd --medium "$HAOS_VDI" --nonrotational on --discard on; }; then
+        # Rollback do parcial SEM tocar no disco: soltar o medium ANTES de
+        # desregistrar — um `unregistervm --delete` levaria o .vdi junto.
+        vbm storageattach "$OP_VM_NOME" --storagectl SATA --port 0 --device 0 --medium none || true
+        vbm closemedium disk "$HAOS_VDI" || true
+        vbm unregistervm "$OP_VM_NOME" || true
+        rm -f "$HOME/VirtualBox VMs/$OP_VM_NOME/$OP_VM_NOME.vbox" 2>/dev/null || true
+        ha_err "$(msg vm_falhou)"
+        diagnostico_log
+        return 1
+    fi
+
+    # Verificação: o que o VirtualBox REGISTROU, não o que pedimos.
+    local info
+    info="$(VBoxManage showvminfo "$OP_VM_NOME" --machinereadable 2>/dev/null)"
+    if ! { printf '%s' "$info" | grep -q '^firmware="EFI"' \
+        && printf '%s' "$info" | grep -qF "\"SATA-0-0\"=\"$HAOS_VDI\"" \
+        && printf '%s' "$info" | grep -q '^nic1="bridged"'; }; then
+        ha_err "$(msg vm_falhou)"; diagnostico_log; return 1
+    fi
+    vm_set vm_registrada created
+    ha_ok "$(msg vm_pronta "$OP_VM_NOME")"
+    return 0
+}
+
+
 # =============================================================================
 # --doctor · --uninstall · --self-update
 # =============================================================================
@@ -982,6 +1078,17 @@ un_montar_plano() {
         *)           command -v VBoxManage >/dev/null 2>&1 && un_add_keep "$(msg un_vbox_pre)" ;;
     esac
 
+    # A VM sai ANTES do disco: desregistrar solta o medium que o rm vai apagar.
+    local vmreg_st
+    vmreg_st="$(manifest_get "$(vm_manifest)" vm_registrada)"
+    case "$vmreg_st" in
+        created)
+            un_add_remove "$(msg un_vm "$OP_VM_NOME")"
+            un_act "rm-vm" ;;
+        pending)     un_add_keep "$(msg un_pendente VM)" ;;
+        preexisting) un_add_keep "$(msg un_preexisting "VM $OP_VM_NOME")" ;;
+    esac
+
     if [ "$vdi_st" = "created" ] && [ -n "$vdi_path" ] && [ -f "$vdi_path" ]; then
         if [ "$OP_KEEP_IMAGE" = "1" ]; then
             un_add_keep "$(msg un_keep_image_msg)"
@@ -1035,6 +1142,23 @@ un_executar() {
     while IFS= read -r acao; do
         [ -n "$acao" ] || continue
         case "$acao" in
+            rm-vm)
+                command -v VBoxManage >/dev/null 2>&1 \
+                    || PATH="$PATH:/Applications/VirtualBox.app/Contents/MacOS"
+                # soltar o medium primeiro — `unregistervm --delete` apagaria
+                # o .vdi, inclusive sob --keep-image
+                if command -v VBoxManage >/dev/null 2>&1 \
+                    && { VBoxManage storageattach "$OP_VM_NOME" --storagectl SATA \
+                             --port 0 --device 0 --medium none >/dev/null 2>&1 || true
+                         [ -z "$vdi_path" ] \
+                             || VBoxManage closemedium disk "$vdi_path" >/dev/null 2>&1 || true
+                         VBoxManage unregistervm "$OP_VM_NOME" >/dev/null 2>&1; }; then
+                    rm -f "$HOME/VirtualBox VMs/$OP_VM_NOME/$OP_VM_NOME.vbox" 2>/dev/null || true
+                    ha_ok "$(msg un_removido "VM $OP_VM_NOME")"
+                    UN_N_OK=$((UN_N_OK+1))
+                else
+                    ha_err "$(msg un_nao_removido "VM $OP_VM_NOME")"
+                fi ;;
             rm-vdi)
                 un_rm "$vdi_path" vdi
                 un_rm "$(dirname "$vdi_path")/.$(basename "$vdi_path").origem" vdi ;;
@@ -2619,6 +2743,8 @@ plano() {
         if [ "$rm" = "derivado" ]; then ram="$(vm_derivado_ram)"; cpu="$(vm_derivado_cpu)"
         else ram="$rm"; cpu="$cp"; fi
     done
+    # a fase da VM consome os números resolvidos aqui — o plano é o contrato
+    VM_RAM_MIB="$ram"; VM_CPU_N="$cpu"
 
     ha_linha "$(printf '%-14s %s' "$(msg perfil_vm):" "$SEL_VM ${HA_G_DASH} ${ram} MiB RAM ${HA_G_SEP} ${cpu} vCPU")"
     ha_linha "$(printf '%-14s %s' "VM:" "$OP_VM_NOME")"
@@ -2670,6 +2796,10 @@ relatorio_final() {
     [ -n "${HAOS_VDI:-}" ] && [ -f "${HAOS_VDI:-/nonexistent}" ] \
         && corpo="${corpo}  $HA_G_OK $(msg rel_i_vdi "$HAOS_VDI")
 "
+    case "$(manifest_get "$(vm_manifest)" vm_registrada)" in
+        created|preexisting) corpo="${corpo}  $HA_G_OK $(msg rel_i_vm "$OP_VM_NOME")
+" ;;
+    esac
     corpo="${corpo}  $HA_G_OK $(msg rel_i_sel)"
     if [ -n "${GUM:-}" ]; then
         "$GUM" style --border rounded --border-foreground "#03A9F4" --padding "0 2" \
@@ -2707,7 +2837,7 @@ main() {
     # NADA (cerca de snapshot no portão).
     MAIN_INICIADO=1
     MAIN_T0=$SECONDS
-    if [ "$OP_DRYRUN" = "1" ]; then HA_BAR_TOTAL=3; else HA_BAR_TOTAL=4; fi
+    if [ "$OP_DRYRUN" = "1" ]; then HA_BAR_TOTAL=3; else HA_BAR_TOTAL=5; fi
 
     # O logo só aparece quando há terminal e o usuário não pediu silêncio.
     # Em log, CI ou --quiet, um cabeçalho de uma linha. A animação nunca é
@@ -2745,6 +2875,10 @@ main() {
     local rc_img=0
     fase_imagem || rc_img=$?
     [ "$rc_img" = "0" ] || [ "$rc_img" = "100" ] || exit "$E_VALID"
+
+    local rc_vm=0
+    fase_vm || rc_vm=$?
+    [ "$rc_vm" = "0" ] || [ "$rc_vm" = "100" ] || exit "$E_VALID"
 
     relatorio_final
 }
