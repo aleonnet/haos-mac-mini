@@ -184,6 +184,7 @@ for f in $flags_help; do
         --with)       args="--with ferramentas --profile haos_casa --dry-run --no-input" ;;
         --vm-profile) args="--vm-profile vm_minimo --profile haos_casa --dry-run --no-input" ;;
         --vm-name)    args="--vm-name Teste --profile haos_casa --dry-run --no-input" ;;
+        --image)      args="--image /dev/null --profile haos_casa --dry-run --no-input" ;;
         *)            args="$f --profile haos_casa --dry-run --no-input" ;;
     esac
     # shellcheck disable=SC2086,SC2002
@@ -196,6 +197,44 @@ if [ -z "$mentira" ]; then
     ok "toda flag do --help executa de verdade ($(printf '%s\n' "$flags_help" | wc -l | tr -d ' ') flags)"
 else
     falha "flags publicadas no help que não funcionam:$mentira"
+fi
+
+# ── enumerados do help ───────────────────────────────────────────────────────
+# Cada valor enumerado nas linhas --profile/--vm-profile/--with do --help é
+# executado contra o parser real. Foi assim que `last` ficou dois commits
+# prometido e morto ("perfil desconhecido") sem ninguém ver — achado 5.
+titulo "enumerados do help"
+sb_enum="$(mktemp -d "${TMPDIR:-/tmp}/haos-gate-en.XXXXXX")"
+mkdir -p "$sb_enum/.config/haos-mac-mini"
+printf 'degrau=haos_casa\nextras=\nvm=vm_equilibrado\nvm_nome=HomeAssistant\n' \
+    > "$sb_enum/.config/haos-mac-mini/state"
+# shellcheck disable=SC2002  # o `cat |` reproduz o curl | bash de propósito
+ajuda="$(cat haos-install.sh | "${BASH:-/bin/bash}" -s -- --help 2>/dev/null)"
+tokens_profile="$(printf '%s\n' "$ajuda" | grep -A1 -- '--profile <id>' | grep -oE 'haos_[a-z]+|last' | sort -u)"
+tokens_vm="$(printf '%s\n' "$ajuda" | grep -- '--vm-profile' | grep -oE 'vm_[a-z]+' | sort -u)"
+tokens_with="$(printf '%s\n' "$ajuda" | grep -- '--with ' | grep -oE 'ferramentas|casa_abhome|extensoes' | sort -u)"
+enum_ruim=""
+for t in $tokens_profile; do
+    # shellcheck disable=SC2002
+    out="$(cat haos-install.sh | HOME="$sb_enum" "${BASH:-/bin/bash}" -s -- --dry-run --no-input --profile "$t" 2>&1)" || true
+    printf '%s' "$out" | grep -qE 'desconhecido|unknown' && enum_ruim="$enum_ruim --profile=$t"
+done
+for t in $tokens_vm; do
+    # shellcheck disable=SC2002
+    out="$(cat haos-install.sh | HOME="$sb_enum" "${BASH:-/bin/bash}" -s -- --dry-run --no-input --profile haos_casa --vm-profile "$t" 2>&1)" || true
+    printf '%s' "$out" | grep -qE 'desconhecido|unknown' && enum_ruim="$enum_ruim --vm-profile=$t"
+done
+for t in $tokens_with; do
+    # shellcheck disable=SC2002
+    out="$(cat haos-install.sh | HOME="$sb_enum" "${BASH:-/bin/bash}" -s -- --dry-run --no-input --profile haos_casa --with "$t" 2>&1)" || true
+    printf '%s' "$out" | grep -qE 'desconhecido|unknown' && enum_ruim="$enum_ruim --with=$t"
+done
+rm -rf "$sb_enum"
+n_enum="$(printf '%s %s %s\n' "$tokens_profile" "$tokens_vm" "$tokens_with" | wc -w | tr -d ' ')"
+if [ -z "$enum_ruim" ]; then
+    ok "todo valor enumerado no --help é aceito pelo parser real ($n_enum valores)"
+else
+    falha "enumerados do help recusados pelo parser:$enum_ruim"
 fi
 
 # ── dry-run não escreve NADA ─────────────────────────────────────────────────

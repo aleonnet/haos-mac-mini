@@ -22,8 +22,11 @@ curl -fsSL https://raw.githubusercontent.com/aleonnet/haos-mac-mini/main/haos-in
 ```
 
 Em terminal interativo, mostra o plano e pede confirmação antes de escrever qualquer
-coisa. Cada execução real salva um relatório em `~/.config/haos-mac-mini/last-run.log`;
-uma falha preserva o log das ferramentas e imprime o caminho.
+coisa. Cada execução real salva a seleção (`--profile last` a repete) e um relatório em
+`~/.config/haos-mac-mini/`; uma falha preserva o log das ferramentas e imprime o
+caminho. O que o instalador cria fica registrado num manifesto
+(`created`/`preexisting`) — é o que permitirá ao `--uninstall` remover só o que
+ele próprio fez.
 
 ### Headless / sem interação
 
@@ -54,13 +57,14 @@ Veja o catálogo completo com `--list`.
 
 | Flag | Efeito |
 |---|---|
-| `--profile <id>` | `haos_vanilla` \| `haos_conectado` \| `haos_casa`, sem interação |
+| `--profile <id>` | `haos_vanilla` \| `haos_conectado` \| `haos_casa` \| `last` (repete a última seleção salva), sem interação |
 | `--with a,b,c` | extras: `ferramentas`, `casa_abhome`, `extensoes` |
 | `--all`, `-a` | `haos_casa` + extras (exceto o que exige opt-in nominal) |
 | `--vm-profile <id>` | `vm_minimo` \| `vm_equilibrado` \| `vm_recomendado` (derivado da máquina) |
 | `--vm-name <nome>` | nome da VM (padrão `HomeAssistant`) |
 | `--dry-run`, `-n` | mostra o plano e sai — não escreve nada, nem log |
 | `--list` | lista o catálogo e sai |
+| `--image <arquivo>` | usa este `.zip` da imagem do HAOS (verificado por tamanho e SHA-256 — arquivo que não confere é erro, não fallback) |
 | `--keep-image` | preserva o `.zip` baixado da imagem do HAOS |
 | `--install-deps` | instala pré-requisitos ausentes sem perguntar (VirtualBox) |
 | `--no-input` | não pergunta nada; falha se faltar dado obrigatório |

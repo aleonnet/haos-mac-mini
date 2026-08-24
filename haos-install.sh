@@ -194,6 +194,9 @@ MSG_DB=(
 "python3_versao|python3 %s|python3 %s"
 "fase_vm|VM|VM"
 "relatorio_salvo|Relatório da execução: %s|Run report: %s"
+"img_image_invalida|O arquivo passado em --image não confere com a tabela (tamanho ou SHA-256): %s|The file passed to --image does not match the table (size or SHA-256): %s"
+"last_sem_estado|--profile last: nenhuma seleção salva em %s. Rode uma instalação primeiro.|--profile last: no saved selection at %s. Run an install first."
+"last_repetindo|Repetindo a última seleção salva.|Repeating the last saved selection."
 )
 
 # ── saída ────────────────────────────────────────────────────────────────────
@@ -321,11 +324,18 @@ VBOX_DMG="VirtualBox-${VBOX_VERSAO}-${VBOX_BUILD}-macOSArm64.dmg"
 VBOX_BASE="https://download.virtualbox.org/virtualbox/${VBOX_VERSAO}"
 
 garantir_virtualbox() {
-    command -v VBoxManage >/dev/null 2>&1 && return 100
+    if command -v VBoxManage >/dev/null 2>&1; then
+        host_set vbox preexisting
+        return 100
+    fi
 
     ha_warn "$(msg vbox_ausente)"
     confirmar_dep "$(msg vbox_instalar "$VBOX_VERSAO")" || return 1
     garantir_sudo || return 1
+
+    # `pending` ANTES de tentar: morrer entre o installer e o registro deixa a
+    # prova de que ESTE instalador mexeu aqui (regra 1 do manifesto).
+    host_set vbox pending
 
     local dir dmg sha_arq esperado obtido ponto pkg
     dir="$(mktempdir)"; dmg="$dir/$VBOX_DMG"
@@ -370,6 +380,7 @@ garantir_virtualbox() {
     # é melhor que falhar na criação da VM com erro incompreensível.
     if command -v VBoxManage >/dev/null 2>&1 && VBoxManage --version >/dev/null 2>&1; then
         ha_ok "$(msg vbox_ok "$(VBoxManage --version 2>/dev/null | tr -d '\r')")"
+        host_set vbox created
         return 0
     fi
     ha_err "$(msg vbox_bloqueado)"
@@ -458,6 +469,83 @@ ha_run_step() { # <rótulo já traduzido> <cmd...>
 # costura de teste documentada.
 haos_state_dir() { printf '%s' "${HAOS_STATE_DIR:-$HOME/.config/haos-mac-mini}"; }
 
+# ── manifesto: o que ESTE instalador criou NESTA máquina ─────────────────────
+# Dois escopos, dois arquivos, porque são mesmo diferentes (desenho do
+# AtlasFile): há UM VirtualBox por máquina (host-prereqs) e pode haver N VMs
+# (vms/<nome>.manifest). Valores: created | preexisting | pending.
+# As três regras que tornam o mecanismo seguro para o --uninstall:
+#   1. `pending` é gravado ANTES de tentar instalar — morrer entre o comando e
+#      o registro deixa a prova; sem isso a execução seguinte veria o artefato
+#      presente e gravaria a mentira `preexisting`.
+#   2. `created` NUNCA é rebaixado numa reexecução.
+#   3. Chave ausente lê como `preexisting` — a resposta conservadora: o
+#      uninstall só poderá remover o que provar que fez.
+# Escrituração é best-effort: nunca derruba uma instalação por causa de registro.
+manifest_get() { # <arquivo> <chave>
+    [ -f "$1" ] || return 0
+    awk -F'\t' -v k="$2" '$1==k{print $2; exit}' "$1" 2>/dev/null || true
+}
+manifest_set() { # <arquivo> <chave> <valor>
+    local arq="$1" chave="$2" valor="$3" atual tmp
+    atual="$(manifest_get "$arq" "$chave")"
+    [ "$atual" = "created" ] && return 0
+    [ "$atual" = "$valor" ] && return 0
+    mkdir -p "$(dirname "$arq")" 2>/dev/null || return 0
+    if [ ! -f "$arq" ]; then
+        printf '# haos-mac-mini — chave<TAB>valor. Consumido pelo --uninstall.\nschema\t1\n' \
+            > "$arq" 2>/dev/null || return 0
+    fi
+    tmp="$arq.tmp.$$"
+    { awk -F'\t' -v k="$chave" '$1!=k' "$arq" 2>/dev/null
+      printf '%s\t%s\n' "$chave" "$valor"; } > "$tmp" 2>/dev/null && mv "$tmp" "$arq" 2>/dev/null
+    rm -f "$tmp" 2>/dev/null || true
+    return 0
+}
+host_manifest() { printf '%s' "$(haos_state_dir)/host-prereqs"; }
+vm_manifest()   { printf '%s' "$(haos_state_dir)/vms/${OP_VM_NOME}.manifest"; }
+host_set() { manifest_set "$(host_manifest)" "$1" "$2"; }
+vm_set()   { manifest_set "$(vm_manifest)" "$1" "$2"; }
+
+# ── memória de seleção: --profile last ───────────────────────────────────────
+# Grava a seleção resolvida DEPOIS da confirmação (nunca em dry-run) e a relê
+# filtrando o que saiu do catálogo — id morto numa seleção antiga não pode
+# derrubar a reexecução (desenho do mac-env-setup).
+salvar_selecao() {
+    local d; d="$(haos_state_dir)"
+    mkdir -p "$d" 2>/dev/null || return 0
+    {
+        printf '# última seleção — haos-install.sh (%s)\n' "$(date '+%Y-%m-%d %H:%M')"
+        printf 'degrau=%s\n'  "$SEL_DEGRAU"
+        printf 'extras=%s\n'  "$SEL_EXTRAS"
+        printf 'vm=%s\n'      "$SEL_VM"
+        printf 'vm_nome=%s\n' "$OP_VM_NOME"
+    } > "$d/state" 2>/dev/null || true
+    return 0
+}
+LAST_DEGRAU=""; LAST_EXTRAS=""; LAST_VM=""; LAST_VM_NOME=""
+carregar_selecao() {
+    local f linha e filtrado=""
+    f="$(haos_state_dir)/state"
+    [ -f "$f" ] || return 1
+    while IFS= read -r linha; do
+        case "$linha" in
+            degrau=*)  LAST_DEGRAU="${linha#*=}" ;;
+            extras=*)  LAST_EXTRAS="${linha#*=}" ;;
+            vm=*)      LAST_VM="${linha#*=}" ;;
+            vm_nome=*) LAST_VM_NOME="${linha#*=}" ;;
+        esac
+    done < "$f"
+    perfil_valido "$LAST_DEGRAU" || return 1
+    for e in $LAST_EXTRAS; do
+        tem_na_lista "$e" "${ORTOGONAL_DB[*]}" && filtrado="$filtrado $e"
+    done
+    LAST_EXTRAS="${filtrado# }"
+    local r achou=0
+    for r in "${VM_PROFILE_DB[@]}"; do [ "${r%%|*}" = "$LAST_VM" ] && achou=1; done
+    [ "$achou" = "1" ] || LAST_VM=""
+    return 0
+}
+
 # Espelho da execução, no espírito do last-run.log dos irmãos: o log guarda a
 # saída das ferramentas; ISTO guarda o que o instalador fez. Best-effort —
 # escrituração nunca derruba uma instalação.
@@ -516,6 +604,10 @@ fase_imagem() {
         tam_atual="$(wc -c < "$vdi" 2>/dev/null | tr -d ' ')"
         if [ "$ov" = "$ver" ] && [ "$osha" = "$sha" ] && [ "$otam" = "$tam_atual" ]; then
             ha_ok "$(msg img_ja "$ver" "$vdi")"
+            # O .origem é prova NOSSA (só este script o escreve): o vdi pode
+            # ser marcado created mesmo vindo de uma execução anterior.
+            vm_set vdi created
+            vm_set vdi_path "$vdi"
             return 100
         fi
     fi
@@ -528,7 +620,21 @@ fase_imagem() {
     local cache zipnome zip="" cand tam baixamos=0
     cache="$HOME/Library/Caches/haos-mac-mini"
     zipnome="$(basename "$url")"
-    for cand in "$cache/$zipnome" "./$zipnome"; do
+    # --image aponta um arquivo EXPLÍCITO e por isso falha alto se ele não
+    # conferir — descartar em silêncio e baixar 380 MiB por cima seria ignorar
+    # uma ordem direta. Os candidatos implícitos (cache, diretório corrente)
+    # mantêm o descarte tolerante.
+    if [ -n "$OP_IMAGEM" ]; then
+        [ -f "$OP_IMAGEM" ] || { ha_err "$(msg img_image_invalida "$OP_IMAGEM")"; return 1; }
+        tam="$(wc -c < "$OP_IMAGEM" 2>/dev/null | tr -d ' ')"
+        if [ "$tam" != "$bytes" ] ||            [ "$(shasum -a 256 "$OP_IMAGEM" | awk '{print $1}')" != "$sha" ]; then
+            ha_err "$(msg img_image_invalida "$OP_IMAGEM")"
+            return 1
+        fi
+        ha_ok "$(msg img_local "$OP_IMAGEM")"
+        zip="$OP_IMAGEM"
+    fi
+    [ -n "$zip" ] || for cand in "$cache/$zipnome" "./$zipnome"; do
         [ -f "$cand" ] || continue
         tam="$(wc -c < "$cand" 2>/dev/null | tr -d ' ')"
         [ "$tam" = "$bytes" ] || { ha_warn "$(msg img_local_descartado "$cand")"; continue; }
@@ -619,7 +725,10 @@ fase_imagem() {
     # Só apaga o que ESTE script baixou. O .zip que o usuário já tinha no
     # diretório é dele: encontrá-lo e apagá-lo em seguida seria cobrar 380 MiB
     # de download pelo favor de ter reaproveitado o arquivo.
-    if [ "$baixamos" = "1" ] && [ "$OP_KEEP_IMAGE" != "1" ]; then rm -f "$zip"; fi
+    if [ "$baixamos" = "1" ] && [ "$OP_KEEP_IMAGE" != "1" ]; then rm -f "$zip"
+    elif [ "$baixamos" = "1" ]; then vm_set zip_cache created; vm_set zip_path "$zip"; fi
+    vm_set vdi created
+    vm_set vdi_path "$vdi"
     ha_ok "$(msg img_pronta "$vdi")"
     return 0
 }
@@ -1318,7 +1427,7 @@ tem_na_lista() { case " $2 " in *" $1 "*) return 0 ;; esac; return 1; }
 # =============================================================================
 # ARGUMENTOS
 # =============================================================================
-OP_PERFIL=""; OP_WITH=""; OP_VM_PERFIL=""; OP_VM_NOME="HomeAssistant"
+OP_PERFIL=""; OP_WITH=""; OP_VM_PERFIL=""; OP_VM_NOME="HomeAssistant"; OP_IMAGEM=""
 OP_DRYRUN=0; OP_LIST=0; OP_NOINPUT=0; OP_FORCE=0
 OP_QUIET=0; OP_VERBOSE=0; OP_ALL=0
 OP_KEEP_IMAGE=0; OP_INSTALL_DEPS=0
@@ -1335,7 +1444,8 @@ haos-install.sh — Home Assistant OS numa VM VirtualBox em Mac Apple Silicon
   curl -fsSL <raw-url> | bash -s -- [opções]
 
 SELEÇÃO
-  --profile <id>     haos_vanilla | haos_conectado | haos_casa
+  --profile <id>     haos_vanilla | haos_conectado | haos_casa | last
+                     (last repete a última seleção salva)
   --with a,b,c       extras: ferramentas, casa_abhome, extensoes
   -a, --all          haos_casa + todos os extras (exceto o que exige opt-in)
 
@@ -1350,6 +1460,7 @@ NÃO INSTALAM NADA
   -h, --help         esta ajuda
 
 OUTRAS
+  --image <arquivo>  usa este .zip da imagem do HAOS (verificado por SHA-256)
   --keep-image       preserva o .zip baixado da imagem do HAOS
   -v, --verbose      mostra a saída crua de cada ferramenta
   -q, --quiet        suprime a saída normal
@@ -1385,6 +1496,8 @@ ler_args() {
             --vm-profile=*) exige_valor --vm-profile "${1#*=}"; OP_VM_PERFIL="${1#*=}" ;;
             --vm-name)      exige_valor --vm-name "${2:-}";    OP_VM_NOME="$2"; shift ;;
             --vm-name=*)    exige_valor --vm-name "${1#*=}";   OP_VM_NOME="${1#*=}" ;;
+            --image)        exige_valor --image "${2:-}";      OP_IMAGEM="$2"; shift ;;
+            --image=*)      exige_valor --image "${1#*=}";     OP_IMAGEM="${1#*=}" ;;
             -a|--all)       OP_ALL=1 ;;
             -n|--dry-run)   OP_DRYRUN=1 ;;
             --list)         OP_LIST=1 ;;
@@ -1615,6 +1728,13 @@ resolver_selecao() {
         SEL_DEGRAU="haos_casa"; SEL_EXTRAS="ferramentas casa_abhome"
         # `extensoes` (HACS) fica FORA do --all de propósito: é código de fora
         # do canal oficial, e opt-in nominal é o certo para isso.
+    elif [ "$OP_PERFIL" = "last" ]; then
+        carregar_selecao || morrer "$E_USO" "$(msg last_sem_estado "$(haos_state_dir)/state")"
+        ha_info "$(msg last_repetindo)"
+        SEL_DEGRAU="$LAST_DEGRAU"
+        [ -z "$OP_WITH" ] && [ -n "$LAST_EXTRAS" ] && SEL_EXTRAS="$LAST_EXTRAS"
+        [ -z "$OP_VM_PERFIL" ] && [ -n "$LAST_VM" ] && OP_VM_PERFIL="$LAST_VM"
+        [ "$OP_VM_NOME" = "HomeAssistant" ] && [ -n "$LAST_VM_NOME" ] && OP_VM_NOME="$LAST_VM_NOME"
     elif [ -n "$OP_PERFIL" ]; then
         perfil_valido "$OP_PERFIL" || morrer "$E_USO" "perfil desconhecido: $OP_PERFIL"
         SEL_DEGRAU="$OP_PERFIL"
@@ -1726,6 +1846,7 @@ main() {
     if [ "$OP_NOINPUT" != "1" ]; then
         perguntar "$(msg confirmar)" || { ha_info "$(msg cancelado)"; exit "$E_CANCELADO"; }
     fi
+    salvar_selecao
 
     local rc_img=0
     fase_imagem || rc_img=$?

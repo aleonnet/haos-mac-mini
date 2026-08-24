@@ -7,6 +7,19 @@ release: tudo abaixo é a trilha do `0.1.0-dev`.
 ## [Unreleased]
 
 ### Added
+- **Manifesto de instalação** (`~/.config/haos-mac-mini/`): `host-prereqs`
+  (VirtualBox) e `vms/<nome>.manifest` (imagem), com `created`/`preexisting`/
+  `pending` — `pending` gravado ANTES de tentar, `created` nunca rebaixado,
+  ausente lê como `preexisting`. É a base do `--uninstall` que só remove o que
+  o instalador provar que criou.
+- **`--profile last`**: repete a última seleção salva, filtrando ids que
+  saíram do catálogo; sem seleção salva, erro claro nomeando o arquivo.
+- **`--image <arquivo>`**: usa um `.zip` local da imagem (verificado por
+  tamanho e SHA-256). Arquivo explícito que não confere é **erro**, não
+  fallback; os candidatos implícitos (cache, diretório corrente) continuam
+  valendo.
+- **Cerca de enumerados**: todo valor listado nas linhas `--profile`/
+  `--vm-profile`/`--with` do `--help` é executado contra o parser real.
 - **Gramática visual única**: as fases falam a calha da camada visual (✔ · ▲ ✖),
   a mesma dos instaladores irmãos, com fallback ASCII verificado sob locale
   não-UTF-8 e barra de progresso por fase. A voz antiga de prefixos `[OK]`
