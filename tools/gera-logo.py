@@ -17,10 +17,16 @@ Máscara por pixel:
 """
 import math, sys
 
-W = 48          # pixels de largura  -> 48 colunas
-H = 48          # pixels de altura   -> 24 linhas de terminal
-RAIO = 5.0      # raio do arredondamento, IGUAL em todos os cantos
-TELHADO = 0.46  # fração da altura ocupada pelo telhado
+# ── dimensões ────────────────────────────────────────────────────────────────
+# O traço branco corre POR FORA da casa, então o canvas tem margem — sem ela
+# não haveria onde engrossá-lo.
+CASA = 28.0     # lado da casa, em pixels
+MARGEM = 4.0    # espaço para o traço respirar
+ESPESSURA = 2.6 # meia-espessura do traço, em pixels
+W = int(CASA + MARGEM * 2)
+H = W
+TELHADO = 0.46  # fração da altura da casa ocupada pelo telhado
+RAIO = 3.0      # arredondamento dos cantos
 
 def _dist_seg(px, py, x1, y1, x2, y2):
     dx, dy = x2 - x1, y2 - y1
@@ -28,30 +34,22 @@ def _dist_seg(px, py, x1, y1, x2, y2):
     t = 0.0 if L == 0 else max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / L))
     return math.hypot(px - (x1 + t * dx), py - (y1 + t * dy))
 
-def _constroi_casa():
-    """Pentágono do HA arredondado por Minkowski: encolhe o polígono por RAIO e
-    depois toma tudo que está a distância <= RAIO dele.
-
-    Arredondar cada canto com um arco à parte, que foi a primeira tentativa,
-    deixa degrau na junção do arco com a rampa — o telhado ganhava um patamar
-    de três linhas antes de voltar a abrir. Encolher e engordar dá o mesmo raio
-    em todo canto, por construção.
-    """
-    cx = W / 2.0
-    ombro = H * TELHADO
-    # pentágono afiado, em sentido horário a partir do ápice
-    V = [(cx, 0.0), (float(W), ombro), (float(W), float(H)), (0.0, float(H)), (0.0, ombro)]
-
-    # normais externas de cada aresta e a distância da origem
+def _casa_encolhida():
+    """Pentágono do HA arredondado por Minkowski: encolhe por RAIO e depois
+    toma tudo a distância <= RAIO. Arredondar cada canto com um arco à parte
+    deixa degrau na junção com a rampa do telhado."""
+    x0, y0 = MARGEM, MARGEM
+    cx = x0 + CASA / 2.0
+    ombro = y0 + CASA * TELHADO
+    V = [(cx, y0), (x0 + CASA, ombro), (x0 + CASA, y0 + CASA),
+         (x0, y0 + CASA), (x0, ombro)]
     N = []
     for i in range(len(V)):
         x1, y1 = V[i]; x2, y2 = V[(i + 1) % len(V)]
         ex, ey = x2 - x1, y2 - y1
         L = math.hypot(ex, ey)
-        nx, ny = ey / L, -ex / L          # horário -> normal externa
+        nx, ny = ey / L, -ex / L
         N.append((nx, ny, nx * x1 + ny * y1))
-
-    # vértices do polígono encolhido: interseção das arestas deslocadas por RAIO
     Vs = []
     for i in range(len(N)):
         a1, b1, c1 = N[i - 1]; a2, b2, c2 = N[i]
@@ -59,58 +57,68 @@ def _constroi_casa():
         det = a1 * b2 - a2 * b1
         if abs(det) < 1e-9:
             continue
-        Vs.append((((c1 * b2 - c2 * b1) / det), ((a1 * c2 - a2 * c1) / det)))
+        Vs.append(((c1 * b2 - c2 * b1) / det, (a1 * c2 - a2 * c1) / det))
     return Vs
 
-CASA_VS = _constroi_casa()
+CASA_VS = _casa_encolhida()
 
-def dentro_casa(x, y):
-    px, py = x + 0.5, y + 0.5
+def _dist_ao_contorno(px, py):
+    """distância ao contorno do polígono encolhido, e se está dentro"""
     n = len(CASA_VS)
-    # dentro do polígono encolhido?
     dentro = True
     for i in range(n):
         x1, y1 = CASA_VS[i]; x2, y2 = CASA_VS[(i + 1) % n]
-        if (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1) < 0:   # horário, y para baixo
+        if (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1) < 0:
             dentro = False; break
-    if dentro:
-        return True
-    # senão, a distância até a borda do encolhido tem de caber no raio
     d = min(_dist_seg(px, py, CASA_VS[i][0], CASA_VS[i][1],
                       CASA_VS[(i + 1) % n][0], CASA_VS[(i + 1) % n][1]) for i in range(n))
-    return d <= RAIO
+    return d, dentro
 
-def seg(px, py, x1, y1, x2, y2):
-    return _dist_seg(px, py, x1, y1, x2, y2)
+def dentro_casa(x, y):
+    d, dentro = _dist_ao_contorno(x + 0.5, y + 0.5)
+    return dentro or d <= RAIO
 
 def dentro_circuito(x, y):
-    """O circuito do HA: haste vertical, dois ramos diagonais que nela se
-    juntam em alturas diferentes, e um disco na ponta de cada um dos três.
-
-    As proporções vêm de medir o logo oficial, não de estimativa:
-    disco de cima 50%/33% · direita 75%/58% · esquerda 25%/73%.
-    """
+    """Circuito do HA. Proporções medidas no logo oficial:
+    disco de cima 50%/33% · direita 75%/58% · esquerda 25%/73%."""
     px, py = x + 0.5, y + 0.5
-    ESP = 2.0          # meia-espessura do traço
-    R_DISCO = 4.2
+    x0, y0 = MARGEM, MARGEM
+    ESP = CASA * 0.042          # traço fino: ele pediu delicado
+    R_DISCO = CASA * 0.085
 
-    topo   = (W * 0.50, H * 0.33)
-    direita= (W * 0.75, H * 0.58)
-    esq    = (W * 0.25, H * 0.73)
-    base   = (W * 0.50, H * 0.93)
+    topo    = (x0 + CASA * 0.50, y0 + CASA * 0.33)
+    direita = (x0 + CASA * 0.75, y0 + CASA * 0.58)
+    esq     = (x0 + CASA * 0.25, y0 + CASA * 0.73)
+    base    = (x0 + CASA * 0.50, y0 + CASA * 0.93)
 
-    # haste central, do disco de cima até a base
-    if _dist_seg(px, py, topo[0], topo[1], base[0], base[1]) <= ESP:
-        return True
-    # ramo direito encontra a haste mais acima; o esquerdo, quase na base
-    if _dist_seg(px, py, direita[0], direita[1], W * 0.50, H * 0.79) <= ESP:
-        return True
-    if _dist_seg(px, py, esq[0], esq[1], base[0], base[1]) <= ESP:
-        return True
+    if _dist_seg(px, py, topo[0], topo[1], base[0], base[1]) <= ESP: return True
+    if _dist_seg(px, py, direita[0], direita[1], x0 + CASA * 0.50, y0 + CASA * 0.79) <= ESP: return True
+    if _dist_seg(px, py, esq[0], esq[1], base[0], base[1]) <= ESP: return True
     for cxx, cyy in (topo, direita, esq):
-        if math.hypot(px - cxx, py - cyy) <= R_DISCO:
-            return True
+        if math.hypot(px - cxx, py - cyy) <= R_DISCO: return True
     return False
+
+# ── caminho do traço: o contorno amostrado denso, com comprimento de arco ────
+# Cada pixel do traço precisa saber ONDE está ao longo do caminho, senão não dá
+# para animar uma faixa espessa: a cabeça e a cauda andam em posição de arco,
+# não em índice de pixel.
+def _caminho():
+    n = len(CASA_VS)
+    pts = []
+    for i in range(n):
+        x1, y1 = CASA_VS[i]; x2, y2 = CASA_VS[(i + 1) % n]
+        L = math.hypot(x2 - x1, y2 - y1)
+        passos = max(2, int(L * 4))
+        for k in range(passos):
+            t = k / passos
+            pts.append((x1 + (x2 - x1) * t, y1 + (y2 - y1) * t))
+    # começa embaixo no centro e sobe pela ESQUERDA, como no logo oficial
+    mx = sum(p[0] for p in pts) / len(pts)
+    my = sum(p[1] for p in pts) / len(pts)
+    pts.sort(key=lambda p: (math.atan2(p[1] - my, p[0] - mx) - math.pi / 2) % (2 * math.pi))
+    return pts
+
+CAMINHO = _caminho()
 
 # ── monta a mascara ──────────────────────────────────────────────────────────
 mask = []
@@ -125,46 +133,60 @@ for y in range(H):
             linha.append('#')
     mask.append(''.join(linha))
 
-# ── perimetro ORDENADO: é o caminho que o traço branco percorre ─────────────
-# Pixel do corpo que faz fronteira com o lado de fora. A casa é convexa, então
-# ordenar por ângulo em torno do centroide dá uma volta limpa, sem grafo.
-borda = []
+# ── faixa do traço: pixels perto do contorno, com sua posição no caminho ─────
+M = len(CAMINHO)
+traco = []          # (x, y, indice_no_caminho)
 for y in range(H):
     for x in range(W):
-        if mask[y][x] == '.':
-            continue
-        for ax, ay in ((1,0), (-1,0), (0,1), (0,-1)):
-            nx, ny = x + ax, y + ay
-            if nx < 0 or ny < 0 or nx >= W or ny >= H or mask[ny][nx] == '.':
-                borda.append((x, y)); break
+        px, py = x + 0.5, y + 0.5
+        melhor, idx = 1e9, -1
+        for i, (cx_, cy_) in enumerate(CAMINHO):
+            d = (px - cx_) ** 2 + (py - cy_) ** 2
+            if d < melhor:
+                melhor, idx = d, i
+        # A faixa monta na borda VERDADEIRA da casa, que fica a RAIO do
+        # polígono encolhido — não no encolhido. Centrar no encolhido escondia
+        # o traço inteiro sob o corpo azul.
+        # Assimétrica de propósito: mais para fora que para dentro, como no
+        # logo oficial, onde o branco contorna o azul em vez de comê-lo.
+        d = math.sqrt(melhor) - RAIO
+        if -0.9 <= d <= ESPESSURA:
+            traco.append((x, y, idx))
+traco.sort(key=lambda t: t[2])
 
-mx = sum(p[0] for p in borda) / len(borda)
-my = sum(p[1] for p in borda) / len(borda)
-# começa embaixo, no centro, e sobe pela ESQUERDA — como no logo oficial
-borda.sort(key=lambda p: (math.atan2(p[1] - my, p[0] - mx) - math.pi/2) % (2*math.pi))
+if '--mask' in sys.argv:
+    for y in range(H):
+        sys.stdout.write(''.join('  ' if c == '.' else ('##' if c == '#' else '@@')
+                                 for c in mask[y]) + '\n')
+    sys.exit(0)
 
 if '--preview' in sys.argv:
+    tr = {(x, y) for x, y, _ in traco}
     for y in range(0, H, 2):
         for x in range(W):
-            t, b = mask[y][x], mask[y+1][x] if y+1 < H else '.'
-            ch = {'..': ' ', '.#': '▄', '.o': '▄', '#.': '▀', 'o.': '▀'}.get(t+b, '█')
+            a = 't' if (x, y) in tr else mask[y][x]
+            b = 't' if (x, y + 1) in tr else (mask[y + 1][x] if y + 1 < H else '.')
+            ch = {'..': ' ', '.#': '▄', '.o': '▄', '.t': '▄',
+                  '#.': '▀', 'o.': '▀', 't.': '▀'}.get(a + b, '█')
             sys.stdout.write(ch)
         sys.stdout.write('\n')
-    print(f"\n{W}x{H} px -> {W} colunas x {H//2} linhas · perímetro: {len(borda)} pixels")
+    print(f"\n{W}x{H} px -> {W} col x {H//2} linhas · caminho {M} · traço {len(traco)} px")
     sys.exit(0)
 
 print("# ── GERADO por tools/gera-logo.py — NÃO editar à mão ──────────────────────")
 print("# Máscara do logo do Home Assistant, por pixel:")
 print("#   .  fora    #  corpo da casa    o  circuito")
-print("# HA_BX/HA_BY são o contorno JÁ ORDENADO, em vetores PARALELOS: é o caminho")
-print("# que o traço percorre, começando embaixo no centro e subindo pela esquerda,")
-print("# como no logo oficial. Dois vetores em vez de \"x,y\" numa string evitam")
-print("# fatiar texto no laço mais quente do render.")
+print("# HA_TX/HA_TY/HA_TT são a FAIXA do traço, em vetores paralelos e já")
+print("# ordenados pela posição no caminho. HA_TT guarda essa posição, que é o")
+print("# que permite animar uma faixa ESPESSA: cabeça e cauda andam em posição")
+print("# de arco, não em índice de pixel.")
 print(f"HA_W={W}")
 print(f"HA_H={H}")
+print(f"HA_CAMINHO={M}")
 print("HA_MASK=(")
 for l in mask:
     print(f"'{l}'")
 print(")")
-print("HA_BX=(" + " ".join(str(x) for x, _ in borda) + ")")
-print("HA_BY=(" + " ".join(str(y) for _, y in borda) + ")")
+print("HA_TX=(" + " ".join(str(t[0]) for t in traco) + ")")
+print("HA_TY=(" + " ".join(str(t[1]) for t in traco) + ")")
+print("HA_TT=(" + " ".join(str(t[2]) for t in traco) + ")")
