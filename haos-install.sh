@@ -36,12 +36,15 @@ E_USO=2; E_VALID=3; E_DEP=4; E_CONEXAO=10; E_CANCELADO=130
 # em silêncio, levando junto a limpeza de temporários e o desfazer de fase.
 TMPFILES=()
 FASE_ATUAL=""
+VBOX_PONTO=""
 limpar() {
     local rc=$?
     local f
     for f in "${TMPFILES[@]:-}"; do
         if [ -n "$f" ]; then rm -rf "$f" 2>/dev/null || true; fi
     done
+    # Imagem montada também é sujeira, e some do radar com facilidade.
+    if [ -n "$VBOX_PONTO" ]; then desmontar "$VBOX_PONTO"; fi
     if declare -F ha_show_cursor >/dev/null 2>&1; then
         ha_show_cursor
     elif [ -t 1 ]; then
@@ -133,6 +136,7 @@ MSG_DB=(
 "vbox_installer_falhou|O installer(8) falhou. Rode com --verbose para ver a saída.|installer(8) failed. Run with --verbose to see the output."
 "vbox_ok|VirtualBox %s instalado|VirtualBox %s installed"
 "vbox_bloqueado|VirtualBox instalado, mas o VBoxManage não responde. O macOS costuma BLOQUEAR a extensão de sistema da Oracle na primeira instalação: abra Ajustes do Sistema, Privacidade e Segurança, e Permitir o software da Oracle. Pode exigir reinício. Depois rode este instalador de novo.|VirtualBox installed, but VBoxManage does not respond. macOS usually BLOCKS the Oracle system extension on first install: open System Settings, Privacy & Security, and Allow the Oracle software. A restart may be required. Then run this installer again."
+"vbox_nao_desmontou|Não consegui desmontar %s — algum processo ainda a segura. Desmonte com: hdiutil detach -force %s|Could not unmount %s — some process still holds it. Unmount with: hdiutil detach -force %s"
 "nao_implementado|As fases de execução ainda não estão implementadas nesta versão (%s).|Execution phases are not implemented yet in this version (%s)."
 )
 
@@ -234,6 +238,23 @@ confirmar_dep() {
 #
 # Sem interface gráfica em momento nenhum: `installer(8)` é a mesma ferramenta
 # que o Installer.app usa por baixo.
+# `hdiutil detach` falha com "Resource busy" enquanto qualquer processo segurar
+# o volume — medido em 23/08: o Installer.app segurava o .pkg. Sem -force o
+# volume ficava montado para sempre, e um `|| true` esconderia isso.
+desmontar() {
+    local ponto="$1" i=0
+    [ -n "$ponto" ] || return 0
+    [ -d "$ponto" ] || { VBOX_PONTO=""; return 0; }
+    while [ "$i" -lt 3 ]; do
+        if hdiutil detach -quiet "$ponto" 2>/dev/null; then VBOX_PONTO=""; return 0; fi
+        i=$(( i + 1 )); sleep 1
+    done
+    if hdiutil detach -force -quiet "$ponto" 2>/dev/null; then VBOX_PONTO=""; return 0; fi
+    aviso "$(msg vbox_nao_desmontou "$ponto")"
+    VBOX_PONTO=""
+    return 1
+}
+
 VBOX_VERSAO="7.2.16"
 VBOX_BUILD="174877"
 VBOX_DMG="VirtualBox-${VBOX_VERSAO}-${VBOX_BUILD}-macOSArm64.dmg"
@@ -272,20 +293,15 @@ garantir_virtualbox() {
 
     pkg="$(find "$ponto" -maxdepth 1 -name '*.pkg' | head -1)"
     if [ -z "$pkg" ]; then
-        hdiutil detach -quiet "$ponto" 2>/dev/null || true
+        desmontar "$ponto"
         erro "$(msg vbox_sem_pkg)"; return 1
     fi
 
     info "$(msg vbox_instalando)"
-    if sudo installer -pkg "$pkg" -target / >/dev/null 2>&1; then
-        hdiutil detach -quiet "$ponto" 2>/dev/null || true
-        VBOX_PONTO=""
-    else
-        hdiutil detach -quiet "$ponto" 2>/dev/null || true
-        VBOX_PONTO=""
-        erro "$(msg vbox_installer_falhou)"
-        return 1
-    fi
+    local rc_inst=0
+    sudo installer -pkg "$pkg" -target / >/dev/null 2>&1 || rc_inst=$?
+    desmontar "$ponto"
+    if [ "$rc_inst" != "0" ]; then erro "$(msg vbox_installer_falhou)"; return 1; fi
 
     # Re-sonda: instalado não é o mesmo que utilizável. Se o macOS bloqueou a
     # extensão de sistema, o binário existe e não funciona — e dizer isso aqui
