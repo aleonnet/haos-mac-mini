@@ -7,6 +7,11 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
 ## [Unreleased]
 
 ### Added
+- **O cardápio**: sem flags e com terminal, o instalador pergunta degrau,
+  extras e perfil de VM (com "repetir a última" quando há seleção salva) — no
+  desenho dos irmãos: menu na tela, resposta lida do terminal real
+  (`$TTY_DEV`, que é também a costura da bancada), inválido repete, vazio
+  assume o padrão. Antes, terminal sem flags caía em `haos_casa` em silêncio.
 - **Abertura em 4 atos** (constelação → traço oficial → sonar → respiração):
   cada pixel da casa voa de fora da tela e se monta de baixo para cima; o
   traço branco desenha o contorno e se retrai (movimento do vídeo oficial);

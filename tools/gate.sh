@@ -263,6 +263,41 @@ else
     falha "isca no cwd: esperado 'rc=1 vdi=0', obtido '$saida_isca'"
 fi
 
+# ── o cardápio responde ──────────────────────────────────────────────────────
+# O seletor interativo é exercitado pela costura TTY_DEV (arquivo de respostas
+# lido em fd único, como um terminal entrega). Quatro cenários: escolha
+# explícita, padrões por vazio, inválido repete, e a opção 0 repetindo a
+# última seleção salva.
+titulo "cardápio"
+sb_card="$(mktemp -d "${TMPDIR:-/tmp}/haos-gate-card.XXXXXX")"
+resp_card="$sb_card/respostas.txt"
+# A saída é CAPTURADA antes de qualquer grep: sob o pipefail deste portão,
+# `| grep -q` fecha o cano no primeiro match, o bash leva SIGPIPE (141) e o
+# cenário registraria falha APESAR do acerto — aconteceu na primeira rodada.
+card_roda() { # <respostas printf> -> stdout do dry-run em $CARD_SAIDA
+    printf '%b' "$1" > "$resp_card"
+    # shellcheck disable=SC2002
+    CARD_SAIDA="$(cat haos-install.sh | HOME="$sb_card" TTY_DEV="$resp_card" \
+        "${BASH:-/bin/bash}" -s -- --dry-run 2>&1)" || true
+}
+card_ruim=""
+card_roda '2\na,b\n1\n'
+printf '%s' "$CARD_SAIDA" | grep -q 'Conectado' || card_ruim="$card_ruim escolha-explicita"
+card_roda '\n\n\n'
+printf '%s' "$CARD_SAIDA" | grep -qE 'Casa|haos_casa' || card_ruim="$card_ruim padroes-por-vazio"
+card_roda '9\n1\n\n\n'
+[ "$(printf '%s' "$CARD_SAIDA" | grep -cE 'não entendi|did not understand')" = "1" ] || card_ruim="$card_ruim invalido-repete"
+mkdir -p "$sb_card/.config/haos-mac-mini"
+printf 'degrau=haos_conectado\nextras=ferramentas\nvm=vm_minimo\nvm_nome=HomeAssistant\n' > "$sb_card/.config/haos-mac-mini/state"
+card_roda '0\n'
+printf '%s' "$CARD_SAIDA" | grep -q 'vm_minimo' || card_ruim="$card_ruim opcao-0-ultima"
+rm -rf "$sb_card"
+if [ -z "$card_ruim" ]; then
+    ok "cardápio: escolha, padrões, inválido e repetição da última — 4 cenários"
+else
+    falha "cardápio falhou em:$card_ruim"
+fi
+
 # ── dry-run não escreve NADA ─────────────────────────────────────────────────
 # Nem log, nem estado: a promessa "--dry-run: nada foi escrito" é conferida por
 # snapshot de um $HOME sintético (a costura HAOS_STATE_DIR/HOME é a do B-7).

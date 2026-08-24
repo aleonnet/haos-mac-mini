@@ -240,6 +240,23 @@ MSG_DB=(
 "su_igual|Já está na versão publicada (%s).|Already at the published version (%s)."
 "su_confirma|Atualizar %s para %s? [s/N] |Update %s to %s? [y/N] "
 "su_ok|Atualizado para %s (backup em %s).|Updated to %s (backup at %s)."
+"sel_degrau_titulo|Qual degrau instalar? (os degraus somam)|Which tier to install? (tiers stack)"
+"sel_op_repetir|  0) Repetir a última: %s|  0) Repeat the last one: %s"
+"sel_op_vanilla|  1) Vanilla    - só o piso, o que o HAOS cria sozinho|  1) Vanilla    - floor only, what HAOS creates by itself"
+"sel_op_conectado|  2) Conectado  - + MQTT, Matter, Thread, ESPHome, Cast|  2) Conectado  - + MQTT, Matter, Thread, ESPHome, Cast"
+"sel_op_casa|  3) Casa       - + Hue, Tuya, Shelly, TP-Link, SmartThings (recomendado)|  3) Casa       - + Hue, Tuya, Shelly, TP-Link, SmartThings (recommended)"
+"sel_prompt_degrau|Degrau [3]: |Tier [3]: "
+"sel_extras_titulo|Extras (entram em qualquer degrau; separe por vírgula):|Extras (added on any tier; comma-separated):"
+"sel_op_ferramentas|  a) ferramentas - SSH e Web Terminal, File editor, Samba|  a) ferramentas - SSH and Web Terminal, File editor, Samba"
+"sel_op_abhome|  b) casa_abhome - custos BR na fatura: energia, gás, água|  b) casa_abhome - BR utility costs: energy, gas, water"
+"sel_op_hacs|  c) extensoes   - HACS (código de terceiros; sempre opt-in)|  c) extensoes   - HACS (third-party code; always opt-in)"
+"sel_prompt_extras|Extras [nenhum]: |Extras [none]: "
+"sel_vm_titulo|Perfil da VM:|VM profile:"
+"sel_op_vm1|  1) Mínimo      - 2048 MiB - 2 vCPU (doc oficial)|  1) Minimal     - 2048 MiB - 2 vCPU (official doc)"
+"sel_op_vm2|  2) Equilibrado - 4096 MiB - 2 vCPU (recomendado)|  2) Balanced    - 4096 MiB - 2 vCPU (recommended)"
+"sel_op_vm3|  3) Desta máquina - %s MiB - %s vCPU (derivado da sonda)|  3) This machine - %s MiB - %s vCPU (derived from the probe)"
+"sel_prompt_vm|VM [2]: |VM [2]: "
+"sel_invalida|não entendi %s|did not understand %s"
 )
 
 # ── saída ────────────────────────────────────────────────────────────────────
@@ -2134,6 +2151,97 @@ vm_derivado_cpu() {
     printf '%s' "$p"
 }
 
+# ── o cardápio ───────────────────────────────────────────────────────────────
+# Sem flags e com terminal, o instalador PERGUNTA — o norte de UX: o leigo
+# responde no máximo degrau + senha. O desenho é o dos irmãos (AtlasFile
+# af_read_line / mac-env flow_node→flow_done): o MENU e o prompt vão para a
+# TELA, na calha; só a LEITURA vem de $TTY_DEV — nunca do stdin, que em
+# curl | bash é o cano. $TTY_DEV é também a costura da bancada: apontado para
+# um arquivo de respostas, o seletor roda de ponta a ponta sem terminal.
+# Entrada inválida repete a pergunta; vazio assume o padrão entre colchetes.
+# O fd 4 abre UMA vez no início do seletor: reabrir o TTY_DEV a cada pergunta
+# faria um arquivo de respostas (a bancada) devolver sempre a primeira linha —
+# um terminal entrega as linhas em sequência, e a bancada imita o terminal.
+# A resposta sai em $RESP, NUNCA em stdout — a lição escrita no af_read_line
+# do AtlasFile: chamada dentro de "$( )", o prompt impresso seria capturado
+# junto com a resposta e a comparação nunca bateria (reproduzido aqui como
+# laço infinito na bancada, 24/08).
+RESP=''
+ler_opcao() { # <prompt já traduzido> -> resposta em $RESP
+    RESP=''
+    printf '   %s' "$1"
+    IFS= read -r -u 4 RESP || true
+    printf '\n'
+}
+
+seletor_interativo() {
+    exec 4< "$TTY_DEV" || return 1
+    local r tem_ultima=0 resumo=''
+    if carregar_selecao; then
+        tem_ultima=1
+        resumo="$LAST_DEGRAU"
+        [ -n "$LAST_EXTRAS" ] && resumo="$resumo + $LAST_EXTRAS"
+    fi
+    ha_info "$(msg sel_degrau_titulo)"
+    [ "$tem_ultima" = "1" ] && printf '%s\n' "$(msg sel_op_repetir "$resumo")"
+    printf '%s\n' "$(msg sel_op_vanilla)"
+    printf '%s\n' "$(msg sel_op_conectado)"
+    printf '%s\n' "$(msg sel_op_casa)"
+    while :; do
+        ler_opcao "$(msg sel_prompt_degrau)"; r="$RESP"
+        case "${r:-3}" in
+            0) [ "$tem_ultima" = "1" ] || { ha_warn "$(msg sel_invalida "$r")"; continue; }
+               SEL_DEGRAU="$LAST_DEGRAU"
+               [ -n "$LAST_EXTRAS" ] && SEL_EXTRAS="$LAST_EXTRAS"
+               [ -n "$LAST_VM" ] && OP_VM_PERFIL="${OP_VM_PERFIL:-$LAST_VM}"
+               return 0 ;;
+            1) SEL_DEGRAU="haos_vanilla"; break ;;
+            2) SEL_DEGRAU="haos_conectado"; break ;;
+            3) SEL_DEGRAU="haos_casa"; break ;;
+            *) ha_warn "$(msg sel_invalida "$r")" ;;
+        esac
+    done
+
+    ha_info "$(msg sel_extras_titulo)"
+    printf '%s\n' "$(msg sel_op_ferramentas)"
+    printf '%s\n' "$(msg sel_op_abhome)"
+    printf '%s\n' "$(msg sel_op_hacs)"
+    while :; do
+        ler_opcao "$(msg sel_prompt_extras)"; r="$RESP"
+        [ -z "$r" ] && break
+        local tok ruim=0 escolhidos=''
+        for tok in $(printf '%s' "$r" | tr ',;' '  '); do
+            case "$tok" in
+                a|ferramentas) escolhidos="$escolhidos ferramentas" ;;
+                b|casa_abhome) escolhidos="$escolhidos casa_abhome" ;;
+                c|extensoes)   escolhidos="$escolhidos extensoes" ;;
+                *) ha_warn "$(msg sel_invalida "$tok")"; ruim=1; break ;;
+            esac
+        done
+        [ "$ruim" = "1" ] && continue
+        SEL_EXTRAS="${escolhidos# }"
+        break
+    done
+
+    if [ -z "$OP_VM_PERFIL" ]; then
+        ha_info "$(msg sel_vm_titulo)"
+        printf '%s\n' "$(msg sel_op_vm1)"
+        printf '%s\n' "$(msg sel_op_vm2)"
+        printf '%s\n' "$(msg sel_op_vm3 "$(vm_derivado_ram)" "$(vm_derivado_cpu)")"
+        while :; do
+            ler_opcao "$(msg sel_prompt_vm)"; r="$RESP"
+            case "${r:-2}" in
+                1) OP_VM_PERFIL="vm_minimo"; break ;;
+                2) OP_VM_PERFIL="vm_equilibrado"; break ;;
+                3) OP_VM_PERFIL="vm_recomendado"; break ;;
+                *) ha_warn "$(msg sel_invalida "$r")" ;;
+            esac
+        done
+    fi
+    exec 4<&-
+    return 0
+}
+
 resolver_selecao() {
     ha_fase "$(msg selecao)"
 
@@ -2151,8 +2259,8 @@ resolver_selecao() {
     elif [ -n "$OP_PERFIL" ]; then
         perfil_valido "$OP_PERFIL" || morrer "$E_USO" "perfil desconhecido: $OP_PERFIL"
         SEL_DEGRAU="$OP_PERFIL"
-    elif tem_tty && [ "$OP_NOINPUT" != "1" ]; then
-        SEL_DEGRAU="haos_casa"   # o seletor interativo entra aqui na próxima fase
+    elif { tem_tty || [ "$TTY_DEV" != "/dev/tty" ]; } && [ "$OP_NOINPUT" != "1" ]; then
+        seletor_interativo
     else
         ha_err "$(msg sem_tty_titulo)"
         printf '%s\n' "$(msg sem_tty_como)" >&2
