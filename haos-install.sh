@@ -333,7 +333,8 @@ MSG_DB=(
 "fase_int|Integrações|Integrations"
 "int_ok|%s configurado - só padrões, nenhum dado seu.|%s configured - defaults only, no data from you."
 "int_ja|%s já configurado.|%s already configured."
-"int_espera|%s espera VOCÊ no painel (pede credencial ou escolha) - nada foi criado.|%s waits for YOU in the panel (needs credentials or a choice) - nothing was created."
+"int_espera|%s já foi DESCOBERTO e espera você no painel (Dispositivos e serviços) - só falta confirmar/credenciar.|%s was DISCOVERED and waits for you in the panel (Devices and services) - just confirm/authorize it."
+"int_manual|%s precisa ser adicionado por você: Configurações > Dispositivos e serviços > Adicionar integração (pede credencial ou conta) - nada foi criado.|%s must be added by you: Settings > Devices and services > Add integration (asks for credentials or an account) - nothing was created."
 "int_falhou|%s falhou - veja o log.|%s failed - see the log."
 "int_flows|sua rede já acena: %s descoberta(s) esperando no painel (%s)|your network is waving: %s discovery(ies) waiting in the panel (%s)"
 "fase_arq|Arquivos|Files"
@@ -1367,6 +1368,10 @@ fase_integracoes() {
     ha_fase "$(msg fase_int)"
     obter_credencial || return 1
     garantir_log
+    # As descobertas vêm ANTES do laço: "espera você no painel" só é verdade
+    # quando existe um flow descoberto — sem ele, a mensagem certa é "adicione
+    # você" (apontado pelo dono: tuya/tplink sem card no painel).
+    FLOWS_PENDENTES="$(helper_cred flows-pendentes 2>>"$LOG_FILE" || true)"
     local it setup rc teve_acao=0
     for it in $SEL_ITENS; do
         [ "$(item_campo "$it" 4)" = "core" ] || continue
@@ -1377,12 +1382,14 @@ fase_integracoes() {
         case "$rc" in
             0)   ha_ok "$(msg int_ok "$it")"; teve_acao=1 ;;
             100) ha_ok "$(msg int_ja "$it")" ;;
-            3)   ha_info "$(msg int_espera "$it")" ;;
+            3)   if printf '%s\n' "$FLOWS_PENDENTES" | grep -q "^$it "; then
+                     ha_info "$(msg int_espera "$it")"
+                 else
+                     ha_info "$(msg int_manual "$it")"
+                 fi ;;
             *)   ha_err "$(msg int_falhou "$it")"; diagnostico_log; return 1 ;;
         esac
     done
-    # o que a rede JÁ descobriu sozinha — informação para o relatório
-    FLOWS_PENDENTES="$(helper_cred flows-pendentes 2>>"$LOG_FILE" || true)"
     local n
     n="$(printf '%s' "$FLOWS_PENDENTES" | grep -c . || true)"
     if [ "${n:-0}" -gt 0 ]; then
