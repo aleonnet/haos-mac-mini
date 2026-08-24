@@ -54,12 +54,14 @@ if [[ "$HAOS_UI_UTF8" == 1 ]]; then
   HA_G_OK='✔'; HA_G_INFO='•'; HA_G_WARN='▲'; HA_G_ERR='✖'; HA_G_SKIP='◦'
   HA_G_DOTS='…'; HA_G_REGUA='─'; HA_G_MARCA='▎'
   HA_G_SEP='·'; HA_G_DASH='—'
+  HA_G_GUT='│'; HA_G_ASK='?'; HA_G_RAMO='├──'
   HA_G_CHEIO='━'; HA_G_VAZIO='╌'; HA_G_BON='▰'; HA_G_BOFF='▱'
   HA_SPIN_F='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'; HA_SPIN_N=10
 else
   HA_G_OK='[OK]'; HA_G_INFO='[i]'; HA_G_WARN='[!]'; HA_G_ERR='[X]'; HA_G_SKIP='[-]'
   HA_G_DOTS='...'; HA_G_REGUA='-'; HA_G_MARCA='>'
   HA_G_SEP='-'; HA_G_DASH='--'
+  HA_G_GUT='|'; HA_G_ASK='?'; HA_G_RAMO='+--'
   HA_G_CHEIO='#'; HA_G_VAZIO='-'; HA_G_BON='#'; HA_G_BOFF='-'
   HA_SPIN_F='-\|/'; HA_SPIN_N=4
 fi
@@ -75,6 +77,12 @@ rgb() { # rgb R G B -> escape
 C_BLUE="$(rgb 3 169 244)";   C_CYAN="$(rgb 0 229 255)"
 C_AMBER="$(rgb 255 193 7)";  C_GREEN="$(rgb 76 175 80)"
 C_RED="$(rgb 244 67 54)";    C_MUTED="$(rgb 96 125 139)"
+
+# ── a calha vertical ─────────────────────────────────────────────────────────
+# Toda mensagem pendura numa trilha contínua — a gramática do mac-env-setup
+# que o AtlasFile adotou dizendo o porquê: linhas soltas leem como lista, a
+# calha lê como FLUXO. Pedido do dono no segundo teste real.
+HA_GUT="${C_MUTED}${HA_G_GUT}${NC} "
 
 # ── gradient across a string, HA_DEEP -> HA_BLUE -> HA_CYAN ─────────────────
 ha_gradient() {
@@ -456,7 +464,7 @@ ha_bar_mostra() {
   for (( i = 0; i < w; i++ )); do
     if (( i < f )); then out+="${C_CYAN}${HA_G_BON}"; else out+="${C_MUTED}${HA_G_BOFF}"; fi
   done
-  printf ' %s%s %sfase %d/%d%s' "$out" "$NC" "${C_MUTED}" "$HA_BAR_N" "$HA_BAR_TOTAL" "$NC"
+  printf '%s%s%s %sfase %d/%d%s' "$HA_GUT" "$out" "$NC" "${C_MUTED}" "$HA_BAR_N" "$HA_BAR_TOTAL" "$NC"
   HA_BAR_VISIVEL=1
   return 0
 }
@@ -466,18 +474,28 @@ HA_PHASE_N=0
 ha_phase() {
   ha_bar_limpa
   HA_PHASE_N=$(( HA_PHASE_N + 1 ))
-  printf '\n%s%s%s%s %s%02d%s  %s\n' "$BOLD" "${C_BLUE}" "$HA_G_MARCA" "$NC" \
-    "${C_MUTED}" "$HA_PHASE_N" "$NC" "$(ha_gradient "$1")"
-  ha_rule
+  local w cab pad n
+  w=$(tput cols 2>/dev/null || echo 72); case "$w" in ''|*[!0-9]*) w=72 ;; esac
+  (( w > 78 )) && w=78
+  printf '%s\n' "$HA_GUT"
+  cab="$(printf '%02d %s ' "$HA_PHASE_N" "$1")"
+  n=$(( w - ${#cab} - 4 )); [ "$n" -lt 4 ] && n=4
+  printf -v pad '%*s' "$n" ''; pad=${pad// /$HA_G_REGUA}
+  printf '%s%s%s %s%s\n' "${C_BLUE}" "$HA_G_RAMO" "$NC" "$(ha_gradient "$cab")" "$(ha_gradient "$pad")"
   ha_bar_mostra
 }
 
 # ── status lines ────────────────────────────────────────────────────────────
-ha_ok()    { ha_bar_limpa; printf ' %s%s%s %s\n'  "${C_GREEN}" "$HA_G_OK" "$NC" "$1"; ha_bar_mostra; }
-ha_info()  { ha_bar_limpa; printf ' %s%s%s %s%s%s\n' "${C_BLUE}" "$HA_G_INFO" "$NC" "${C_MUTED}" "$1" "$NC"; ha_bar_mostra; }
-ha_warn()  { ha_bar_limpa; printf ' %s%s%s %s\n'  "${C_AMBER}" "$HA_G_WARN" "$NC" "$1"; ha_bar_mostra; }
-ha_err()   { ha_bar_limpa; printf ' %s%s%s %s\n'  "${C_RED}"  "$HA_G_ERR" "$NC" "$1" >&2; }
-ha_skip()  { ha_bar_limpa; printf ' %s%s%s %s%s%s\n' "${C_MUTED}" "$HA_G_SKIP" "$NC" "$DIM" "$1" "$NC"; ha_bar_mostra; }
+ha_ok()    { ha_bar_limpa; printf '%s%s%s%s %s\n'  "$HA_GUT" "${C_GREEN}" "$HA_G_OK" "$NC" "$1"; ha_bar_mostra; }
+ha_info()  { ha_bar_limpa; printf '%s%s%s%s %s%s%s\n' "$HA_GUT" "${C_BLUE}" "$HA_G_INFO" "$NC" "${C_MUTED}" "$1" "$NC"; ha_bar_mostra; }
+ha_warn()  { ha_bar_limpa; printf '%s%s%s%s %s\n'  "$HA_GUT" "${C_AMBER}" "$HA_G_WARN" "$NC" "$1"; ha_bar_mostra; }
+ha_err()   { ha_bar_limpa; printf '%s%s%s%s %s\n'  "$HA_GUT" "${C_RED}"  "$HA_G_ERR" "$NC" "$1" >&2; }
+ha_skip()  { ha_bar_limpa; printf '%s%s%s%s %s%s%s\n' "$HA_GUT" "${C_MUTED}" "$HA_G_SKIP" "$NC" "$DIM" "$1" "$NC"; ha_bar_mostra; }
+# pergunta: glifo próprio, SEM newline — quem lê a resposta é o chamador.
+# A barra fica suspensa por conta do chamador (ha_bar_suspende/retoma).
+ha_ask()   { printf '%s%s%s%s %s' "$HA_GUT" "${C_AMBER}" "$HA_G_ASK" "$NC" "$1"; }
+# linha de conteúdo pendurada na calha, sem glifo (menus, tabelas do plano)
+ha_linha() { ha_bar_limpa; printf '%s%s\n' "$HA_GUT" "$1"; ha_bar_mostra; }
 
 # ── quebra de linha na largura do terminal ──────────────────────────────────
 # Existe porque o produto imprime CAMINHOS (`~/VirtualBox VMs/...`), e caminho
@@ -515,14 +533,14 @@ ha_spin() { # ha_spin "label" <pid>
   # `wait` com código != 0 sob `set -e` abortaria o chamador antes do return —
   # por isso todo wait aqui é `|| rc=$?`, nunca solto.
   if [[ "$HAOS_UI_ANIM" == 0 ]]; then
-    printf ' %s %s\n' "$HA_G_DOTS" "$label"
+    printf '%s%s %s\n' "$HA_GUT" "$HA_G_DOTS" "$label"
     wait "$pid" || rc=$?
     return "$rc"
   fi
   ha_bar_limpa
   _hide
   while kill -0 "$pid" 2>/dev/null; do
-    printf '\r %s%s%s %s' "${C_CYAN}" "${HA_SPIN_F:$(( i % HA_SPIN_N )):1}" "$NC" "$label"; i=$(( i + 1 ))
+    printf '\r%s%s%s%s %s' "$HA_GUT" "${C_CYAN}" "${HA_SPIN_F:$(( i % HA_SPIN_N )):1}" "$NC" "$label"; i=$(( i + 1 ))
     sleep 0.07
   done
   wait "$pid" || rc=$?

@@ -19,6 +19,11 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
   os 153 MB de novo. O `--uninstall` sabe removê-lo.
 
 ### Added
+- **A calha vertical** (`│`), a gramática dos irmãos: toda linha — status,
+  menus do cardápio, plano, plano de remoção, dump do doctor — pendura numa
+  trilha contínua; cada etapa abre com `├── NN Título ───`. Inputs ganharam
+  o glifo próprio (`?` âmbar, `[?]` sob locale C). Pedido do dono no segundo
+  teste real: "linhas soltas leem como lista; a calha lê como fluxo".
 - **Cercas de ponta a ponta no portão**: a F1 INTEIRA roda com um DMG
   sintético e `hdiutil` de verdade (rede/sudo/VBoxManage dublados por
   função); o `--self-update` é exercitado por arquivo nos dois sentidos

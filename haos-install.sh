@@ -313,7 +313,7 @@ perguntar() {
     # real; a barra fica suspensa enquanto a pergunta existe — prompt e barra
     # disputando a última linha foi o defeito medido no primeiro teste real.
     ha_bar_suspende
-    printf '%s' "$prompt"
+    ha_ask "$prompt"
     IFS= read -r resp < "$TTY_DEV" || true
     ha_bar_retoma
     [[ "${resp:-N}" =~ ^[sSyY]$ ]]
@@ -354,7 +354,7 @@ confirmar_dep() {
     [ -r "$TTY_DEV" ] || return 1
     [ "$OP_NOINPUT" = "1" ] && return 1
     ha_bar_suspende
-    printf '%s [s/N] ' "$q"
+    ha_ask "$q [s/N] "
     IFS= read -r r < "$TTY_DEV" || true
     ha_bar_retoma
     case "${r:-N}" in s|S|y|Y) return 0 ;; *) return 1 ;; esac
@@ -866,7 +866,7 @@ rodar_doctor() {
         doc_ok "$mf"
         while IFS=$'\t' read -r chave valor; do
             case "$chave" in \#*|schema|'') continue ;; esac
-            printf '     %-14s %s\n' "$chave" "$valor"
+            ha_linha "$(printf '    %-14s %s' "$chave" "$valor")"
         done < "$mf"
     done
     [ "$tem" = "1" ] || doc_warn "$(msg doc_sem_manifesto)"
@@ -898,8 +898,8 @@ rodar_doctor() {
 # Nunca rm -rf: arquivos um a um, com guarda de prefixo, e diretório só por
 # rmdir — se sobrar qualquer coisa de outra origem, a pasta fica.
 UN_REMOVE=""; UN_KEEP=""; UN_ACOES=""; UN_N_OK=0; UN_N_KEEP=0
-un_add_remove() { UN_REMOVE="${UN_REMOVE}   - $1\n"; }
-un_add_keep()   { UN_KEEP="${UN_KEEP}   - $1\n"; UN_N_KEEP=$((UN_N_KEEP+1)); }
+un_add_remove() { UN_REMOVE="${UN_REMOVE}${HA_GUT}  - $1\n"; }
+un_add_keep()   { UN_KEEP="${UN_KEEP}${HA_GUT}  - $1\n"; UN_N_KEEP=$((UN_N_KEEP+1)); }
 un_act()        { UN_ACOES="${UN_ACOES}$1\n"; }
 
 # Guarda: o caminho gravado no manifesto pode ter sido adulterado — só
@@ -1020,11 +1020,11 @@ rodar_uninstall() {
         return 0
     fi
     if [ -n "$UN_REMOVE" ]; then
-        printf ' %s\n' "$(msg un_remove)"
+        ha_linha "$(msg un_remove)"
         printf '%b' "$UN_REMOVE"
     fi
     if [ -n "$UN_KEEP" ]; then
-        printf ' %s\n' "$(msg un_keep)"
+        ha_linha "$(msg un_keep)"
         printf '%b' "$UN_KEEP"
     fi
     if [ -z "$UN_ACOES" ]; then
@@ -1162,12 +1162,14 @@ if [[ "$HAOS_UI_UTF8" == 1 ]]; then
   HA_G_OK='✔'; HA_G_INFO='•'; HA_G_WARN='▲'; HA_G_ERR='✖'; HA_G_SKIP='◦'
   HA_G_DOTS='…'; HA_G_REGUA='─'; HA_G_MARCA='▎'
   HA_G_SEP='·'; HA_G_DASH='—'
+  HA_G_GUT='│'; HA_G_ASK='?'; HA_G_RAMO='├──'
   HA_G_CHEIO='━'; HA_G_VAZIO='╌'; HA_G_BON='▰'; HA_G_BOFF='▱'
   HA_SPIN_F='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'; HA_SPIN_N=10
 else
   HA_G_OK='[OK]'; HA_G_INFO='[i]'; HA_G_WARN='[!]'; HA_G_ERR='[X]'; HA_G_SKIP='[-]'
   HA_G_DOTS='...'; HA_G_REGUA='-'; HA_G_MARCA='>'
   HA_G_SEP='-'; HA_G_DASH='--'
+  HA_G_GUT='|'; HA_G_ASK='?'; HA_G_RAMO='+--'
   HA_G_CHEIO='#'; HA_G_VAZIO='-'; HA_G_BON='#'; HA_G_BOFF='-'
   HA_SPIN_F='-\|/'; HA_SPIN_N=4
 fi
@@ -1183,6 +1185,12 @@ rgb() { # rgb R G B -> escape
 C_BLUE="$(rgb 3 169 244)";   C_CYAN="$(rgb 0 229 255)"
 C_AMBER="$(rgb 255 193 7)";  C_GREEN="$(rgb 76 175 80)"
 C_RED="$(rgb 244 67 54)";    C_MUTED="$(rgb 96 125 139)"
+
+# ── a calha vertical ─────────────────────────────────────────────────────────
+# Toda mensagem pendura numa trilha contínua — a gramática do mac-env-setup
+# que o AtlasFile adotou dizendo o porquê: linhas soltas leem como lista, a
+# calha lê como FLUXO. Pedido do dono no segundo teste real.
+HA_GUT="${C_MUTED}${HA_G_GUT}${NC} "
 
 # ── gradient across a string, HA_DEEP -> HA_BLUE -> HA_CYAN ─────────────────
 ha_gradient() {
@@ -1564,7 +1572,7 @@ ha_bar_mostra() {
   for (( i = 0; i < w; i++ )); do
     if (( i < f )); then out+="${C_CYAN}${HA_G_BON}"; else out+="${C_MUTED}${HA_G_BOFF}"; fi
   done
-  printf ' %s%s %sfase %d/%d%s' "$out" "$NC" "${C_MUTED}" "$HA_BAR_N" "$HA_BAR_TOTAL" "$NC"
+  printf '%s%s%s %sfase %d/%d%s' "$HA_GUT" "$out" "$NC" "${C_MUTED}" "$HA_BAR_N" "$HA_BAR_TOTAL" "$NC"
   HA_BAR_VISIVEL=1
   return 0
 }
@@ -1574,18 +1582,28 @@ HA_PHASE_N=0
 ha_phase() {
   ha_bar_limpa
   HA_PHASE_N=$(( HA_PHASE_N + 1 ))
-  printf '\n%s%s%s%s %s%02d%s  %s\n' "$BOLD" "${C_BLUE}" "$HA_G_MARCA" "$NC" \
-    "${C_MUTED}" "$HA_PHASE_N" "$NC" "$(ha_gradient "$1")"
-  ha_rule
+  local w cab pad n
+  w=$(tput cols 2>/dev/null || echo 72); case "$w" in ''|*[!0-9]*) w=72 ;; esac
+  (( w > 78 )) && w=78
+  printf '%s\n' "$HA_GUT"
+  cab="$(printf '%02d %s ' "$HA_PHASE_N" "$1")"
+  n=$(( w - ${#cab} - 4 )); [ "$n" -lt 4 ] && n=4
+  printf -v pad '%*s' "$n" ''; pad=${pad// /$HA_G_REGUA}
+  printf '%s%s%s %s%s\n' "${C_BLUE}" "$HA_G_RAMO" "$NC" "$(ha_gradient "$cab")" "$(ha_gradient "$pad")"
   ha_bar_mostra
 }
 
 # ── status lines ────────────────────────────────────────────────────────────
-ha_ok()    { ha_bar_limpa; printf ' %s%s%s %s\n'  "${C_GREEN}" "$HA_G_OK" "$NC" "$1"; ha_bar_mostra; }
-ha_info()  { ha_bar_limpa; printf ' %s%s%s %s%s%s\n' "${C_BLUE}" "$HA_G_INFO" "$NC" "${C_MUTED}" "$1" "$NC"; ha_bar_mostra; }
-ha_warn()  { ha_bar_limpa; printf ' %s%s%s %s\n'  "${C_AMBER}" "$HA_G_WARN" "$NC" "$1"; ha_bar_mostra; }
-ha_err()   { ha_bar_limpa; printf ' %s%s%s %s\n'  "${C_RED}"  "$HA_G_ERR" "$NC" "$1" >&2; }
-ha_skip()  { ha_bar_limpa; printf ' %s%s%s %s%s%s\n' "${C_MUTED}" "$HA_G_SKIP" "$NC" "$DIM" "$1" "$NC"; ha_bar_mostra; }
+ha_ok()    { ha_bar_limpa; printf '%s%s%s%s %s\n'  "$HA_GUT" "${C_GREEN}" "$HA_G_OK" "$NC" "$1"; ha_bar_mostra; }
+ha_info()  { ha_bar_limpa; printf '%s%s%s%s %s%s%s\n' "$HA_GUT" "${C_BLUE}" "$HA_G_INFO" "$NC" "${C_MUTED}" "$1" "$NC"; ha_bar_mostra; }
+ha_warn()  { ha_bar_limpa; printf '%s%s%s%s %s\n'  "$HA_GUT" "${C_AMBER}" "$HA_G_WARN" "$NC" "$1"; ha_bar_mostra; }
+ha_err()   { ha_bar_limpa; printf '%s%s%s%s %s\n'  "$HA_GUT" "${C_RED}"  "$HA_G_ERR" "$NC" "$1" >&2; }
+ha_skip()  { ha_bar_limpa; printf '%s%s%s%s %s%s%s\n' "$HA_GUT" "${C_MUTED}" "$HA_G_SKIP" "$NC" "$DIM" "$1" "$NC"; ha_bar_mostra; }
+# pergunta: glifo próprio, SEM newline — quem lê a resposta é o chamador.
+# A barra fica suspensa por conta do chamador (ha_bar_suspende/retoma).
+ha_ask()   { printf '%s%s%s%s %s' "$HA_GUT" "${C_AMBER}" "$HA_G_ASK" "$NC" "$1"; }
+# linha de conteúdo pendurada na calha, sem glifo (menus, tabelas do plano)
+ha_linha() { ha_bar_limpa; printf '%s%s\n' "$HA_GUT" "$1"; ha_bar_mostra; }
 
 # ── quebra de linha na largura do terminal ──────────────────────────────────
 # Existe porque o produto imprime CAMINHOS (`~/VirtualBox VMs/...`), e caminho
@@ -1623,14 +1641,14 @@ ha_spin() { # ha_spin "label" <pid>
   # `wait` com código != 0 sob `set -e` abortaria o chamador antes do return —
   # por isso todo wait aqui é `|| rc=$?`, nunca solto.
   if [[ "$HAOS_UI_ANIM" == 0 ]]; then
-    printf ' %s %s\n' "$HA_G_DOTS" "$label"
+    printf '%s%s %s\n' "$HA_GUT" "$HA_G_DOTS" "$label"
     wait "$pid" || rc=$?
     return "$rc"
   fi
   ha_bar_limpa
   _hide
   while kill -0 "$pid" 2>/dev/null; do
-    printf '\r %s%s%s %s' "${C_CYAN}" "${HA_SPIN_F:$(( i % HA_SPIN_N )):1}" "$NC" "$label"; i=$(( i + 1 ))
+    printf '\r%s%s%s%s %s' "$HA_GUT" "${C_CYAN}" "${HA_SPIN_F:$(( i % HA_SPIN_N )):1}" "$NC" "$label"; i=$(( i + 1 ))
     sleep 0.07
   done
   wait "$pid" || rc=$?
@@ -2223,7 +2241,7 @@ vm_derivado_cpu() {
 RESP=''
 ler_opcao() { # <prompt já traduzido> -> resposta em $RESP
     RESP=''
-    printf '   %s' "$1"
+    ha_ask "$1"
     IFS= read -r -u 4 RESP || true
     printf '\n'
 }
@@ -2238,10 +2256,10 @@ seletor_interativo() {
         [ -n "$LAST_EXTRAS" ] && resumo="$resumo + $LAST_EXTRAS"
     fi
     ha_info "$(msg sel_degrau_titulo)"
-    [ "$tem_ultima" = "1" ] && printf '%s\n' "$(msg sel_op_repetir "$resumo")"
-    printf '%s\n' "$(msg sel_op_vanilla)"
-    printf '%s\n' "$(msg sel_op_conectado)"
-    printf '%s\n' "$(msg sel_op_casa)"
+    [ "$tem_ultima" = "1" ] && ha_linha "$(msg sel_op_repetir "$resumo")"
+    ha_linha "$(msg sel_op_vanilla)"
+    ha_linha "$(msg sel_op_conectado)"
+    ha_linha "$(msg sel_op_casa)"
     while :; do
         ler_opcao "$(msg sel_prompt_degrau)"; r="$RESP"
         case "${r:-3}" in
@@ -2260,9 +2278,9 @@ seletor_interativo() {
     done
 
     ha_info "$(msg sel_extras_titulo)"
-    printf '%s\n' "$(msg sel_op_ferramentas)"
-    printf '%s\n' "$(msg sel_op_abhome)"
-    printf '%s\n' "$(msg sel_op_hacs)"
+    ha_linha "$(msg sel_op_ferramentas)"
+    ha_linha "$(msg sel_op_abhome)"
+    ha_linha "$(msg sel_op_hacs)"
     while :; do
         ler_opcao "$(msg sel_prompt_extras)"; r="$RESP"
         [ -z "$r" ] && break
@@ -2282,9 +2300,9 @@ seletor_interativo() {
 
     if [ -z "$OP_VM_PERFIL" ]; then
         ha_info "$(msg sel_vm_titulo)"
-        printf '%s\n' "$(msg sel_op_vm1)"
-        printf '%s\n' "$(msg sel_op_vm2)"
-        printf '%s\n' "$(msg sel_op_vm3 "$(vm_derivado_ram)" "$(vm_derivado_cpu)")"
+        ha_linha "$(msg sel_op_vm1)"
+        ha_linha "$(msg sel_op_vm2)"
+        ha_linha "$(msg sel_op_vm3 "$(vm_derivado_ram)" "$(vm_derivado_cpu)")"
         while :; do
             ler_opcao "$(msg sel_prompt_vm)"; r="$RESP"
             case "${r:-2}" in
@@ -2359,27 +2377,29 @@ plano() {
         else ram="$rm"; cpu="$cp"; fi
     done
 
-    printf '  %-14s %s\n' "$(msg perfil_vm):" "$SEL_VM ${HA_G_DASH} ${ram} MiB RAM ${HA_G_SEP} ${cpu} vCPU"
-    printf '  %-14s %s\n' "VM:" "$OP_VM_NOME"
-    printf '  %-14s %s\n' "$(msg degrau):" "$SEL_DEGRAU"
-    [ -n "$SEL_EXTRAS" ] && printf '  %-14s %s\n' "$(msg ortogonais):" "$SEL_EXTRAS"
+    ha_linha "$(printf '%-14s %s' "$(msg perfil_vm):" "$SEL_VM ${HA_G_DASH} ${ram} MiB RAM ${HA_G_SEP} ${cpu} vCPU")"
+    ha_linha "$(printf '%-14s %s' "VM:" "$OP_VM_NOME")"
+    ha_linha "$(printf '%-14s %s' "$(msg degrau):" "$SEL_DEGRAU")"
+    [ -n "$SEL_EXTRAS" ] && ha_linha "$(printf '%-14s %s' "$(msg ortogonais):" "$SEL_EXTRAS")"
 
     local disp; disp="$(p_get mem.available_mib)"
     if [ "${disp:-0}" -lt "${ram:-0}" ]; then ha_warn "$(msg aviso_ram "$disp" "$ram")"; fi
 
     # O piso vem de qualquer jeito — dizer só "0 itens" seria enganoso.
-    printf '\n  %s\n' "$(msg piso_sempre "$(( ${#DEFAULT_CONFIG_DB[@]} + ${#HAOS_INTRINSIC_DB[@]} + ${#ONBOARDING_DB[@]} ))")"
+    ha_linha ""
+    ha_linha "$(msg piso_sempre "$(( ${#DEFAULT_CONFIG_DB[@]} + ${#HAOS_INTRINSIC_DB[@]} + ${#ONBOARDING_DB[@]} ))")"
 
     local n=0 it
-    printf '\n'
+    ha_linha ""
     for it in $SEL_ITENS; do
         n=$(( n + 1 ))
-        printf '    %-26s %s\n' "$it" "$(item_campo "$it" 3)"
+        ha_linha "$(printf '  %-26s %s' "$it" "$(item_campo "$it" 3)")"
     done
     if [ "$n" = "0" ]; then
-        printf '    %s\n' "$(msg nada_alem_do_piso)"
+        ha_linha "  $(msg nada_alem_do_piso)"
     else
-        printf '\n  %s %s\n' "$n" "$(msg itens)"
+        ha_linha ""
+        ha_linha "$n $(msg itens)"
     fi
 }
 
