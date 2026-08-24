@@ -21,6 +21,20 @@ HAOS_REF_CORE="2026.8.3"      # versão do HA contra a qual o contrato foi verif
 HAOS_REF_OS="18.2"
 HAOS_RAW_URL="https://raw.githubusercontent.com/aleonnet/haos-mac-mini/main/haos-install.sh"
 
+# ── imagem do HAOS ───────────────────────────────────────────────────────────
+# versão|URL|SHA-256|bytes
+#
+# O hash vive AQUI porque o GitHub não publica um .sha256 ao lado do asset —
+# medido em 23/08: o `<url>.sha256` responde 404. Sem hash de origem não há
+# como separar download truncado de imagem adulterada, e um .vdi corrompido só
+# se manifestaria no boot da VM, tarde demais e com erro incompreensível.
+#
+# O tamanho é conferido ANTES do hash: é comparação de metadado, não leitura de
+# 380 MiB, e descarta o caso comum (arquivo pela metade) sem custo.
+HAOS_IMAGE_DB=(
+"18.2|https://github.com/home-assistant/operating-system/releases/download/18.2/haos_generic-aarch64-18.2.vdi.zip|cd2d6b2336b50e7a47d548862f6271db78c8563afb3fdd8bd4a6a59f02639787|397964849"
+)
+
 # Exit codes — convenção do projeto:
 #   0 ok · 2 uso incorreto · 3 validação · 4 dependência ausente · 10 conexão
 #   130 cancelado pelo usuário
@@ -139,6 +153,21 @@ MSG_DB=(
 "vbox_nao_desmontou|Não consegui desmontar %s — algum processo ainda a segura. Desmonte com: hdiutil detach -force %s|Could not unmount %s — some process still holds it. Unmount with: hdiutil detach -force %s"
 "subtitulo|numa VM VirtualBox no Mac · v%s|on a VirtualBox VM on Mac · v%s"
 "nao_implementado|As fases de execução ainda não estão implementadas nesta versão (%s).|Execution phases are not implemented yet in this version (%s)."
+"imagem|Imagem|Image"
+"img_sem_tabela|Não há imagem catalogada para a versão %s do HAOS.|No image catalogued for HAOS version %s."
+"img_ja|Imagem %s já está em %s — nada a baixar.|Image %s already at %s — nothing to download."
+"img_local|Encontrei o arquivo local %s e o hash confere: não vou baixar de novo.|Found local file %s and the hash matches: not downloading again."
+"img_local_descartado|O arquivo local %s não confere com a tabela e foi ignorado.|Local file %s does not match the table and was ignored."
+"img_baixando|Baixando a imagem do HAOS %s — %s MiB.|Downloading the HAOS %s image — %s MiB."
+"img_download_falhou|Falhou o download da imagem do HAOS.|HAOS image download failed."
+"img_sem_baixador|Nem curl nem wget estão disponíveis para baixar a imagem.|Neither curl nor wget is available to download the image."
+"img_sem_unzip|O comando unzip não está disponível, e a imagem vem compactada.|The unzip command is unavailable, and the image ships compressed."
+"img_tamanho_diverge|A imagem baixada tem %s bytes; a tabela diz %s. Download incompleto.|The downloaded image has %s bytes; the table says %s. Incomplete download."
+"img_sha_ok|SHA-256 da imagem confere.|Image SHA-256 matches."
+"img_sha_diverge|O SHA-256 da imagem NÃO confere. Não vou descompactar.|The image SHA-256 does NOT match. Not extracting."
+"img_descompactando|Descompactando a imagem.|Extracting the image."
+"img_sem_vdi|O arquivo compactado não contém nenhum .vdi.|The archive contains no .vdi file."
+"img_pronta|Imagem pronta: %s|Image ready: %s"
 )
 
 # ── saída ────────────────────────────────────────────────────────────────────
@@ -320,6 +349,134 @@ baixador() {
     if command -v curl >/dev/null 2>&1; then printf 'curl'; return 0; fi
     if command -v wget >/dev/null 2>&1; then printf 'wget'; return 0; fi
     return 1
+}
+
+
+# ── F3: a imagem do HAOS ─────────────────────────────────────────────────────
+# Contrato de retorno, o mesmo do garantir_virtualbox: 0 fez agora · 100 já
+# estava · 1 falhou.
+#
+# Idempotência sem hash do .vdi: hashear o disco descompactado a cada execução
+# custaria minutos, então ao lado dele fica um arquivo .origem com a versão, o
+# hash do .zip de onde saiu e o tamanho gravado. Bate os três, não refaz nada.
+# É proveniência conferível, não fé no nome do arquivo.
+HAOS_VDI=""
+
+fase_imagem() {
+    fase "$(msg imagem)"
+
+    local ver="$HAOS_REF_OS" r rv url sha bytes achou=0
+    for r in "${HAOS_IMAGE_DB[@]}"; do
+        IFS='|' read -r rv url sha bytes <<< "$r"
+        [ "$rv" = "$ver" ] && { achou=1; break; }
+    done
+    if [ "$achou" != "1" ]; then erro "$(msg img_sem_tabela "$ver")"; return 1; fi
+
+    local destdir vdi origem nome
+    destdir="$HOME/VirtualBox VMs/$OP_VM_NOME"
+    nome="haos_generic-aarch64-${ver}.vdi"
+    vdi="$destdir/$nome"
+    origem="$destdir/.${nome}.origem"
+    HAOS_VDI="$vdi"
+
+    # ── já está? ────────────────────────────────────────────────────────────
+    if [ "$OP_FORCE" != "1" ] && [ -f "$vdi" ] && [ -f "$origem" ]; then
+        local ov osha otam tam_atual
+        IFS='|' read -r ov osha otam < "$origem"
+        tam_atual="$(wc -c < "$vdi" 2>/dev/null | tr -d ' ')"
+        if [ "$ov" = "$ver" ] && [ "$osha" = "$sha" ] && [ "$otam" = "$tam_atual" ]; then
+            ok "$(msg img_ja "$ver" "$vdi")"
+            return 100
+        fi
+    fi
+
+    mkdir -p "$destdir" || return 1
+
+    # ── já existe um .zip que sirva? ────────────────────────────────────────
+    # Tamanho primeiro: é metadado, e descarta o arquivo pela metade sem ler
+    # 380 MiB. Só o que passa no tamanho paga o hash.
+    local cache zipnome zip="" cand tam baixamos=0
+    cache="$HOME/Library/Caches/haos-mac-mini"
+    zipnome="$(basename "$url")"
+    for cand in "$cache/$zipnome" "./$zipnome"; do
+        [ -f "$cand" ] || continue
+        tam="$(wc -c < "$cand" 2>/dev/null | tr -d ' ')"
+        [ "$tam" = "$bytes" ] || { aviso "$(msg img_local_descartado "$cand")"; continue; }
+        if [ "$(shasum -a 256 "$cand" | awk '{print $1}')" = "$sha" ]; then
+            ok "$(msg img_local "$cand")"; zip="$cand"; break
+        fi
+        aviso "$(msg img_local_descartado "$cand")"
+    done
+
+    # ── baixar ──────────────────────────────────────────────────────────────
+    if [ -z "$zip" ]; then
+        baixamos=1
+        local dl
+        dl="$(baixador)" || { erro "$(msg img_sem_baixador)"; return 1; }
+        mkdir -p "$cache" || return 1
+        zip="$cache/$zipnome"
+        info "$(msg img_baixando "$ver" "$(( bytes / 1048576 ))")"
+        # O parcial vai para um nome à parte: interrompido no meio, um arquivo
+        # com o nome final e o tamanho errado seria "encontrado" na próxima
+        # execução e reprovado no hash — ruído em vez de retomada.
+        local parcial="$zip.parcial"
+        rm -f "$parcial"
+        # Barra de progresso só quando há terminal. Em log, CI ou pipe, o curl
+        # escreve dezenas de linhas de estatística em stderr e afoga a saída
+        # útil — medido: 87 s de download viraram uma linha ilegível de 8 KB.
+        local prog="-sS"
+        [ -t 2 ] && prog="--progress-bar"
+        case "$dl" in
+            curl) curl -fL "$prog" --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2 \
+                       -o "$parcial" "$url" || { rm -f "$parcial"; erro "$(msg img_download_falhou)"; return 1; } ;;
+            wget) wget -q --https-only -O "$parcial" "$url" \
+                       || { rm -f "$parcial"; erro "$(msg img_download_falhou)"; return 1; } ;;
+        esac
+        tam="$(wc -c < "$parcial" 2>/dev/null | tr -d ' ')"
+        if [ "$tam" != "$bytes" ]; then
+            erro "$(msg img_tamanho_diverge "$tam" "$bytes")"; rm -f "$parcial"; return 1
+        fi
+        mv "$parcial" "$zip"
+    fi
+
+    # ── hash SEMPRE, inclusive no arquivo local e sob --force ───────────────
+    # Descompactar sem conferir é executar conteúdo de origem não confirmada.
+    local obtido
+    obtido="$(shasum -a 256 "$zip" | awk '{print $1}')"
+    if [ "$obtido" != "$sha" ]; then
+        erro "$(msg img_sha_diverge)"
+        printf '    esperado: %s\n    obtido  : %s\n' "$sha" "$obtido" >&2
+        return 1
+    fi
+    ok "$(msg img_sha_ok)"
+
+    # ── descompactar ────────────────────────────────────────────────────────
+    command -v unzip >/dev/null 2>&1 || { erro "$(msg img_sem_unzip)"; return 1; }
+    info "$(msg img_descompactando)"
+
+    # Descompacta DENTRO do destino, num diretório temporário irmão: o mv final
+    # fica no mesmo sistema de arquivos e é atômico. Extrair em /var/folders e
+    # mover para $HOME atravessaria sistemas de arquivos, e aí `mv` vira cópia
+    # — que interrompida deixa um .vdi truncado com o nome definitivo.
+    local tmpx="$destdir/.haos-extraindo.$$"
+    rm -rf "$tmpx"; mkdir -p "$tmpx" || return 1
+    if ! unzip -o -q "$zip" -d "$tmpx"; then
+        rm -rf "$tmpx"; erro "$(msg img_descompactando)"; return 1
+    fi
+    local extraido
+    extraido="$(find "$tmpx" -maxdepth 2 -name '*.vdi' | head -1)"
+    if [ -z "$extraido" ]; then rm -rf "$tmpx"; erro "$(msg img_sem_vdi)"; return 1; fi
+
+    mv -f "$extraido" "$vdi" || { rm -rf "$tmpx"; return 1; }
+    rm -rf "$tmpx"
+    printf '%s|%s|%s\n' "$ver" "$sha" "$(wc -c < "$vdi" | tr -d ' ')" > "$origem"
+
+    # Só apaga o que ESTE script baixou. O .zip que o usuário já tinha no
+    # diretório é dele: encontrá-lo e apagá-lo em seguida seria cobrar 380 MiB
+    # de download pelo favor de ter reaproveitado o arquivo.
+    if [ "$baixamos" = "1" ] && [ "$OP_KEEP_IMAGE" != "1" ]; then rm -f "$zip"; fi
+    ok "$(msg img_pronta "$vdi")"
+    return 0
 }
 
 # =============================================================================
@@ -1360,7 +1517,11 @@ main() {
         perguntar "$(msg confirmar)" || { info "$(msg cancelado)"; exit "$E_CANCELADO"; }
     fi
 
-    fase "F3"
+    local rc_img=0
+    fase_imagem || rc_img=$?
+    [ "$rc_img" = "0" ] || [ "$rc_img" = "100" ] || exit "$E_VALID"
+
+    fase "F4"
     morrer "$E_VALID" "$(msg nao_implementado "$HAOS_INSTALL_VERSION")"
 }
 
