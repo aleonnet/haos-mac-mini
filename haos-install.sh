@@ -70,7 +70,7 @@ limpar() {
     if [ "${MAIN_INICIADO:-0}" = "1" ] && [ "${OP_DRYRUN:-0}" != "1" ]; then
         escrever_last_run "$rc" || true
     fi
-    if [ "$rc" != "0" ] && [ -n "$FASE_ATUAL" ]; then
+    if [ "$rc" != "0" ] && [ -n "$FASE_ATUAL" ] && [ "${MAIN_INICIADO:-0}" = "1" ]; then
         printf '\n%s\n' "$(msg interrompido "$FASE_ATUAL")" >&2
         printf '%s\n' "$(msg reexecutar_seguro)" >&2
         if [ -n "${LOG_FILE:-}" ] && [ -s "${LOG_FILE:-/nonexistent}" ]; then
@@ -197,6 +197,49 @@ MSG_DB=(
 "img_image_invalida|O arquivo passado em --image não confere com a tabela (tamanho ou SHA-256): %s|The file passed to --image does not match the table (size or SHA-256): %s"
 "last_sem_estado|--profile last: nenhuma seleção salva em %s. Rode uma instalação primeiro.|--profile last: no saved selection at %s. Run an install first."
 "last_repetindo|Repetindo a última seleção salva.|Repeating the last saved selection."
+"doc_sistema|Sistema|System"
+"doc_prereq|Pré-requisitos|Prerequisites"
+"doc_manifesto|Manifesto — o que este instalador criou|Manifest - what this installer created"
+"doc_imagem|Imagem|Image"
+"doc_estado|Estado local|Local state"
+"doc_maquina|%s (%s) - macOS %s|%s (%s) - macOS %s"
+"doc_vbox_ok|VirtualBox %s|VirtualBox %s"
+"doc_vbox_falta|VirtualBox ausente - o instalador o instala com sua confirmação|VirtualBox missing - the installer installs it with your confirmation"
+"doc_py_ok|python3 %s|python3 %s"
+"doc_py_falta|python3 ausente - só você resolve: xcode-select --install|python3 missing - only you can fix it: xcode-select --install"
+"doc_sem_manifesto|nenhum manifesto - nada aqui foi criado por este instalador (ou já foi removido)|no manifest - nothing here was created by this installer (or it was already removed)"
+"doc_vdi_ok|imagem pronta: %s|image ready: %s"
+"doc_vdi_falta|imagem ainda não preparada para a VM %s|image not prepared yet for VM %s"
+"doc_state_ok|seleção salva: %s|saved selection: %s"
+"doc_state_falta|nenhuma seleção salva (--profile last ainda não funciona aqui)|no saved selection (--profile last will not work here yet)"
+"doc_lastrun_ok|último relatório: %s|last report: %s"
+"doc_veredito|%s ok - %s a observar - %s com problema|%s ok - %s to watch - %s broken"
+"un_plano_titulo|Plano de remoção|Removal plan"
+"un_remove|SERÁ REMOVIDO|WILL BE REMOVED"
+"un_keep|SERÁ PRESERVADO|WILL BE PRESERVED"
+"un_nada|nada a fazer - nenhum artefato deste instalador nesta máquina.|nothing to do - no artifact of this installer on this machine."
+"un_vdi|imagem %s (criada por este instalador)|image %s (created by this installer)"
+"un_zip|cache %s (baixado por este instalador)|cache %s (downloaded by this installer)"
+"un_registro|registro do instalador (manifesto, seleção, relatório)|installer bookkeeping (manifest, selection, report)"
+"un_dirvm|pasta %s - só sai se ficar vazia|folder %s - removed only if it ends up empty"
+"un_vbox_created|VirtualBox foi instalado por este instalador, mas NÃO é removido automaticamente: é extensão de sistema. Use o VirtualBox_Uninstall.tool dentro do .dmg da Oracle.|VirtualBox was installed by this installer but is NOT removed automatically: it is a system extension. Use the VirtualBox_Uninstall.tool inside Oracle's .dmg."
+"un_vbox_pre|VirtualBox já existia antes deste instalador - preservado|VirtualBox predates this installer - preserved"
+"un_pendente|%s: instalação interrompida no meio, sem prova de que fomos nós - preservado|%s: install interrupted mid-way, no proof we created it - preserved"
+"un_keep_image_msg|imagem preservada a seu pedido (--keep-image)|image kept at your request (--keep-image)"
+"un_preexisting|%s: não foi este instalador que criou - preservado|%s: not created by this installer - preserved"
+"un_confirmar|Executar o plano acima? [s/N] |Execute the plan above? [y/N] "
+"un_sem_tty|Sem terminal: confirme com --confirm=<nome-da-vm> (o nome exato, não um sim).|No terminal: confirm with --confirm=<vm-name> (the exact name, not a yes)."
+"un_confirm_errado|--confirm=%s não bate com o nome da VM (%s) - nada foi tocado.|--confirm=%s does not match the VM name (%s) - nothing was touched."
+"un_removido|removido: %s|removed: %s"
+"un_nao_removido|falhou ao remover: %s|failed to remove: %s"
+"un_placar|%s removido(s) - %s preservado(s)|%s removed - %s preserved"
+"su_pipe|Execução via pipe usa sempre a versão remota - nada a atualizar aqui.|Running via a pipe always uses the remote version - nothing to update here."
+"su_baixa_falhou|Falha ao baixar a versão remota.|Failed to download the remote version."
+"su_invalido|Download remoto inválido (bash -n reprovou) - abortado.|Remote download is invalid (bash -n failed) - aborted."
+"su_downgrade|A versão remota (%s) é MAIS ANTIGA que a local (%s) - recusado: rebaixar apagaria o que você já tem. Publique a local primeiro.|Remote version (%s) is OLDER than local (%s) - refused: downgrading would erase what you already have. Publish the local one first."
+"su_igual|Já está na versão publicada (%s).|Already at the published version (%s)."
+"su_confirma|Atualizar %s para %s? [s/N] |Update %s to %s? [y/N] "
+"su_ok|Atualizado para %s (backup em %s).|Updated to %s (backup at %s)."
 )
 
 # ── saída ────────────────────────────────────────────────────────────────────
@@ -730,6 +773,269 @@ fase_imagem() {
     vm_set vdi created
     vm_set vdi_path "$vdi"
     ha_ok "$(msg img_pronta "$vdi")"
+    return 0
+}
+
+
+# =============================================================================
+# --doctor · --uninstall · --self-update
+# =============================================================================
+
+# ── --doctor: diagnóstico read-only ──────────────────────────────────────────
+# Instala nada, muda nada — só mede e conta. Separa o que o INSTALADOR resolve
+# (aviso) do que só o usuário resolve (falha), como o doctor do AtlasFile.
+DOC_OK=0; DOC_WARN=0; DOC_FAIL=0
+doc_ok()   { DOC_OK=$((DOC_OK+1));     ha_ok "$1"; }
+doc_warn() { DOC_WARN=$((DOC_WARN+1)); ha_warn "$1"; }
+doc_fail() { DOC_FAIL=$((DOC_FAIL+1)); ha_err "$1"; }
+
+rodar_doctor() {
+    sonda
+    ha_fase "$(msg doc_sistema)"
+    doc_ok "$(msg doc_maquina "$(p_get host.model)" "$(p_get host.arch)" "$(p_get host.macos)")"
+
+    ha_fase "$(msg doc_prereq)"
+    if [ "$(p_get vbox.present)" = "1" ]; then
+        doc_ok "$(msg doc_vbox_ok "$(p_get vbox.version)")"
+    else
+        doc_warn "$(msg doc_vbox_falta)"
+    fi
+    if [ "$(p_get python3.present)" = "1" ]; then
+        doc_ok "$(msg doc_py_ok "$(python3 -V 2>&1 | awk '{print $2}')")"
+    else
+        doc_fail "$(msg doc_py_falta)"
+    fi
+
+    ha_fase "$(msg doc_manifesto)"
+    local mf tem=0 chave valor
+    for mf in "$(host_manifest)" "$(vm_manifest)"; do
+        [ -f "$mf" ] || continue
+        tem=1
+        doc_ok "$mf"
+        while IFS=$'\t' read -r chave valor; do
+            case "$chave" in \#*|schema|'') continue ;; esac
+            printf '     %-14s %s\n' "$chave" "$valor"
+        done < "$mf"
+    done
+    [ "$tem" = "1" ] || doc_warn "$(msg doc_sem_manifesto)"
+
+    ha_fase "$(msg doc_imagem)"
+    local vdi_path
+    vdi_path="$(manifest_get "$(vm_manifest)" vdi_path)"
+    if [ -n "$vdi_path" ] && [ -f "$vdi_path" ]; then
+        doc_ok "$(msg doc_vdi_ok "$vdi_path")"
+    else
+        doc_warn "$(msg doc_vdi_falta "$OP_VM_NOME")"
+    fi
+
+    ha_fase "$(msg doc_estado)"
+    local d; d="$(haos_state_dir)"
+    if [ -f "$d/state" ]; then doc_ok "$(msg doc_state_ok "$d/state")"
+    else doc_warn "$(msg doc_state_falta)"; fi
+    [ -f "$d/last-run.log" ] && doc_ok "$(msg doc_lastrun_ok "$d/last-run.log")"
+
+    printf '\n'
+    ha_rule
+    printf ' %s\n' "$(msg doc_veredito "$DOC_OK" "$DOC_WARN" "$DOC_FAIL")"
+    [ "$DOC_FAIL" = "0" ]
+}
+
+# ── --uninstall: fatos → plano → UMA confirmação → execução prestando contas ─
+# Remove SÓ o que o manifesto prova que este instalador criou; preexisting,
+# pending e chave ausente preservam, cada um com a própria frase no plano.
+# Nunca rm -rf: arquivos um a um, com guarda de prefixo, e diretório só por
+# rmdir — se sobrar qualquer coisa de outra origem, a pasta fica.
+UN_REMOVE=""; UN_KEEP=""; UN_ACOES=""; UN_N_OK=0; UN_N_KEEP=0
+un_add_remove() { UN_REMOVE="${UN_REMOVE}   - $1\n"; }
+un_add_keep()   { UN_KEEP="${UN_KEEP}   - $1\n"; UN_N_KEEP=$((UN_N_KEEP+1)); }
+un_act()        { UN_ACOES="${UN_ACOES}$1\n"; }
+
+# Guarda: o caminho gravado no manifesto pode ter sido adulterado — só
+# removemos arquivo que esteja onde ESTE instalador escreve.
+un_caminho_seguro() { # <caminho> <classe: vdi|zip|estado>
+    case "$2" in
+        vdi)    case "$1" in "$HOME/VirtualBox VMs/"*.vdi|"$HOME/VirtualBox VMs/"*.vdi.origem) return 0 ;; esac ;;
+        zip)    case "$1" in "$HOME/Library/Caches/haos-mac-mini/"*.zip) return 0 ;; esac ;;
+        estado) case "$1" in "$(haos_state_dir)/"*) return 0 ;; esac ;;
+    esac
+    return 1
+}
+
+un_montar_plano() {
+    UN_REMOVE=""; UN_KEEP=""; UN_ACOES=""; UN_N_KEEP=0
+    local vbox_st vdi_st vdi_path zip_st zip_path d
+    vbox_st="$(manifest_get "$(host_manifest)" vbox)"
+    vdi_st="$(manifest_get "$(vm_manifest)" vdi)"
+    vdi_path="$(manifest_get "$(vm_manifest)" vdi_path)"
+    zip_st="$(manifest_get "$(vm_manifest)" zip_cache)"
+    zip_path="$(manifest_get "$(vm_manifest)" zip_path)"
+    d="$(haos_state_dir)"
+
+    # VirtualBox: extensão de sistema — created ganha a instrução do vendedor,
+    # nunca uma remoção automática. Decisão registrada no CHANGELOG.
+    case "$vbox_st" in
+        created)     un_add_keep "$(msg un_vbox_created)" ;;
+        pending)     un_add_keep "$(msg un_pendente VirtualBox)" ;;
+        preexisting) un_add_keep "$(msg un_vbox_pre)" ;;
+        *)           command -v VBoxManage >/dev/null 2>&1 && un_add_keep "$(msg un_vbox_pre)" ;;
+    esac
+
+    if [ "$vdi_st" = "created" ] && [ -n "$vdi_path" ] && [ -f "$vdi_path" ]; then
+        if [ "$OP_KEEP_IMAGE" = "1" ]; then
+            un_add_keep "$(msg un_keep_image_msg)"
+        elif un_caminho_seguro "$vdi_path" vdi; then
+            un_add_remove "$(msg un_vdi "$vdi_path")"
+            un_act "rm-vdi"
+            un_add_remove "$(msg un_dirvm "$(dirname "$vdi_path")")"
+            un_act "rmdir-vm"
+        fi
+    elif [ "$vdi_st" = "pending" ]; then
+        un_add_keep "$(msg un_pendente ".vdi")"
+    elif [ -n "$vdi_path" ] && [ -f "$vdi_path" ]; then
+        un_add_keep "$(msg un_preexisting "$vdi_path")"
+    fi
+
+    if [ "$zip_st" = "created" ] && [ -n "$zip_path" ] && [ -f "$zip_path" ] \
+        && [ "$OP_KEEP_IMAGE" != "1" ] && un_caminho_seguro "$zip_path" zip; then
+        un_add_remove "$(msg un_zip "$zip_path")"
+        un_act "rm-zip"
+    fi
+
+    if [ -f "$d/state" ] || [ -f "$d/last-run.log" ] || [ -f "$(host_manifest)" ] || [ -f "$(vm_manifest)" ]; then
+        un_add_remove "$(msg un_registro)"
+        un_act "rm-registro"
+    fi
+    return 0
+}
+
+un_rm() { # <caminho> <classe>
+    if un_caminho_seguro "$1" "$2" && rm -f "$1" 2>/dev/null; then
+        ha_ok "$(msg un_removido "$1")"
+        UN_N_OK=$((UN_N_OK+1))
+    else
+        ha_err "$(msg un_nao_removido "$1")"
+    fi
+}
+
+un_executar() {
+    local acao vdi_path zip_path d
+    vdi_path="$(manifest_get "$(vm_manifest)" vdi_path)"
+    zip_path="$(manifest_get "$(vm_manifest)" zip_path)"
+    d="$(haos_state_dir)"
+    while IFS= read -r acao; do
+        [ -n "$acao" ] || continue
+        case "$acao" in
+            rm-vdi)
+                un_rm "$vdi_path" vdi
+                un_rm "$(dirname "$vdi_path")/.$(basename "$vdi_path").origem" vdi ;;
+            rmdir-vm)
+                rmdir "$(dirname "$vdi_path")" 2>/dev/null || true ;;
+            rm-zip)
+                un_rm "$zip_path" zip
+                rmdir "$HOME/Library/Caches/haos-mac-mini" 2>/dev/null || true ;;
+            rm-registro)
+                # o registro sai POR ÚLTIMO: falhar no meio deixa artefato
+                # órfão, mas nunca artefato órfão SEM memória dele.
+                un_rm "$(vm_manifest)" estado
+                un_rm "$(host_manifest)" estado
+                un_rm "$d/state" estado
+                un_rm "$d/last-run.log" estado
+                rmdir "$d/vms" 2>/dev/null || true
+                rmdir "$d" 2>/dev/null || true ;;
+        esac
+    done <<EOF
+$(printf '%b' "$UN_ACOES")
+EOF
+    return 0
+}
+
+rodar_uninstall() {
+    un_montar_plano
+    ha_fase "$(msg un_plano_titulo)"
+    if [ -z "$UN_ACOES" ] && [ -z "$UN_KEEP" ]; then
+        ha_info "$(msg un_nada)"
+        return 0
+    fi
+    if [ -n "$UN_REMOVE" ]; then
+        printf ' %s\n' "$(msg un_remove)"
+        printf '%b' "$UN_REMOVE"
+    fi
+    if [ -n "$UN_KEEP" ]; then
+        printf ' %s\n' "$(msg un_keep)"
+        printf '%b' "$UN_KEEP"
+    fi
+    if [ -z "$UN_ACOES" ]; then
+        ha_info "$(msg un_nada)"
+        return 0
+    fi
+    if [ "$OP_DRYRUN" = "1" ]; then
+        ha_info "$(msg nada_escrito)"
+        return 0
+    fi
+    if tem_tty && [ "$OP_NOINPUT" != "1" ] && [ -z "$OP_CONFIRM" ]; then
+        perguntar "$(msg un_confirmar)" || { ha_info "$(msg cancelado)"; return "$E_CANCELADO"; }
+    else
+        # Sem terminal a confirmação é o NOME da VM — um yes genérico num
+        # script não pode desinstalar a VM errada.
+        if [ "$OP_CONFIRM" != "$OP_VM_NOME" ]; then
+            [ -z "$OP_CONFIRM" ] && { ha_err "$(msg un_sem_tty)"; return "$E_USO"; }
+            ha_err "$(msg un_confirm_errado "$OP_CONFIRM" "$OP_VM_NOME")"
+            return "$E_USO"
+        fi
+    fi
+    un_executar
+    printf '\n'
+    ha_ok "$(msg un_placar "$UN_N_OK" "$UN_N_KEEP")"
+    return 0
+}
+
+# ── --self-update ────────────────────────────────────────────────────────────
+# bash -n + comparação de versão + hash antes de trocar; downgrade é RECUSADO
+# (achado B-1 da banca: com o main atrasado, atualizar rebaixaria o script).
+ver_menor() { # <a> <b> — 0 quando a < b (compara X.Y.Z, sufixo -dev fora)
+    local a="${1%%-*}" b="${2%%-*}" a1 a2 a3 b1 b2 b3
+    IFS=. read -r a1 a2 a3 <<EOF
+$a
+EOF
+    IFS=. read -r b1 b2 b3 <<EOF
+$b
+EOF
+    [ "${a1:-0}" != "${b1:-0}" ] && { [ "${a1:-0}" -lt "${b1:-0}" ]; return; }
+    [ "${a2:-0}" != "${b2:-0}" ] && { [ "${a2:-0}" -lt "${b2:-0}" ]; return; }
+    [ "${a3:-0}" -lt "${b3:-0}" ]
+}
+
+rodar_self_update() {
+    local eu="${BASH_SOURCE[0]:-}"
+    if [ -z "$eu" ] || [ ! -f "$eu" ]; then
+        ha_info "$(msg su_pipe)"
+        return 0
+    fi
+    local tmp ver_remota
+    tmp="$(mktempfile)"
+    garantir_log
+    if ! curl -fsSL --proto '=https' --tlsv1.2 -o "$tmp" "$HAOS_RAW_URL" 2>>"$LOG_FILE"; then
+        ha_err "$(msg su_baixa_falhou)"; diagnostico_log; return 1
+    fi
+    bash -n "$tmp" 2>/dev/null || { ha_err "$(msg su_invalido)"; return 1; }
+    ver_remota="$(grep -m1 '^HAOS_INSTALL_VERSION=' "$tmp" | cut -d'"' -f2)"
+    [ -n "$ver_remota" ] || { ha_err "$(msg su_invalido)"; return 1; }
+    if ver_menor "$ver_remota" "$HAOS_INSTALL_VERSION"; then
+        ha_err "$(msg su_downgrade "$ver_remota" "$HAOS_INSTALL_VERSION")"
+        return 1
+    fi
+    if [ "$(shasum -a 256 "$eu" | awk '{print $1}')" = "$(shasum -a 256 "$tmp" | awk '{print $1}')" ]; then
+        ha_ok "$(msg su_igual "$HAOS_INSTALL_VERSION")"
+        return 0
+    fi
+    if tem_tty && [ "$OP_NOINPUT" != "1" ]; then
+        perguntar "$(msg su_confirma "$HAOS_INSTALL_VERSION" "$ver_remota")" \
+            || { ha_info "$(msg cancelado)"; return "$E_CANCELADO"; }
+    fi
+    cp "$eu" "$eu.bak"
+    cat "$tmp" > "$eu"
+    chmod +x "$eu" 2>/dev/null || true
+    ha_ok "$(msg su_ok "$ver_remota" "$eu.bak")"
     return 0
 }
 
@@ -1431,6 +1737,12 @@ OP_PERFIL=""; OP_WITH=""; OP_VM_PERFIL=""; OP_VM_NOME="HomeAssistant"; OP_IMAGEM
 OP_DRYRUN=0; OP_LIST=0; OP_NOINPUT=0; OP_FORCE=0
 OP_QUIET=0; OP_VERBOSE=0; OP_ALL=0
 OP_KEEP_IMAGE=0; OP_INSTALL_DEPS=0
+OP_MODO=""; OP_CONFIRM=""
+
+modo_unico() {
+    [ -z "$OP_MODO" ] || morrer "$E_USO" "--$1 / --$OP_MODO"
+    OP_MODO="$1"
+}
 
 # O help só promete o que EXISTE. As flags das fases futuras (--doctor,
 # --uninstall, --self-update, --resume, --upgrade, --bridge, --json, `last`)
@@ -1454,10 +1766,16 @@ VM
   --vm-name <nome>   padrão: HomeAssistant
 
 NÃO INSTALAM NADA
-  -n, --dry-run      imprime o plano e sai
+  -n, --dry-run      imprime o plano e sai (com --uninstall: só o plano de remoção)
   --list             lista o catálogo e sai
+  --doctor           diagnóstico read-only: sistema, manifesto, imagem, estado
   --version          versão do instalador e a referência de compatibilidade
   -h, --help         esta ajuda
+
+MANUTENÇÃO
+  --uninstall        remove o que ESTE instalador criou (plano + confirmação)
+  --confirm=<nome>   confirma o --uninstall sem terminal (o nome exato da VM)
+  --self-update      atualiza este script pelo publicado (recusa downgrade)
 
 OUTRAS
   --image <arquivo>  usa este .zip da imagem do HAOS (verificado por SHA-256)
@@ -1498,6 +1816,10 @@ ler_args() {
             --vm-name=*)    exige_valor --vm-name "${1#*=}";   OP_VM_NOME="${1#*=}" ;;
             --image)        exige_valor --image "${2:-}";      OP_IMAGEM="$2"; shift ;;
             --image=*)      exige_valor --image "${1#*=}";     OP_IMAGEM="${1#*=}" ;;
+            --doctor)       modo_unico doctor ;;
+            --uninstall)    modo_unico uninstall ;;
+            --self-update)  modo_unico self-update ;;
+            --confirm=*)    OP_CONFIRM="${1#*=}" ;;
             -a|--all)       OP_ALL=1 ;;
             -n|--dry-run)   OP_DRYRUN=1 ;;
             --list)         OP_LIST=1 ;;
@@ -1812,6 +2134,14 @@ main() {
 
     # `--list | head` fecha o cano; SIGPIPE com pipefail viraria erro do script
     [ "$OP_LIST" = "1" ] && { trap - PIPE; listar 2>/dev/null || true; exit 0; }
+
+    # Modos de manutenção: read-only ou com a própria prestação de contas —
+    # nenhum passa pelo caminho de instalação nem grava last-run.
+    case "$OP_MODO" in
+        doctor)      rodar_doctor;      exit $? ;;
+        uninstall)   rodar_uninstall;   exit $? ;;
+        self-update) rodar_self_update; exit $? ;;
+    esac
 
     # A partir daqui a execução conta como execução: o limpar() espelha o
     # last-run mesmo numa morte no meio — exceto em dry-run, que não escreve

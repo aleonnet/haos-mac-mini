@@ -185,6 +185,10 @@ for f in $flags_help; do
         --vm-profile) args="--vm-profile vm_minimo --profile haos_casa --dry-run --no-input" ;;
         --vm-name)    args="--vm-name Teste --profile haos_casa --dry-run --no-input" ;;
         --image)      args="--image /dev/null --profile haos_casa --dry-run --no-input" ;;
+        --doctor)     args="--doctor" ;;
+        --uninstall)  args="--uninstall --dry-run" ;;
+        --confirm)    args="--uninstall --dry-run --confirm=HomeAssistant" ;;
+        --self-update) args="--self-update" ;;
         *)            args="$f --profile haos_casa --dry-run --no-input" ;;
     esac
     # shellcheck disable=SC2086,SC2002

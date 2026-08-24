@@ -7,6 +7,20 @@ release: tudo abaixo é a trilha do `0.1.0-dev`.
 ## [Unreleased]
 
 ### Added
+- **`--uninstall`**: fatos (read-only) → plano REMOVE/PRESERVA → UMA
+  confirmação (`--confirm=<nome-da-vm>` sem terminal — o nome exato, não um
+  sim) → execução prestando contas item a item. Remove SÓ o que o manifesto
+  prova `created`; `preexisting`, `pending` e chave ausente preservam, cada um
+  com a própria frase no plano. Sem `rm -rf`: arquivos um a um com guarda de
+  prefixo, diretório só por `rmdir`. **O VirtualBox nunca é removido
+  automaticamente** (extensão de sistema) — `created` ganha a instrução do
+  desinstalador oficial da Oracle.
+- **`--doctor`**: diagnóstico read-only em cinco seções (sistema,
+  pré-requisitos, manifesto, imagem, estado), separando o que o instalador
+  resolve (aviso) do que só o usuário resolve (falha); exit 1 com problema.
+- **`--self-update`**: baixa o publicado, valida com `bash -n`, **recusa
+  downgrade** por comparação de versão, confirma e troca com backup `.bak`.
+  Via pipe (curl | bash) explica que já se roda o remoto.
 - **Manifesto de instalação** (`~/.config/haos-mac-mini/`): `host-prereqs`
   (VirtualBox) e `vms/<nome>.manifest` (imagem), com `created`/`preexisting`/
   `pending` — `pending` gravado ANTES de tentar, `created` nunca rebaixado,

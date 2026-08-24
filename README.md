@@ -25,8 +25,8 @@ Em terminal interativo, mostra o plano e pede confirmação antes de escrever qu
 coisa. Cada execução real salva a seleção (`--profile last` a repete) e um relatório em
 `~/.config/haos-mac-mini/`; uma falha preserva o log das ferramentas e imprime o
 caminho. O que o instalador cria fica registrado num manifesto
-(`created`/`preexisting`) — é o que permitirá ao `--uninstall` remover só o que
-ele próprio fez.
+(`created`/`preexisting`) — e o `--uninstall` remove **só** o que ele provar
+que fez: o que já existia na máquina é preservado, com a razão dita no plano.
 
 ### Headless / sem interação
 
@@ -71,6 +71,9 @@ Veja o catálogo completo com `--list`.
 | `--force`, `-f` | refaz artefato já presente — **não** pula portão nem verificação de hash |
 | `--verbose`, `-v` | mostra a saída crua de cada ferramenta |
 | `--quiet`, `-q` | suprime a saída normal |
+| `--doctor` | diagnóstico read-only: sistema, manifesto, imagem, estado (exit 1 com problema) |
+| `--uninstall` | remove **só o que este instalador criou** (plano + confirmação; `--dry-run` mostra o plano; `--confirm=<nome-da-vm>` confirma sem terminal) |
+| `--self-update` | atualiza o script pelo publicado — valida sintaxe, recusa downgrade, deixa backup `.bak` |
 | `--version` / `--help` | versão e ajuda |
 
 Variáveis de ambiente: `HAOS_LANG=pt|en` força o idioma; `NO_COLOR` desliga cor e
