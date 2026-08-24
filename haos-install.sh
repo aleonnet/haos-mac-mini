@@ -3306,6 +3306,33 @@ template:
   #       que consulte atos posteriores antes de sobrescrever este bloco.
   # ═══════════════════════════════════════════════════════════════════════════
   - sensor:
+      # ── Fonte de kWh da casa: soma as fases da Shelly EM3, SEM nome fixo ──
+      # Pega da integração shelly todo sensor de energia acumulada que não
+      # seja "returned" (devolvida à rede) — numa casa com UM EM3 no quadro,
+      # isso é a energia importada total, seja qual for o nome do aparelho.
+      # ⚠️ Se a casa ganhar OUTROS Shelly medindo subcircuitos, eles entrariam
+      #    na soma — aí este template precisa filtrar pelo device do EM3.
+      - name: "Energy Total"
+        unique_id: energy_total
+        unit_of_measurement: kWh
+        device_class: energy
+        state_class: total_increasing
+        icon: mdi:transmission-tower
+        state: >
+          {% set ns = namespace(total=0) %}
+          {% for e in integration_entities('shelly') if e.startswith('sensor.') %}
+            {% set st = states[e] %}
+            {% if st is not none
+                  and st.attributes.device_class | default('') == 'energy'
+                  and st.attributes.state_class | default('') == 'total_increasing'
+                  and 'returned' not in e %}
+              {% set ns.total = ns.total + st.state | float(0) %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.total | round(3) }}
+        availability: >
+          {{ integration_entities('shelly') | count > 0 }}
+
       - name: "Tabela Tarifária"
         unique_id: tabela_tarifaria
         icon: mdi:table-large
@@ -3528,12 +3555,14 @@ input_number:
 
 utility_meter:
   # Roda mesmo no Convencional: sem a quebra por posto não existe simulação.
+  # A fonte é o sensor Energy Total definido acima (soma das fases da Shelly)
+  # — nada a editar aqui.
   daily_energy:
-    source: sensor.energy_total          # ← troque pela sua fonte de kWh acumulado
+    source: sensor.energy_total
     cycle: daily
     tariffs: [peak, shoulder, offpeak]
   monthly_energy:
-    source: sensor.energy_total          # ← troque pela sua fonte de kWh acumulado
+    source: sensor.energy_total
     cycle: monthly
     tariffs: [peak, shoulder, offpeak]
 
