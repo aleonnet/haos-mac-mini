@@ -334,7 +334,7 @@ MSG_DB=(
 "int_ok|%s configurado - só padrões, nenhum dado seu.|%s configured - defaults only, no data from you."
 "int_ja|%s já configurado.|%s already configured."
 "int_espera|%s já foi DESCOBERTO e espera você no painel (Dispositivos e serviços) - só falta confirmar/credenciar.|%s was DISCOVERED and waits for you in the panel (Devices and services) - just confirm/authorize it."
-"int_manual|%s precisa ser adicionado por você: Configurações > Dispositivos e serviços > Adicionar integração (pede credencial ou conta) - nada foi criado.|%s must be added by you: Settings > Devices and services > Add integration (asks for credentials or an account) - nothing was created."
+"int_manual|%s pede credencial que só você tem - um clique abre o fluxo: %s|%s needs a credential only you have - one click opens the flow: %s"
 "int_falhou|%s falhou - veja o log.|%s failed - see the log."
 "int_flows|sua rede já acena: %s descoberta(s) esperando no painel (%s)|your network is waving: %s discovery(ies) waiting in the panel (%s)"
 "fase_arq|Arquivos|Files"
@@ -1386,7 +1386,7 @@ fase_integracoes() {
             3)   if printf '%s\n' "$FLOWS_PENDENTES" | grep -q "^$it "; then
                      ha_info "$(msg int_espera "$it")"
                  else
-                     ha_info "$(msg int_manual "$it")"
+                     ha_info "$(msg int_manual "$it" "$VM_URL/config/integrations/dashboard/add?domain=$it")"
                  fi ;;
             *)   ha_err "$(msg int_falhou "$it")"; diagnostico_log; return 1 ;;
         esac
