@@ -79,6 +79,14 @@ ha_gradient() {
   printf '%s%s' "$out" "$NC"
 }
 
+# ── cursor ───────────────────────────────────────────────────────────────────
+# A biblioteca NÃO instala trap: `trap` é global do shell e quem chama por
+# último vence — um trap aqui apagaria o cleanup do instalador. Quem usa chama
+# ha_show_cursor no próprio cleanup.
+_hide() { if [[ "$HAOS_UI_ANIM" == 1 ]]; then tput civis 2>/dev/null || true; fi; }
+_show() { if [[ "$HAOS_UI_ANIM" == 1 ]]; then tput cnorm 2>/dev/null || true; fi; }
+ha_show_cursor() { _show; }
+
 # ── the mark: Home Assistant sitting on a Mac mini ──────────────────────────
 # The story the picture tells is the product: the HA house RISES OUT OF the Mac.
 # That is why ignition runs bottom-up — the machine appears first, the house

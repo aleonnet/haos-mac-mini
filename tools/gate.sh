@@ -143,6 +143,31 @@ else
     falha "sob LC_ALL=C a camada visual emitiu $saida_c byte(s) não imprimível(is)"
 fi
 
+# EXECUTAR a camada visual, não só analisá-la. `bash -n` não acusa função que
+# não existe, e o shellcheck também não quando ela é chamada de outra função.
+# Achado em 23/08: uma reescrita apagou _hide/_show/ha_show_cursor e todo o
+# portão passou verde enquanto a demo cuspia "command not found" em cada linha.
+titulo "a camada visual executa"
+saida_err="$(HAOS_NO_ANIM=1 /bin/bash tools/ui-demo.sh --no-anim 2>&1 >/dev/null)"
+if [ -z "$saida_err" ]; then
+    ok "ui-demo.sh roda sem nada em stderr"
+else
+    falha "ui-demo.sh escreveu em stderr:"
+    printf '%s\n' "$saida_err" | head -6 | sed 's/^/          /' >&2
+fi
+
+# Toda função chamada pela lib tem de existir depois de sourceá-la.
+faltando="$(/bin/bash -c '
+    source lib/haos-ui.sh >/dev/null 2>&1
+    for f in $(grep -oE "\b(_hide|_show|ha_[a-z_]+)\b" lib/haos-ui.sh | sort -u); do
+        declare -F "$f" >/dev/null 2>&1 || printf "%s " "$f"
+    done')"
+if [ -z "$faltando" ]; then
+    ok "toda função que a lib chama está definida"
+else
+    falha "funções chamadas e não definidas: $faltando"
+fi
+
 # ── resultado ────────────────────────────────────────────────────────────────
 printf '\n'
 if [ "$FALHAS" = "0" ]; then
