@@ -2223,7 +2223,15 @@ listar() {
 # F1 — PRÉ-VOO. Só lê. Nada é escrito nesta fase.
 # =============================================================================
 PROBE=""
-sonda() { PROBE="$(probe_all 2>/dev/null || true)"; }
+# Num shell sem /usr/local/bin no PATH (SSH não-interativo, launchd, cron) o
+# symlink do VBoxManage some e um VirtualBox instalado vira "not found" —
+# aconteceu no teste de campo por SSH. O app bundle é o fato; o PATH, detalhe.
+sonda() {
+    command -v VBoxManage >/dev/null 2>&1 \
+        || [ ! -x /Applications/VirtualBox.app/Contents/MacOS/VBoxManage ] \
+        || PATH="$PATH:/Applications/VirtualBox.app/Contents/MacOS"
+    PROBE="$(probe_all 2>/dev/null || true)"
+}
 p_get() { printf '%s\n' "$PROBE" | awk -F= -v k="$1" '$1==k{sub(/^[^=]*=/,""); print; exit}'; }
 
 # Sonda embutida — mesma lógica de lib/probe-host.sh, só dados.

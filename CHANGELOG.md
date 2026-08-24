@@ -22,6 +22,11 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
   agora diz a verdade nova: falta só o primeiro boot.
 
 ### Fixed
+- **VirtualBox instalado era "not found" em shell sem `/usr/local/bin`**
+  (SSH não-interativo, launchd): a sonda agora cai para
+  `/Applications/VirtualBox.app/Contents/MacOS` quando o symlink não está no
+  PATH — o app bundle é o fato, o PATH é detalhe. Pego no teste de campo por
+  SSH.
 - **O relatório final responde "o que foi instalado e onde"**: VirtualBox com
   versão e caminho em `/Applications`, o disco do HAOS verificado por SHA-256
   com o caminho completo, a seleção salva — e, em aviso destacado, **o que

@@ -1,7 +1,39 @@
-# HANDOFF — teste de campo no Mac mini: F1–F3 REAIS concluídas · 2026-08-24
+# HANDOFF — teste de campo no Mac mini: F1–F4 REAIS concluídas, VM BOOTA · 2026-08-24
 
 > **LEIA-ME PRIMEIRO.** Porta de entrada da frente do instalador. Supersede
 > `HANDOFF-2026-08-24-reforma-fechada.md`.
+
+## 0b. F4 FECHADA NO MESMO DIA — a VM existe, boota e o HA responde
+
+Sequência executada em 24/08, tudo medido:
+
+1. **Sonda no VBoxManage 7.2.16 ARM real** (VM descartável `haos-probe-f4`,
+   criada e removida): `createvm` exige `--platform-architecture arm`; ostype
+   `Linux_arm64`; **`VirtIO` SCSI é RECUSADO no ARM** ("Invalid controller
+   type 11") — o aceito é **SATA/IntelAhci**; gráfico `qemuramfb`; firmware
+   EFI; NIC `virtio` em ponte OK. `unregistervm --delete` apagaria o .vdi —
+   o inverso solta o medium ANTES de desregistrar.
+2. **`fase_vm` implementada** com esses args, ponte SONDADA (rota default →
+   varredura de `list bridgedifs`), contrato 0/100/1, rollback sem tocar no
+   disco, inverso no `--uninstall`, chave `vm_registrada`, cerca de ponta a
+   ponta no portão (VBoxManage dublado que grava chamadas).
+3. **Campo no mini**: 1ª execução por SSH morreu em "VirtualBox not found" —
+   shell não-interativo não tem `/usr/local/bin` no PATH; a sonda ganhou
+   fallback para o app bundle. Depois: VM criada (8192 MiB, 4 vCPU, ponte
+   `en0: Ethernet`), reexecução converge em 100, manifesto `created`.
+4. **BOOT VALIDADO**: `startvm --type headless` → HAOS 18.2 boota de
+   SATA+EFI e o Core responde **HTTP 200 na porta 8123 do IP que o DHCP
+   entregou à VM** (página de onboarding), poucos minutos após o start.
+   **A VM ficou LIGADA.**
+
+**Achados que a F5 NÃO pode ignorar:**
+- **`homeassistant.local` pode pertencer a OUTRO Home Assistant já vivo na
+  rede** (medido nesta casa: o nome resolve para a instância antiga, não
+  para a VM) — um teste de :8123 por esse nome dá falso positivo. A espera
+  do boot na F5 deve achar a VM **pelo MAC** (showvminfo `macaddress1` →
+  `arp -an`), como o teste fez. O sufixo `-2.local` não respondeu.
+- Qualquer usuário com um HA já na rede tem a mesma ambiguidade — o
+  relatório da F5 deve imprimir o IP REAL da VM, não só o nome .local.
 
 ## 0. ESTADO — confira no git, não neste parágrafo
 
