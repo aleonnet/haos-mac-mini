@@ -1,0 +1,148 @@
+# Dashboard Monitor — KPIs da VM e do HAOS. Escrito pelo haos-install.sh.
+# Os sensores são habilitados pela fase de arquivos (o System Monitor nasce
+# com TUDO desabilitado — 84 entidades medidas em 25/08/2026). __NIC__ é
+# substituído na instalação pela interface de rede real do guest. Os ids
+# seguem os slugs padrão do HA; instância em outro idioma pode divergir —
+# nesse caso o card aponta o id ausente em vez de quebrar o dashboard.
+title: Monitor
+views:
+  - title: VM
+    path: vm
+    icon: mdi:server
+    cards:
+      - type: horizontal-stack
+        cards:
+          - type: gauge
+            entity: sensor.system_monitor_processor_use
+            name: CPU
+            min: 0
+            max: 100
+            severity:
+              green: 0
+              yellow: 70
+              red: 88
+          - type: gauge
+            entity: sensor.system_monitor_memory_usage
+            name: RAM
+            min: 0
+            max: 100
+            severity:
+              green: 0
+              yellow: 75
+              red: 90
+      - type: horizontal-stack
+        cards:
+          - type: gauge
+            entity: sensor.system_monitor_disk_usage
+            name: Disco
+            min: 0
+            max: 100
+            severity:
+              green: 0
+              yellow: 70
+              red: 85
+          - type: gauge
+            entity: sensor.system_monitor_swap_usage
+            name: Swap
+            min: 0
+            max: 100
+            severity:
+              green: 0
+              yellow: 40
+              red: 70
+      - type: glance
+        title: Carga (load average)
+        entities:
+          - entity: sensor.system_monitor_load_1_min
+            name: 1 min
+          - entity: sensor.system_monitor_load_5_min
+            name: 5 min
+          - entity: sensor.system_monitor_load_15_min
+            name: 15 min
+      - type: entities
+        title: Sinais vitais
+        entities:
+          - entity: sensor.system_monitor_uptime
+            name: No ar desde
+          - entity: sensor.system_monitor_disk_free
+            name: Disco livre
+          - entity: sensor.system_monitor_network_throughput_in___NIC__
+            name: Rede — entrada
+          - entity: sensor.system_monitor_network_throughput_out___NIC__
+            name: Rede — saída
+      - type: history-graph
+        title: CPU e RAM — 12 h
+        hours_to_show: 12
+        entities:
+          - entity: sensor.system_monitor_processor_use
+            name: CPU
+          - entity: sensor.system_monitor_memory_usage
+            name: RAM
+      - type: history-graph
+        title: Rede — 12 h
+        hours_to_show: 12
+        entities:
+          - entity: sensor.system_monitor_network_throughput_in___NIC__
+            name: entrada
+          - entity: sensor.system_monitor_network_throughput_out___NIC__
+            name: saída
+  - title: Serviços
+    path: servicos
+    icon: mdi:home-assistant
+    cards:
+      - type: entities
+        title: Core e Supervisor
+        entities:
+          - entity: sensor.home_assistant_core_cpu_percent
+            name: Core — CPU
+          - entity: sensor.home_assistant_core_memory_percent
+            name: Core — RAM
+          - entity: sensor.home_assistant_supervisor_cpu_percent
+            name: Supervisor — CPU
+          - entity: sensor.home_assistant_supervisor_memory_percent
+            name: Supervisor — RAM
+      - type: history-graph
+        title: CPU por serviço — 12 h
+        hours_to_show: 12
+        entities:
+          - entity: sensor.home_assistant_core_cpu_percent
+            name: Core
+          - entity: sensor.home_assistant_supervisor_cpu_percent
+            name: Supervisor
+      - type: entities
+        title: Disco do host (visão do Supervisor)
+        entities:
+          - entity: sensor.home_assistant_host_disk_used
+            name: Usado
+          - entity: sensor.home_assistant_host_disk_free
+            name: Livre
+          - entity: sensor.home_assistant_host_disk_total
+            name: Total
+  - title: Saúde
+    path: saude
+    icon: mdi:heart-pulse
+    cards:
+      - type: entities
+        title: Atualizações
+        entities:
+          - entity: update.home_assistant_core_update
+            name: Core
+          - entity: update.home_assistant_operating_system_update
+            name: Sistema (HAOS)
+          - entity: update.home_assistant_supervisor_update
+            name: Supervisor
+      - type: entities
+        title: Backup
+        entities:
+          - entity: sensor.backup_backup_manager_state
+            name: Gerenciador de backup
+      - type: markdown
+        title: O cofre
+        content: >-
+          Os backups desta instância são criados e **trazidos para fora da
+          VM** todo dia às 04:10, para `~/Documents/HAOS-backups` no Mac.
+
+
+          Backup imediato: rode o instalador com `--backup`.
+          Restauração completa: `--restore <arquivo.tar>` — conta,
+          integrações e dashboards voltam inteiros.

@@ -56,6 +56,23 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
   protegido e emite a poda interna; o dublado HA exige `podavm=1`. Tudo
   mutation-testado (5 mutantes, 5 mortos).
 
+- **Dashboard Monitor** — KPIs da VM e do HAOS, entregue quando o System
+  Monitor está na seleção. Sondado antes de codificado: a integração nasce
+  com **84 entidades desabilitadas** (medido na instância real) — um
+  dashboard sem habilitar sensores seria um deserto de cards vazios. Por
+  isso a fase de arquivos ganhou duas pernas: (1) comando novo do helper,
+  `entity-enable`, que habilita a lista curada via WS
+  `config/entity_registry/*` respeitando `disabled_by: user` (escolha do
+  dono nunca se desfaz) e descobre a NIC real do guest pela própria
+  resposta; (2) `dashboards/monitor_haos.yaml` (3 abas: VM com gauges/
+  carga/rede, Serviços com Core×Supervisor, Saúde com atualizações e
+  cofre), escrito com a NIC substituída e registrado na barra lateral
+  convivendo com o bloco do Custos (inserção sob `dashboards:` existente;
+  bloco alheio avisa e segue). Cerca no dublado: dashboard escrito,
+  registrado pelo caminho de inserção, NIC substituída, e exatamente 2
+  updates de registro (a desligada-pelo-dono não é tocada; `lo` não casa
+  o glob). Mutation-testada.
+
 ### Changed
 - **README fact-checkado contra as fontes primárias** (Oracle Troubleshooting
   7.2, reverificada em 25/08): a perda de `/data` em desligamento sujo é

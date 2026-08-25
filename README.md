@@ -64,6 +64,12 @@ Os degraus **somam**; os extras marcam-se à parte, em qualquer degrau.
 Extras (`--with`): `ferramentas` (SSH, Studio Code Server, Samba) · `casa_abhome` (packages de
 custo com regras brasileiras) · `extensoes` (HACS — só a instalação, e nunca no `--all`).
 
+Quando o System Monitor está na seleção, o instalador também **habilita a lista
+curada de sensores** (a integração nasce com tudo desabilitado — escolhas suas
+são respeitadas) e entrega o **dashboard Monitor** na barra lateral: CPU, RAM,
+disco, swap, carga, rede da VM; consumo do Core e do Supervisor; atualizações e
+o estado do cofre de backup.
+
 Veja o catálogo completo com `--list`.
 
 ## Opções

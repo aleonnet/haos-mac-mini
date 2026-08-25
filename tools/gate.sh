@@ -890,6 +890,29 @@ class H(BaseHTTPRequestHandler):
                     estado["energia"] = m.get("energy_sources") or []
                     manda({"id": mid, "type": "result", "success": True, "result": {}})
                     continue
+                if m.get("type") == "config/entity_registry/list":
+                    # o dublado cobre os 4 destinos do entity-enable:
+                    # desabilitada-pela-integracao (vira update), ja ativa
+                    # (ja), desligada PELO DONO (mantido - nunca update) e
+                    # interface lo (o glob _e* nao pode casar)
+                    manda({"id": mid, "type": "result", "success": True,
+                           "result": [
+                        {"entity_id": "sensor.system_monitor_processor_use",
+                         "disabled_by": "integration"},
+                        {"entity_id": "sensor.system_monitor_memory_usage",
+                         "disabled_by": None},
+                        {"entity_id": "sensor.system_monitor_swap_usage",
+                         "disabled_by": "user"},
+                        {"entity_id": "sensor.system_monitor_network_throughput_in_enp0s9",
+                         "disabled_by": "integration"},
+                        {"entity_id": "sensor.system_monitor_network_throughput_in_lo",
+                         "disabled_by": "integration"},
+                    ]})
+                    continue
+                if m.get("type") == "config/entity_registry/update":
+                    manda({"id": mid, "type": "result", "success": True,
+                           "result": {}})
+                    continue
                 ep = m.get("endpoint", "")
                 metodo = m.get("method", "get")
                 if ep == "/store":
@@ -974,7 +997,7 @@ if [ -s "$sb_ha/porta" ]; then
         rc_cj=0
         printf "%s\n%s\n" "$HAOS_HA_USER" "$HAOS_HA_PASSWORD" \
             | helper entry-ensure fora_do_conjunto user >/dev/null 2>&1 || rc_cj=$?
-        SEL_ITENS="energia_br"
+        SEL_ITENS="energia_br systemmonitor"
         # gravar o ponto antes de a fase o zerar — nada está montado de verdade
         desmontar_smb() { PONTO_GRAVADO="$SMB_PONTO"; SMB_PONTO=""; }
         rc_f9=0; fase_arquivos >/dev/null 2>&1 || rc_f9=$?
@@ -1021,6 +1044,15 @@ FIMKG
         dash_ok=0
         if [ -f "${PONTO_GRAVADO:-/nada}/dashboards/custos_br.yaml" ] \
             && grep -q "custos-br:" "${PONTO_GRAVADO:-/nada}/configuration.yaml"; then dash_ok=1; fi
+        # Monitor: dashboard escrito, registrado SOB o bloco lovelace que o
+        # Custos abriu (caminho insere), e a NIC do dublado substituída no yaml
+        mon_ok=0
+        if [ -f "${PONTO_GRAVADO:-/nada}/dashboards/monitor_haos.yaml" ] \
+            && grep -q "monitor-haos:" "${PONTO_GRAVADO:-/nada}/configuration.yaml" \
+            && grep -q "in_enp0s9" "${PONTO_GRAVADO:-/nada}/dashboards/monitor_haos.yaml"; then mon_ok=1; fi
+        # exatamente 2 updates: integration-disabled vira ativo; ja-ativa não
+        # repete; desligada PELO DONO nunca é tocada; lo não casa o glob _e*
+        n_upd="$(grep -c "entity_registry/update" "$SB/req.log")"
         # sem credencial e sem terminal: erro claro
         HA_USER=""; HA_SENHA=""; HAOS_HA_USER=""; HAOS_HA_PASSWORD=""
         rc_sem=0; obter_credencial >/dev/null 2>&1 || rc_sem=$?
@@ -1030,9 +1062,9 @@ FIMKG
             [ -e "$alvo" ] || continue
             if grep -r "SENTINELA-9f3a7c" "$alvo" >/dev/null 2>&1; then vaz=1; fi
         done
-        printf "c1=%s c2=%s a1=%s a2=%s i=%s fl=%s cj=%s f9=%s pkg=%s dash=%s cf=%s tars=%s novo=%s arte=%s podavm=%s sem=%s vaz=%s" \
-            "$rc_c1" "$rc_c2" "$rc_a1" "$rc_a2" "$rc_i" "$n_flows" "$rc_cj" "$rc_f9" "$pkg_ok" "$dash_ok" "$rc_cf" "$n_tars" "$tem_novo" "$cofre_arte" "$podavm" "$rc_sem" "$vaz"')"
-    esp_ha="c1=0 c2=100 a1=0 a2=100 i=0 fl=2 cj=1 f9=0 pkg=1 dash=1 cf=0 tars=7 novo=1 arte=1 podavm=1 sem=1 vaz=0"
+        printf "c1=%s c2=%s a1=%s a2=%s i=%s fl=%s cj=%s f9=%s pkg=%s dash=%s mon=%s upd=%s cf=%s tars=%s novo=%s arte=%s podavm=%s sem=%s vaz=%s" \
+            "$rc_c1" "$rc_c2" "$rc_a1" "$rc_a2" "$rc_i" "$n_flows" "$rc_cj" "$rc_f9" "$pkg_ok" "$dash_ok" "$mon_ok" "$n_upd" "$rc_cf" "$n_tars" "$tem_novo" "$cofre_arte" "$podavm" "$rc_sem" "$vaz"')"
+    esp_ha="c1=0 c2=100 a1=0 a2=100 i=0 fl=2 cj=1 f9=0 pkg=1 dash=1 mon=1 upd=2 cf=0 tars=7 novo=1 arte=1 podavm=1 sem=1 vaz=0"
     if [ "$saida_ha" = "$esp_ha" ]; then
         ok "F6–F9 no dublado: conta 0→100, apps 0→100 (repo hash descoberto), conjunto reprova, F9 escreve, sentinela ausente"
     else

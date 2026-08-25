@@ -532,6 +532,40 @@ def cmd_energy_ensure():
     sys.exit(0)
 
 
+def cmd_entity_enable(globs):
+    """Enable entities disabled BY THE INTEGRATION whose ids match the given
+    globs (fnmatch). disabled_by == 'user' is RESPECTED — the owner's choice
+    is never undone (prints 'mantido'). WS config/entity_registry/list +
+    /update (SOURCE-PINNED, same family as the config_entries surface).
+    Prints 'ok/ja/mantido <id>' per match; exit 0 changed, 100 nothing to do."""
+    import fnmatch
+    if not globs:
+        erro("entity-enable sem padrao", 0)
+    ws, _tok = _ws_autenticado()
+    m = ws.chama({"type": "config/entity_registry/list"})
+    if not m.get("success"):
+        erro("config/entity_registry/list", 0)
+    mudou = False
+    for ent in (m.get("result") or []):
+        eid = ent.get("entity_id", "")
+        if not any(fnmatch.fnmatch(eid, g) for g in globs):
+            continue
+        dis = ent.get("disabled_by")
+        if dis is None:
+            print("ja " + eid)
+            continue
+        if dis != "integration":
+            print("mantido " + eid)
+            continue
+        r = ws.chama({"type": "config/entity_registry/update",
+                      "entity_id": eid, "disabled_by": None})
+        if not r.get("success"):
+            erro("config/entity_registry/update", 0)
+        print("ok " + eid)
+        mudou = True
+    sys.exit(0 if mudou else JA)
+
+
 # ── configuração do Core (F9) ────────────────────────────────────────────────
 def cmd_core_check():
     usuario, senha = _le_credencial()
@@ -572,6 +606,8 @@ def main():
         cmd_flows_pendentes()
     elif cmd == "energy-ensure":
         cmd_energy_ensure()
+    elif cmd == "entity-enable":
+        cmd_entity_enable(resto)
     elif cmd == "core-check":
         cmd_core_check()
     elif cmd == "core-restart":

@@ -226,6 +226,13 @@ MSG_DB=(
 "bkp_falhou|Não consegui criar/trazer o backup (rc=%s) - a VM está no ar? Confira com --doctor|Could not create/pull the backup (rc=%s) - is the VM up? Check with --doctor"
 "bkp_sem_cofre|O cofre ainda não existe nesta máquina - a instalação (fase 11) o cria|The vault does not exist on this machine yet - the install (phase 11) creates it"
 "bkp_protegido|O backup mais novo na VM é CRIPTOGRAFADO (protected) e o cofre restaura sem chave - recusado. Desligue o backup automático da interface do HA, ou trate esse tar à parte com a chave do Emergency Kit|The newest backup in the VM is ENCRYPTED (protected) and the vault restores keyless - refused. Turn off HA UI automatic backups, or handle that tar separately with the Emergency Kit key"
+"mon_sensores_ok|sensores do Monitor habilitados (lista curada; escolhas suas são respeitadas)|Monitor sensors enabled (curated list; your own choices are respected)"
+"mon_sensores_ja|sensores do Monitor já habilitados|Monitor sensors already enabled"
+"mon_sensores_falhou|não consegui habilitar os sensores do Monitor - o dashboard pode nascer com cards vazios|could not enable the Monitor sensors - the dashboard may start with empty cards"
+"arq_mon_ok|dashboard Monitor escrito (dashboards/monitor_haos.yaml)|Monitor dashboard written (dashboards/monitor_haos.yaml)"
+"arq_mon_ja|dashboard Monitor já está como deve|Monitor dashboard already as it should be"
+"arq_mon_lov_ok|dashboard Monitor registrado na barra lateral|Monitor dashboard registered in the sidebar"
+"arq_mon_lov_ja|dashboard Monitor já registrado na barra lateral|Monitor dashboard already registered in the sidebar"
 "doc_storage|Armazenamento da VM|VM storage"
 "doc_vm_ausente|VM %s ainda não existe nesta máquina|VM %s does not exist on this machine yet"
 "doc_flush_ok|controller %s com IgnoreFlush=0 - flush honrado (validado com quedas reais de energia)|controller %s with IgnoreFlush=0 - flushes honored (validated with real power cuts)"
@@ -1834,17 +1841,75 @@ conf_lovelace_estado() { # <arquivo> → ja | append | estranho — mesma discip
     else printf 'append'; fi
 }
 
+# ── Monitor (F9): sensores curados + dashboard de KPIs ───────────────────────
+# O System Monitor nasce com TUDO desabilitado (84 entidades, medido em
+# 25/08) — sem habilitar sensores, o dashboard seria um deserto de cards
+# vazios. A lista é curada e o helper RESPEITA disabled_by=user (escolha do
+# dono não se desfaz). A NIC real do guest sai da própria resposta — os
+# globs `_e*` casam enp*/eth* e nunca lo/docker0/hassio.
+MONITOR_NIC=""
+garantir_monitor_sensores() {
+    local saida rc=0
+    saida="$(helper_cred entity-enable \
+        'sensor.system_monitor_processor_use' \
+        'sensor.system_monitor_memory_usage' \
+        'sensor.system_monitor_swap_usage' \
+        'sensor.system_monitor_disk_usage' \
+        'sensor.system_monitor_disk_free' \
+        'sensor.system_monitor_uptime' \
+        'sensor.system_monitor_load_*' \
+        'sensor.system_monitor_network_throughput_in_e*' \
+        'sensor.system_monitor_network_throughput_out_e*' \
+        'sensor.home_assistant_core_cpu_percent' \
+        'sensor.home_assistant_core_memory_percent' \
+        'sensor.home_assistant_supervisor_cpu_percent' \
+        'sensor.home_assistant_supervisor_memory_percent' \
+        'sensor.home_assistant_host_disk_total' \
+        'sensor.home_assistant_host_disk_used' \
+        'sensor.home_assistant_host_disk_free' \
+        2>>"$LOG_FILE")" || rc=$?
+    MONITOR_NIC="$(printf '%s\n' "$saida" \
+        | sed -n 's/^[a-z]* sensor\.system_monitor_network_throughput_in_//p' \
+        | head -1)"
+    case "$rc" in
+        0)   ha_ok "$(msg mon_sensores_ok)" ;;
+        100) ha_ok "$(msg mon_sensores_ja)" ;;
+        *)   ha_warn "$(msg mon_sensores_falhou)"; return 1 ;;
+    esac
+    return 0
+}
+
+conf_monitor_estado() { # <arquivo> → ja | bloco | insere | estranho
+    if grep -q 'monitor_haos.yaml' "$1" 2>/dev/null; then printf 'ja'
+    elif ! grep -qE '^lovelace:' "$1" 2>/dev/null; then printf 'bloco'
+    elif grep -qE '^  dashboards:' "$1" 2>/dev/null; then printf 'insere'
+    else printf 'estranho'; fi
+}
+
+mon_dash_entrada() {
+    printf '    monitor-haos:\n      mode: yaml\n      title: Monitor\n      icon: mdi:heart-pulse\n      filename: dashboards/monitor_haos.yaml\n      show_in_sidebar: true\n'
+}
+
+lovelace_insere_dash() { # <arquivo>: entrada do monitor logo após '  dashboards:'
+    local arq="$1" tmpe tmpi
+    tmpe="$(mktempfile)"; tmpi="$(mktempfile)"
+    mon_dash_entrada > "$tmpe"
+    sed "/^  dashboards:/r $tmpe" "$arq" > "$tmpi" && cp "$tmpi" "$arq"
+}
+
 fase_arquivos() {
     ha_fase "$(msg fase_arq)"
-    local it pkgs="" quer_hacs=0 quer_smartir=0
+    local it pkgs="" quer_hacs=0 quer_smartir=0 quer_monitor=0
     for it in $SEL_ITENS; do
         case "$it" in
             energia_br|gas_br|agua_br) pkgs="$pkgs $it" ;;
             hacs) quer_hacs=1 ;;
             smartir) quer_smartir=1 ;;
+            systemmonitor) quer_monitor=1 ;;
         esac
     done
-    if [ -z "$pkgs" ] && [ "$quer_hacs" = "0" ] && [ "$quer_smartir" = "0" ]; then
+    if [ -z "$pkgs" ] && [ "$quer_hacs" = "0" ] && [ "$quer_smartir" = "0" ] \
+        && [ "$quer_monitor" = "0" ]; then
         ha_ok "$(msg arq_nada)"; return 100
     fi
     obter_credencial || return 1
@@ -1920,6 +1985,46 @@ fase_arquivos() {
                 printf '\nlovelace:\n  mode: storage\n  dashboards:\n    custos-br:\n      mode: yaml\n      title: Custos\n      icon: mdi:cash-multiple\n      filename: dashboards/custos_br.yaml\n      show_in_sidebar: true\n' >> "$alvo"
                 ha_ok "$(msg arq_lovelace_ok)"
                 mudou=1 ;;
+            estranho)
+                ha_warn "$(msg arq_lovelace_estranho)" ;;
+        esac
+    fi
+
+    # ── dashboard Monitor: KPIs da VM/HAOS — entra com o systemmonitor.
+    # Sensores primeiro (a NIC descoberta entra no yaml); dashboard depois;
+    # registro na barra lateral por último, convivendo com o bloco do Custos
+    # (insere sob `dashboards:` existente; bloco alheio AVISA e segue).
+    if [ "$quer_monitor" = "1" ]; then
+        garantir_monitor_sensores || true
+        mkdir -p "$SMB_PONTO/dashboards" || { desmontar_smb; return 1; }
+        alvo="$SMB_PONTO/dashboards/monitor_haos.yaml"
+        tmpf="$(mktempfile)"
+        printf '%s\n' "$HAOS_DASH_MONITOR" \
+            | sed "s/__NIC__/${MONITOR_NIC:-enp0s8}/g" > "$tmpf"
+        if [ -f "$alvo" ] && cmp -s "$tmpf" "$alvo"; then
+            ha_ok "$(msg arq_mon_ja)"
+        else
+            [ -f "$alvo" ] && cp "$alvo" "$alvo.antes-$carimbo"
+            cp "$tmpf" "$alvo" || { desmontar_smb; return 1; }
+            ha_ok "$(msg arq_mon_ok)"
+            mudou=1
+        fi
+        alvo="$SMB_PONTO/configuration.yaml"
+        case "$(conf_monitor_estado "$alvo")" in
+            ja) ha_ok "$(msg arq_mon_lov_ja)" ;;
+            bloco)
+                [ -n "$backup_conf" ] || { backup_conf="$alvo.antes-$carimbo"; cp "$alvo" "$backup_conf" || { desmontar_smb; return 1; }; }
+                { printf '\nlovelace:\n  mode: storage\n  dashboards:\n'; mon_dash_entrada; } >> "$alvo"
+                ha_ok "$(msg arq_mon_lov_ok)"
+                mudou=1 ;;
+            insere)
+                [ -n "$backup_conf" ] || { backup_conf="$alvo.antes-$carimbo"; cp "$alvo" "$backup_conf" || { desmontar_smb; return 1; }; }
+                if lovelace_insere_dash "$alvo"; then
+                    ha_ok "$(msg arq_mon_lov_ok)"
+                    mudou=1
+                else
+                    ha_warn "$(msg arq_lovelace_estranho)"
+                fi ;;
             estranho)
                 ha_warn "$(msg arq_lovelace_estranho)" ;;
         esac
@@ -3721,6 +3826,40 @@ def cmd_energy_ensure():
     sys.exit(0)
 
 
+def cmd_entity_enable(globs):
+    """Enable entities disabled BY THE INTEGRATION whose ids match the given
+    globs (fnmatch). disabled_by == 'user' is RESPECTED — the owner's choice
+    is never undone (prints 'mantido'). WS config/entity_registry/list +
+    /update (SOURCE-PINNED, same family as the config_entries surface).
+    Prints 'ok/ja/mantido <id>' per match; exit 0 changed, 100 nothing to do."""
+    import fnmatch
+    if not globs:
+        erro("entity-enable sem padrao", 0)
+    ws, _tok = _ws_autenticado()
+    m = ws.chama({"type": "config/entity_registry/list"})
+    if not m.get("success"):
+        erro("config/entity_registry/list", 0)
+    mudou = False
+    for ent in (m.get("result") or []):
+        eid = ent.get("entity_id", "")
+        if not any(fnmatch.fnmatch(eid, g) for g in globs):
+            continue
+        dis = ent.get("disabled_by")
+        if dis is None:
+            print("ja " + eid)
+            continue
+        if dis != "integration":
+            print("mantido " + eid)
+            continue
+        r = ws.chama({"type": "config/entity_registry/update",
+                      "entity_id": eid, "disabled_by": None})
+        if not r.get("success"):
+            erro("config/entity_registry/update", 0)
+        print("ok " + eid)
+        mudou = True
+    sys.exit(0 if mudou else JA)
+
+
 # ── configuração do Core (F9) ────────────────────────────────────────────────
 def cmd_core_check():
     usuario, senha = _le_credencial()
@@ -3761,6 +3900,8 @@ def main():
         cmd_flows_pendentes()
     elif cmd == "energy-ensure":
         cmd_energy_ensure()
+    elif cmd == "entity-enable":
+        cmd_entity_enable(resto)
     elif cmd == "core-check":
         cmd_core_check()
     elif cmd == "core-restart":
@@ -4694,6 +4835,160 @@ views:
 FIM_EMB_DASH_CUSTOS
 )
 # <<< DASH_CUSTOS EMBUTIDO <<<
+
+# >>> DASH_MONITOR EMBUTIDO >>>
+HAOS_DASH_MONITOR=$(cat <<'FIM_EMB_DASH_MONITOR'
+# Dashboard Monitor — KPIs da VM e do HAOS. Escrito pelo haos-install.sh.
+# Os sensores são habilitados pela fase de arquivos (o System Monitor nasce
+# com TUDO desabilitado — 84 entidades medidas em 25/08/2026). __NIC__ é
+# substituído na instalação pela interface de rede real do guest. Os ids
+# seguem os slugs padrão do HA; instância em outro idioma pode divergir —
+# nesse caso o card aponta o id ausente em vez de quebrar o dashboard.
+title: Monitor
+views:
+  - title: VM
+    path: vm
+    icon: mdi:server
+    cards:
+      - type: horizontal-stack
+        cards:
+          - type: gauge
+            entity: sensor.system_monitor_processor_use
+            name: CPU
+            min: 0
+            max: 100
+            severity:
+              green: 0
+              yellow: 70
+              red: 88
+          - type: gauge
+            entity: sensor.system_monitor_memory_usage
+            name: RAM
+            min: 0
+            max: 100
+            severity:
+              green: 0
+              yellow: 75
+              red: 90
+      - type: horizontal-stack
+        cards:
+          - type: gauge
+            entity: sensor.system_monitor_disk_usage
+            name: Disco
+            min: 0
+            max: 100
+            severity:
+              green: 0
+              yellow: 70
+              red: 85
+          - type: gauge
+            entity: sensor.system_monitor_swap_usage
+            name: Swap
+            min: 0
+            max: 100
+            severity:
+              green: 0
+              yellow: 40
+              red: 70
+      - type: glance
+        title: Carga (load average)
+        entities:
+          - entity: sensor.system_monitor_load_1_min
+            name: 1 min
+          - entity: sensor.system_monitor_load_5_min
+            name: 5 min
+          - entity: sensor.system_monitor_load_15_min
+            name: 15 min
+      - type: entities
+        title: Sinais vitais
+        entities:
+          - entity: sensor.system_monitor_uptime
+            name: No ar desde
+          - entity: sensor.system_monitor_disk_free
+            name: Disco livre
+          - entity: sensor.system_monitor_network_throughput_in___NIC__
+            name: Rede — entrada
+          - entity: sensor.system_monitor_network_throughput_out___NIC__
+            name: Rede — saída
+      - type: history-graph
+        title: CPU e RAM — 12 h
+        hours_to_show: 12
+        entities:
+          - entity: sensor.system_monitor_processor_use
+            name: CPU
+          - entity: sensor.system_monitor_memory_usage
+            name: RAM
+      - type: history-graph
+        title: Rede — 12 h
+        hours_to_show: 12
+        entities:
+          - entity: sensor.system_monitor_network_throughput_in___NIC__
+            name: entrada
+          - entity: sensor.system_monitor_network_throughput_out___NIC__
+            name: saída
+  - title: Serviços
+    path: servicos
+    icon: mdi:home-assistant
+    cards:
+      - type: entities
+        title: Core e Supervisor
+        entities:
+          - entity: sensor.home_assistant_core_cpu_percent
+            name: Core — CPU
+          - entity: sensor.home_assistant_core_memory_percent
+            name: Core — RAM
+          - entity: sensor.home_assistant_supervisor_cpu_percent
+            name: Supervisor — CPU
+          - entity: sensor.home_assistant_supervisor_memory_percent
+            name: Supervisor — RAM
+      - type: history-graph
+        title: CPU por serviço — 12 h
+        hours_to_show: 12
+        entities:
+          - entity: sensor.home_assistant_core_cpu_percent
+            name: Core
+          - entity: sensor.home_assistant_supervisor_cpu_percent
+            name: Supervisor
+      - type: entities
+        title: Disco do host (visão do Supervisor)
+        entities:
+          - entity: sensor.home_assistant_host_disk_used
+            name: Usado
+          - entity: sensor.home_assistant_host_disk_free
+            name: Livre
+          - entity: sensor.home_assistant_host_disk_total
+            name: Total
+  - title: Saúde
+    path: saude
+    icon: mdi:heart-pulse
+    cards:
+      - type: entities
+        title: Atualizações
+        entities:
+          - entity: update.home_assistant_core_update
+            name: Core
+          - entity: update.home_assistant_operating_system_update
+            name: Sistema (HAOS)
+          - entity: update.home_assistant_supervisor_update
+            name: Supervisor
+      - type: entities
+        title: Backup
+        entities:
+          - entity: sensor.backup_backup_manager_state
+            name: Gerenciador de backup
+      - type: markdown
+        title: O cofre
+        content: >-
+          Os backups desta instância são criados e **trazidos para fora da
+          VM** todo dia às 04:10, para `~/Documents/HAOS-backups` no Mac.
+
+
+          Backup imediato: rode o instalador com `--backup`.
+          Restauração completa: `--restore <arquivo.tar>` — conta,
+          integrações e dashboards voltam inteiros.
+FIM_EMB_DASH_MONITOR
+)
+# <<< DASH_MONITOR EMBUTIDO <<<
 
 # ── acessores do catálogo ────────────────────────────────────────────────────
 cat_rotulo() {

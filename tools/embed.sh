@@ -23,7 +23,7 @@ INSTALADOR="$RAIZ/haos-install.sh"
 # embutida passariam a valer para o instalador). Com `var:` o conteúdo entra
 # VERBATIM dentro de um heredoc quoted atribuído à variável — é assim que
 # python e yaml viajam dentro de um script bash sem virar código dele.
-BLOCOS="CATALOGO|catalog/catalog.bash UI|lib/haos-ui.sh HELPER|lib/ha-api.py|var:HAOS_HELPER_PY PKG_ENERGIA|packages/energia_br.yaml|var:HAOS_PKG_ENERGIA PKG_GAS|packages/gas_br.yaml|var:HAOS_PKG_GAS PKG_AGUA|packages/agua_br.yaml|var:HAOS_PKG_AGUA DASH_CUSTOS|dashboards/custos_br.yaml|var:HAOS_DASH_CUSTOS"
+BLOCOS="CATALOGO|catalog/catalog.bash UI|lib/haos-ui.sh HELPER|lib/ha-api.py|var:HAOS_HELPER_PY PKG_ENERGIA|packages/energia_br.yaml|var:HAOS_PKG_ENERGIA PKG_GAS|packages/gas_br.yaml|var:HAOS_PKG_GAS PKG_AGUA|packages/agua_br.yaml|var:HAOS_PKG_AGUA DASH_CUSTOS|dashboards/custos_br.yaml|var:HAOS_DASH_CUSTOS DASH_MONITOR|dashboards/monitor_haos.yaml|var:HAOS_DASH_MONITOR"
 
 [ -f "$INSTALADOR" ] || { echo "[ERRO] instalador ausente: $INSTALADOR" >&2; exit 4; }
 
