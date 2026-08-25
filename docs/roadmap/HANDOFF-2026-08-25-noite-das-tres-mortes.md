@@ -1,7 +1,8 @@
 # HANDOFF — a noite das três mortes do /data, e o que as matou · 2026-08-25
 
-> **LEIA-ME PRIMEIRO.** Porta de entrada da frente do instalador. Supersede
-> `HANDOFF-2026-08-24-ha-no-ar.md`.
+> **SUPERADO por `HANDOFF-2026-08-25-cofre-com-voz-e-principios.md`** — abra
+> aquele primeiro; as lições daqui seguem válidas como referência.
+> Supersede `HANDOFF-2026-08-24-ha-no-ar.md`.
 
 ## 0. ESTADO — confira no git, não neste parágrafo
 
