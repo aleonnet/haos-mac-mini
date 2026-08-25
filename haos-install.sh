@@ -220,6 +220,11 @@ MSG_DB=(
 "doc_state_ok|seleção salva: %s|saved selection: %s"
 "doc_state_falta|nenhuma seleção salva (--profile last ainda não funciona aqui)|no saved selection (--profile last will not work here yet)"
 "doc_lastrun_ok|último relatório: %s|last report: %s"
+"bkp_indo|Criando o backup no HAOS e trazendo para fora da VM (~1 min)...|Creating the backup in HAOS and pulling it out of the VM (~1 min)..."
+"bkp_ok|Backup no cofre: %s (%s) - %s guardado(s), poda além de 7|Backup vaulted: %s (%s) - %s kept, pruned beyond 7"
+"bkp_atual|O cofre já tem o backup mais recente: %s|The vault already holds the latest backup: %s"
+"bkp_falhou|Não consegui criar/trazer o backup (rc=%s) - a VM está no ar? Confira com --doctor|Could not create/pull the backup (rc=%s) - is the VM up? Check with --doctor"
+"bkp_sem_cofre|O cofre ainda não existe nesta máquina - a instalação (fase 11) o cria|The vault does not exist on this machine yet - the install (phase 11) creates it"
 "doc_storage|Armazenamento da VM|VM storage"
 "doc_vm_ausente|VM %s ainda não existe nesta máquina|VM %s does not exist on this machine yet"
 "doc_flush_ok|controller %s com IgnoreFlush=0 - flush honrado (validado com quedas reais de energia)|controller %s with IgnoreFlush=0 - flushes honored (validated with real power cuts)"
@@ -1665,6 +1670,37 @@ rodar_restore() {
     fi
     ha_err "$(msg rest_falhou)"; diagnostico_log
     return 1
+}
+
+# ── --backup: backup imediato, com voz — o gêmeo manual do agente das 04:10 ──
+# Reusa o backup-pull.sh que a fase do cofre instalou. O agente é mudo por
+# design (launchd); aqui um humano está olhando: sucesso diz onde o tar ficou
+# e quantos há no cofre; falha explica e sai com rc != 0. Não pede credencial —
+# o transporte é a chave SSH que o instalador plantou.
+rodar_backup() {
+    local script dest antes depois rc=0 n tam
+    script="$HOME/Library/Application Support/haos-mac-mini/backup-pull.sh"
+    dest="$HOME/Documents/HAOS-backups"
+    if [ ! -x "$script" ]; then
+        ha_err "$(msg bkp_sem_cofre)"
+        return "$E_USO"
+    fi
+    antes="$(command ls -t "$dest"/*.tar 2>/dev/null | head -1)"
+    ha_info "$(msg bkp_indo)"
+    "$script" || rc=$?
+    depois="$(command ls -t "$dest"/*.tar 2>/dev/null | head -1)"
+    if [ "$rc" != "0" ] || [ -z "$depois" ]; then
+        ha_err "$(msg bkp_falhou "$rc")"
+        return 1
+    fi
+    if [ "$depois" = "$antes" ]; then
+        ha_ok "$(msg bkp_atual "$depois")"
+        return 0
+    fi
+    n="$(command ls "$dest"/*.tar 2>/dev/null | wc -l | tr -d '[:space:]')"
+    tam="$(du -h "$depois" 2>/dev/null | awk '{print $1}')"
+    ha_ok "$(msg bkp_ok "$depois" "$tam" "$n")"
+    return 0
 }
 
 
@@ -4706,6 +4742,8 @@ OUTRAS
   -q, --quiet        suprime a saída normal
   --no-input         não pergunta nada; falha se faltar dado obrigatório
   --no-open          não abre o navegador no fim
+  --backup           cria um backup AGORA e o traz para o cofre
+                     (~/Documents/HAOS-backups) - o gêmeo manual do agente 04:10
   --restore <tar>    restaura um backup do cofre (~/Documents/HAOS-backups)
                      na VM - conta, integrações e dashboards voltam inteiros
   -f, --force        refaz artefato já presente. NÃO pula portão nem hash.
@@ -4756,6 +4794,7 @@ ler_args() {
             --image)        exige_valor --image "${2:-}";      OP_IMAGEM="$2"; shift ;;
             --image=*)      exige_valor --image "${1#*=}";     OP_IMAGEM="${1#*=}" ;;
             --doctor)       modo_unico doctor ;;
+            --backup)       modo_unico backup ;;
             --uninstall)    modo_unico uninstall ;;
             --restore)      exige_valor --restore "${2:-}"; OP_RESTORE="$2"; shift
                             modo_unico restore ;;
@@ -5469,6 +5508,7 @@ main() {
         uninstall)   rodar_uninstall;   exit $? ;;
         self-update) rodar_self_update; exit $? ;;
         restore)     rodar_restore;     exit $? ;;
+        backup)      rodar_backup;      exit $? ;;
     esac
 
     # A partir daqui a execução conta como execução: o limpar() espelha o

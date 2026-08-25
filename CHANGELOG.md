@@ -33,6 +33,16 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
   avisa quando a versão corrente divergir (upgrade de hypervisor sem
   reteste). Cerca nova no gate com 4 cenários.
 
+- **Flag `--backup`** — o gêmeo manual do agente das 04:10, nascido de campo:
+  o dono rodou o `backup-pull.sh` na mão e recebeu silêncio absoluto (o
+  script é mudo por design, foi escrito para o launchd). A flag usa a mesma
+  lógica com voz de gente: diz onde o tar ficou e quantos há no cofre;
+  cofre já atual é dito como tal; falha explica e sai com rc≠0; cofre
+  inexistente é erro de uso. Não pede credencial (o transporte é a chave
+  SSH plantada). A interface `--backup`/`--restore` fecha o par que a
+  análise externa (§11) aponta como requisito de produto. Cerca no gate
+  com 4 cenários, mutation-testada.
+
 ### Changed
 - **README fact-checkado contra as fontes primárias** (Oracle Troubleshooting
   7.2, reverificada em 25/08): a perda de `/data` em desligamento sujo é

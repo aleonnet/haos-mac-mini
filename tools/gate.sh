@@ -412,6 +412,44 @@ else
 fi
 rm -rf "$sb_ds"
 
+# ── --backup: cerca da voz e do veredito ─────────────────────────────────────
+# O agente das 04:10 é mudo por design; a flag manual NÃO pode ser: tar novo
+# diz onde ficou (A), nada novo diz que o cofre já está atual (D), falha do
+# puxador vira rc=1 com explicação (B), cofre inexistente vira uso rc=2 (C).
+titulo "--backup: tar novo, cofre atual, falha do puxador, sem cofre"
+sb_bk="$(mktemp -d "${TMPDIR:-/tmp}/haos-gate-bk.XXXXXX")"
+# shellcheck disable=SC2016  # o script filho expande $SB sozinho, de propósito
+saida_bk="$(HAOS_INSTALL_LIB=1 SB="$sb_bk" HAOS_LANG=pt "${BASH:-/bin/bash}" -c '
+    source haos-install.sh
+    HOME="$SB"
+    sdir="$SB/Library/Application Support/haos-mac-mini"
+    dest="$SB/Documents/HAOS-backups"
+    mkdir -p "$sdir" "$dest"
+    printf x > "$dest/velho.tar"
+    touch -t 202601010000 "$dest/velho.tar"
+    roda() { RC=0; OUT="$(rodar_backup 2>&1)" || RC=$?; }
+    # A: o puxador traz um tar novo
+    printf "#!/bin/sh\nprintf y > \"%s/novo.tar\"\nexit 0\n" "$dest" > "$sdir/backup-pull.sh"
+    chmod +x "$sdir/backup-pull.sh"
+    roda; a="$RC"; case "$OUT" in *novo.tar*) a="$a/novo" ;; esac
+    rm -f "$dest/novo.tar"
+    # D: o puxador não traz nada e sai 0 (cofre já atual)
+    printf "#!/bin/sh\nexit 0\n" > "$sdir/backup-pull.sh"
+    roda; d="$RC"; case "$OUT" in *"já tem"*) d="$d/atual" ;; esac
+    # B: o puxador falha (VM fora do ar)
+    printf "#!/bin/sh\nexit 3\n" > "$sdir/backup-pull.sh"
+    roda; b="$RC"
+    # C: cofre nunca instalado
+    rm -f "$sdir/backup-pull.sh"
+    roda; c="$RC"
+    printf "A=%s D=%s B=%s C=%s" "$a" "$d" "$b" "$c"')"
+if [ "$saida_bk" = "A=0/novo D=0/atual B=1 C=2" ]; then
+    ok "--backup: 4 cenários com a voz e o rc certos"
+else
+    falha "--backup: esperado 'A=0/novo D=0/atual B=1 C=2', obtido '$saida_bk'"
+fi
+rm -rf "$sb_bk"
+
 # ── F5 de ponta a ponta (boot dublado) ───────────────────────────────────────
 # A espera do boot é por MAC→ARP, nunca por mDNS (falso positivo medido em
 # campo com outro HA vivo na rede). Os stubs FALHAM nas primeiras iterações
