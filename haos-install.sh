@@ -358,6 +358,10 @@ MSG_DB=(
 "arq_hacs_ok|HACS %s colocado em custom_components - termine no painel (fluxo do GitHub).|HACS %s placed into custom_components - finish in the panel (GitHub flow)."
 "arq_hacs_ja|HACS já instalado.|HACS already installed."
 "arq_hacs_falhou|O download do HACS não conferiu (SHA-256) - NÃO instalei.|The HACS download did not verify (SHA-256) - NOT installed."
+"arq_smartir_ok|SmartIR %s colocado em custom_components - configure o clima no configuration.yaml (device_code do seu ar-condicionado).|SmartIR %s placed into custom_components - configure climate in configuration.yaml (your AC's device_code)."
+"arq_smartir_ja|SmartIR já instalado.|SmartIR already installed."
+"arq_smartir_falhou|O download do SmartIR não conferiu (SHA-256) - NÃO instalei. Archive de tag do GitHub pode mudar de bytes; se persistir, o instalador precisa re-pinar.|The SmartIR download did not verify (SHA-256) - NOT installed. GitHub tag archives can change bytes; if it persists the installer needs re-pinning."
+"rel_smartir_prox|SmartIR: aprenda códigos do seu AC com remote.learn_command (RM4) se o modelo não estiver nos 120+ prontos.|SmartIR: learn your AC codes with remote.learn_command (RM4) if your model is not among the 120+ bundled."
 "arq_check_falhou|O check de configuração reprovou - configuration.yaml restaurado do backup.|Config check failed - configuration.yaml restored from the backup."
 "arq_restart|reiniciando o Core para carregar os arquivos novos|restarting Core to load the new files"
 "arq_voltou|Core de volta no ar.|Core back up."
@@ -1413,6 +1417,47 @@ fase_integracoes() {
 HAOS_HACS_VERSION="2.0.5"
 HAOS_HACS_SHA="97be6b824a4f38e683728cc6dd72367f6b8bad0a43428b1b3b987a3087adf413"
 HAOS_HACS_BYTES="19021117"
+# SmartIR: SEM canal HACS — instalação direta, release fixada. ⚠️ É o archive
+# de fonte da tag (o projeto não publica asset): o GitHub não garante
+# byte-estabilidade desses archives — se o SHA divergir um dia, a recusa é o
+# comportamento certo e o conserto é re-pinar aqui.
+HAOS_SMARTIR_VERSION="1.18.1"
+HAOS_SMARTIR_SHA="286b99e843403605821ca16315284944e1d9219285661810744ef9738ba5bfea"
+HAOS_SMARTIR_BYTES="6051783"
+
+# Instala um componente entregue em zip, com SHA e tamanho FIXADOS.
+# <rotulo> <url> <sha> <bytes> <subcaminho-no-zip|-> <destino-abs>
+# subcaminho '-' = o zip é o conteúdo (HACS); senão extrai em temp e move o
+# subdiretório (archives de tag têm raiz <Repo>-<tag>/). Download adulterado
+# (tamanho OU sha) é RECUSADO — cerca no portão exercita a recusa.
+instala_componente_zip() {
+    local rotulo="$1" url="$2" sha="$3" bytes="$4" sub="$5" destino="$6"
+    local cache zip tam obtido tmpx
+    cache="$HOME/Library/Caches/haos-mac-mini"
+    zip="$cache/$rotulo.zip"
+    if [ ! -f "$zip" ]; then
+        mkdir -p "$cache"
+        curl -fsSL --proto '=https' --tlsv1.2 --retry 2 -o "$zip" "$url" \
+            2>>"$LOG_FILE" || { rm -f "$zip"; return 1; }
+    fi
+    tam="$(wc -c < "$zip" | tr -d ' ')"
+    obtido="$(shasum -a 256 "$zip" | awk '{print $1}')"
+    if [ "$tam" != "$bytes" ] || [ "$obtido" != "$sha" ]; then
+        rm -f "$zip"
+        return 1
+    fi
+    if [ "$sub" = "-" ]; then
+        mkdir -p "$destino"
+        unzip -o -q "$zip" -d "$destino" || return 1
+    else
+        tmpx="$(mktempdir)"
+        unzip -o -q "$zip" -d "$tmpx" || return 1
+        [ -d "$tmpx/$sub" ] || return 1
+        mkdir -p "$(dirname "$destino")"
+        cp -R "$tmpx/$sub" "$destino" || return 1
+    fi
+    return 0
+}
 
 desmontar_smb() {
     [ -n "$SMB_PONTO" ] || return 0
@@ -1472,14 +1517,15 @@ conf_lovelace_estado() { # <arquivo> → ja | append | estranho — mesma discip
 
 fase_arquivos() {
     ha_fase "$(msg fase_arq)"
-    local it pkgs="" quer_hacs=0
+    local it pkgs="" quer_hacs=0 quer_smartir=0
     for it in $SEL_ITENS; do
         case "$it" in
             energia_br|gas_br|agua_br) pkgs="$pkgs $it" ;;
             hacs) quer_hacs=1 ;;
+            smartir) quer_smartir=1 ;;
         esac
     done
-    if [ -z "$pkgs" ] && [ "$quer_hacs" = "0" ]; then
+    if [ -z "$pkgs" ] && [ "$quer_hacs" = "0" ] && [ "$quer_smartir" = "0" ]; then
         ha_ok "$(msg arq_nada)"; return 100
     fi
     obter_credencial || return 1
@@ -1563,27 +1609,29 @@ fase_arquivos() {
     if [ "$quer_hacs" = "1" ]; then
         if [ -d "$SMB_PONTO/custom_components/hacs" ]; then
             ha_ok "$(msg arq_hacs_ja)"
-        else
-            local zip_hacs cache tam obtido
-            cache="$HOME/Library/Caches/haos-mac-mini"
-            zip_hacs="$cache/hacs-$HAOS_HACS_VERSION.zip"
-            if [ ! -f "$zip_hacs" ]; then
-                mkdir -p "$cache"
-                curl -fsSL --proto '=https' --tlsv1.2 --retry 2 -o "$zip_hacs" \
-                    "https://github.com/hacs/integration/releases/download/$HAOS_HACS_VERSION/hacs.zip" \
-                    2>>"$LOG_FILE" || { rm -f "$zip_hacs"; ha_err "$(msg arq_hacs_falhou)"; desmontar_smb; return 1; }
-            fi
-            tam="$(wc -c < "$zip_hacs" | tr -d ' ')"
-            obtido="$(shasum -a 256 "$zip_hacs" | awk '{print $1}')"
-            if [ "$tam" != "$HAOS_HACS_BYTES" ] || [ "$obtido" != "$HAOS_HACS_SHA" ]; then
-                rm -f "$zip_hacs"
-                ha_err "$(msg arq_hacs_falhou)"; desmontar_smb; return 1
-            fi
-            mkdir -p "$SMB_PONTO/custom_components/hacs"
-            unzip -o -q "$zip_hacs" -d "$SMB_PONTO/custom_components/hacs" \
-                || { desmontar_smb; return 1; }
+        elif instala_componente_zip "hacs-$HAOS_HACS_VERSION" \
+                "https://github.com/hacs/integration/releases/download/$HAOS_HACS_VERSION/hacs.zip" \
+                "$HAOS_HACS_SHA" "$HAOS_HACS_BYTES" - \
+                "$SMB_PONTO/custom_components/hacs"; then
             ha_ok "$(msg arq_hacs_ok "$HAOS_HACS_VERSION")"
             mudou=1
+        else
+            ha_err "$(msg arq_hacs_falhou)"; desmontar_smb; return 1
+        fi
+    fi
+
+    if [ "$quer_smartir" = "1" ]; then
+        if [ -d "$SMB_PONTO/custom_components/smartir" ]; then
+            ha_ok "$(msg arq_smartir_ja)"
+        elif instala_componente_zip "smartir-$HAOS_SMARTIR_VERSION" \
+                "https://github.com/smartHomeHub/SmartIR/archive/refs/tags/$HAOS_SMARTIR_VERSION.zip" \
+                "$HAOS_SMARTIR_SHA" "$HAOS_SMARTIR_BYTES" \
+                "SmartIR-$HAOS_SMARTIR_VERSION/custom_components/smartir" \
+                "$SMB_PONTO/custom_components/smartir"; then
+            ha_ok "$(msg arq_smartir_ok "$HAOS_SMARTIR_VERSION")"
+            mudou=1
+        else
+            ha_err "$(msg arq_smartir_falhou)"; desmontar_smb; return 1
         fi
     fi
 
@@ -2660,6 +2708,7 @@ ITEM_DB=(
     "broadlink|casa|Broadlink|core|-|1|dhcp|user dhcp|dhcp|-|-|infravermelho — passos auth e unlock; exige modo de pareamento"
     "shelly|casa|Shelly|core|-|1|zeroconf bluetooth|user zeroconf bluetooth|zeroconf|-|-|medição de energia — base dos packages de custo"
     "tplink|casa|TP-Link Smart Home|core|-|1|dhcp|user dhcp integration_discovery|dhcp|-|-|câmeras Tapo — exige Camera Account criada no app do celular"
+    "smartir|casa|SmartIR (clima IR)|custom|-|0|-|-|-|broadlink|-|termostato IR p/ ar-condicionado via RM4 — release fixada, instalação direta (sem HACS)"
     "smartthings|casa|SmartThings|core|-|1|dhcp|user dhcp|user|application_credentials|-|aparelhos Samsung — OAuth, não token pessoal"
 
     # ── ferramentas ──────────────────────────────────────────────────────────
@@ -2740,7 +2789,9 @@ ORTOGONAL_DB=(ferramentas casa_abhome extensoes)
 NAO_APLICA_DB=(
     "raspberry_pi|não existe hardware Raspberry Pi numa VM em Mac"
     "rpi_power|mede a fonte do Raspberry Pi"
-    "smartir|é pacote de dentro do HACS — a regra é não instalar nada de lá"
+    # smartir SAIU desta lista em 24/08/2026: a regra visava o CANAL HACS, não
+    # o código — entrou no ITEM_DB como instalação direta com release fixada
+    # e SHA-256 (decisão do dono, para os ar-condicionados via RM4)
     "file_editor|substituído pelo Studio Code Server por decisão do dono (24/08/2026) — a regra 'preferir o oficial quando cobre' cedeu à experiência de edição"
     "core_ssh|oficial, mas NÃO cobre: o config.yaml não declara docker_api, e Protection mode só libera o que o app declara"
 )
@@ -5060,6 +5111,7 @@ relatorio_final() {
         n_flows="$(printf '%s' "${FLOWS_PENDENTES:-}" | grep -c . || true)"
         [ "${n_flows:-0}" -gt 0 ] && printf '  %s %s\n' "$HA_G_INFO" "$(msg rel_flows "$n_flows")"
         case " ${SEL_ITENS:-} " in *" hacs "*) printf '  %s %s\n' "$HA_G_INFO" "$(msg rel_hacs_prox)" ;; esac
+        case " ${SEL_ITENS:-} " in *" smartir "*) printf '  %s %s\n' "$HA_G_INFO" "$(msg rel_smartir_prox)" ;; esac
         if [ "$OP_NO_OPEN" != "1" ] && tem_tty && command -v open >/dev/null 2>&1; then
             printf '  %s %s\n' "$HA_G_INFO" "$(msg rel_abrindo)"
             open "$VM_URL" 2>/dev/null || true

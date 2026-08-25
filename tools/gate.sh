@@ -784,8 +784,10 @@ else
     falha "conf_estado/lovelace: esperado 'append ja estranho append ja estranho', obtido '$saida_conf'"
 fi
 
-# ── HACS: download adulterado é RECUSADO (supply chain) ──────────────────────
-titulo "HACS recusa download adulterado"
+# ── componente-zip adulterado é RECUSADO (supply chain) ──────────────────────
+# Cobre o instala_componente_zip nas DUAS formas: zip-raiz (HACS) e zip com
+# subdiretório de tag (SmartIR) — SHA errado com o tamanho publicado certo.
+titulo "componente-zip recusa download adulterado"
 sb_hc="$(mktemp -d "${TMPDIR:-/tmp}/haos-gate-hc.XXXXXX")"
 # shellcheck disable=SC2016
 saida_hc="$(HAOS_INSTALL_LIB=1 SB="$sb_hc" "${BASH:-/bin/bash}" -c '
@@ -794,21 +796,26 @@ saida_hc="$(HAOS_INSTALL_LIB=1 SB="$sb_hc" "${BASH:-/bin/bash}" -c '
     curl() { # dublê: entrega um zip ADULTERADO com o tamanho publicado
         local a out="" prev=""
         for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; prev="$a"; done
-        [ -n "$out" ] && dd if=/dev/zero of="$out" bs=1 count=0 seek="$HAOS_HACS_BYTES" 2>/dev/null
+        [ -n "$out" ] && dd if=/dev/zero of="$out" bs=1 count=0 seek="$TAM_ALVO" 2>/dev/null
     }
     helper() { return 0; }  # nada de rede real nesta cerca
     garantir_smb_senha() { SMB_SENHA=x; }
     montar_smb() { SMB_PONTO="$SB/mnt"; mkdir -p "$SMB_PONTO"; }
     obter_credencial() { HA_USER=u; HA_SENHA=p; }
     garantir_log
+    TAM_ALVO="$HAOS_HACS_BYTES"
     SEL_ITENS="hacs"
-    rc=0; fase_arquivos >/dev/null 2>&1 || rc=$?
-    tem_hacs=0; [ -d "$SB/mnt/custom_components/hacs" ] && [ -n "$(command ls "$SB/mnt/custom_components/hacs" 2>/dev/null)" ] && tem_hacs=1
-    printf "rc=%s instalado=%s" "$rc" "$tem_hacs"')"
-if [ "$saida_hc" = "rc=1 instalado=0" ]; then
-    ok "HACS adulterado (SHA errado com tamanho certo): recusado, nada instalado"
+    rc1=0; fase_arquivos >/dev/null 2>&1 || rc1=$?
+    tem1=0; [ -n "$(command ls "$SB/mnt/custom_components/hacs" 2>/dev/null)" ] && tem1=1
+    TAM_ALVO="$HAOS_SMARTIR_BYTES"
+    SEL_ITENS="smartir"
+    rc2=0; fase_arquivos >/dev/null 2>&1 || rc2=$?
+    tem2=0; [ -n "$(command ls "$SB/mnt/custom_components/smartir" 2>/dev/null)" ] && tem2=1
+    printf "hacs=%s/%s smartir=%s/%s" "$rc1" "$tem1" "$rc2" "$tem2"')"
+if [ "$saida_hc" = "hacs=1/0 smartir=1/0" ]; then
+    ok "adulterado recusado nas duas formas (zip-raiz e zip-subdiretório), nada instalado"
 else
-    falha "HACS adulterado: esperado 'rc=1 instalado=0', obtido '$saida_hc'"
+    falha "componente adulterado: esperado 'hacs=1/0 smartir=1/0', obtido '$saida_hc'"
 fi
 rm -rf "$sb_hc"
 

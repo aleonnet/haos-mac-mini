@@ -7,6 +7,18 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
 ## [Unreleased]
 
 ### Added
+- **SmartIR no catálogo** (item explícito, nunca padrão — categoria casa):
+  termostato IR para ar-condicionado via Broadlink RM4, **sem canal HACS** —
+  instalação direta com release 1.18.1 fixada por SHA-256 + tamanho, entregue
+  pela fase Arquivos via SMB em `custom_components/smartir`. O `NAO_APLICA`
+  registra a reversão: a regra da casa visava o canal, não o código. O
+  instalador de componente-zip foi generalizado (`instala_componente_zip`,
+  zip-raiz e zip-com-subdiretório) e a cerca de adulteração agora exercita as
+  duas formas. ⚠️ documentado: archive de tag do GitHub não tem
+  byte-estabilidade garantida — divergência de SHA recusa e pede re-pinagem.
+
+
+### Added
 - **Dashboard "Custos" entregue pelo instalador** (barra lateral): energia
   Convencional × Branca (faturas, economia, conferência), gás e água — como
   dashboard yaml-mode PRÓPRIO (`dashboards/custos_br.yaml` + bloco

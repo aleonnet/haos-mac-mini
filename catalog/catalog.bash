@@ -109,6 +109,7 @@ ITEM_DB=(
     "broadlink|casa|Broadlink|core|-|1|dhcp|user dhcp|dhcp|-|-|infravermelho — passos auth e unlock; exige modo de pareamento"
     "shelly|casa|Shelly|core|-|1|zeroconf bluetooth|user zeroconf bluetooth|zeroconf|-|-|medição de energia — base dos packages de custo"
     "tplink|casa|TP-Link Smart Home|core|-|1|dhcp|user dhcp integration_discovery|dhcp|-|-|câmeras Tapo — exige Camera Account criada no app do celular"
+    "smartir|casa|SmartIR (clima IR)|custom|-|0|-|-|-|broadlink|-|termostato IR p/ ar-condicionado via RM4 — release fixada, instalação direta (sem HACS)"
     "smartthings|casa|SmartThings|core|-|1|dhcp|user dhcp|user|application_credentials|-|aparelhos Samsung — OAuth, não token pessoal"
 
     # ── ferramentas ──────────────────────────────────────────────────────────
@@ -189,7 +190,9 @@ ORTOGONAL_DB=(ferramentas casa_abhome extensoes)
 NAO_APLICA_DB=(
     "raspberry_pi|não existe hardware Raspberry Pi numa VM em Mac"
     "rpi_power|mede a fonte do Raspberry Pi"
-    "smartir|é pacote de dentro do HACS — a regra é não instalar nada de lá"
+    # smartir SAIU desta lista em 24/08/2026: a regra visava o CANAL HACS, não
+    # o código — entrou no ITEM_DB como instalação direta com release fixada
+    # e SHA-256 (decisão do dono, para os ar-condicionados via RM4)
     "file_editor|substituído pelo Studio Code Server por decisão do dono (24/08/2026) — a regra 'preferir o oficial quando cobre' cedeu à experiência de edição"
     "core_ssh|oficial, mas NÃO cobre: o config.yaml não declara docker_api, e Protection mode só libera o que o app declara"
 )
