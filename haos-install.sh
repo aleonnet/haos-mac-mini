@@ -373,6 +373,16 @@ MSG_DB=(
 "rel_flows|%s descoberta(s) da sua rede esperando você no painel.|%s discovery(ies) from your network waiting for you in the panel."
 "rel_hacs_prox|HACS: termine no painel - Configurações > Dispositivos e serviços.|HACS: finish in the panel - Settings > Devices and services."
 "rel_abrindo|abrindo no navegador...|opening in the browser..."
+"fase_cofre|Cofre|Vault"
+"cofre_ok|primeiro backup FORA da VM: %s - agente diário às 04:10 traz um novo e poda além de 7.|first backup OUTSIDE the VM: %s - daily agent at 04:10 pulls a fresh one and prunes past 7."
+"cofre_agente_ja|cofre já armado - backups diários às 04:10 em %s.|vault already armed - daily backups at 04:10 into %s."
+"cofre_falhou|não consegui criar/trazer o backup agora - o agente tenta às 04:10; veja o log.|could not create/pull the backup now - the agent retries at 04:10; see the log."
+"un_cofre|o agente do cofre e o script (os BACKUPS em %s são seus - preservados)|the vault agent and script (the BACKUPS in %s are yours - preserved)"
+"rest_uso|--restore exige um arquivo .tar de backup válido: %s|--restore needs a valid backup .tar file: %s"
+"rest_slug|backup %s (slug %s) - enviando para a VM...|backup %s (slug %s) - pushing into the VM..."
+"rest_indo|restaurando - a VM reinicia tudo; pode levar minutos.|restoring - the VM restarts everything; this can take minutes."
+"rest_ok|restauração concluída: a instância voltou com a conta e as integrações do backup.|restore finished: the instance is back with the backup's account and integrations."
+"rest_falhou|A restauração falhou - veja o log.|Restore failed - see the log."
 "rel_tempo|concluído em %s|done in %s"
 "prox_relatorio|relatório desta execução: %s|this run's report: %s"
 "novidade_haos|HAOS %s publicado; esta versão instala a %s fixada (a tabela atualiza em release futura)|HAOS %s published; this version installs the pinned %s (the table updates in a future release)"
@@ -1207,7 +1217,7 @@ autostart_launchagent() {
 # instalador deixou chave e IP) e, não concluindo em 75s, poweroff — seguro
 # com IgnoreFlush=0. savestate é PROIBIDO aqui: o resume quebrou o runtime
 # de containers do guest e o par savestate+discard zerou o /data (medido).
-VBM="/Applications/VirtualBox.app/Contents/MacOS/VBoxManage"
+VBM="${VBM_BIN:-/Applications/VirtualBox.app/Contents/MacOS/VBoxManage}"
 VM="$1"
 ENVF="$HOME/Library/Application Support/haos-mac-mini/vm-guard.env"
 desligar() {
@@ -1220,7 +1230,8 @@ desligar() {
         fi
     fi
     i=0
-    while [ $i -lt 75 ]; do
+    LIMITE="${GUARD_TIMEOUT:-75}"   # seam de teste; launchd usa o padrão
+    while [ $i -lt "$LIMITE" ]; do
         "$VBM" list runningvms 2>/dev/null | grep -qF "\"$VM\"" || exit 0
         sleep 3; i=$((i+3))
     done
@@ -1471,6 +1482,179 @@ fase_integracoes() {
     [ "$teve_acao" = "1" ] && return 0
     return 100
 }
+
+# ── F11: o cofre — backup criado e trazido para FORA da VM ───────────────────
+# Nasceu de perda real (24/08): backup dentro da VM morre com ela. O cofre
+# vive em ~/Documents/HAOS-backups no Mac; um agente diário (04:10) cria um
+# backup novo via `ha backups new`, o traz por cano de cat (o addon SSH não
+# expõe SFTP), valida o tar e poda além de 7. O --restore fecha o ciclo.
+vmssh() { # fala com o guest pela chave que o instalador plantou (seam de teste)
+    ssh -i "$HOME/.ssh/haos-mac-mini" -o BatchMode=yes \
+        -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 \
+        "hassio@$VM_IP" "$@"
+}
+
+escrever_cofre_artefatos() { # script do puxador + agente 04:10 (desired-state)
+    local sdir script plist tmp rotulo uid_atual
+    sdir="$HOME/Library/Application Support/haos-mac-mini"
+    script="$sdir/backup-pull.sh"
+    rotulo="com.haos-mac-mini.backup"
+    plist="$HOME/Library/LaunchAgents/$rotulo.plist"
+    mkdir -p "$sdir" || return 1
+    tmp="$(mktempfile)"
+    cat > "$tmp" <<'FIM_PULL'
+#!/bin/sh
+# backup-pull.sh — escrito pelo haos-install.sh. Cria backup no HAOS e o traz
+# para FORA da VM (este Mac). Transporte por cano de cat (addon sem SFTP).
+# exit: 0 trouxe/atual · 3 nada feito (VM fora do ar etc.)
+ENVF="$HOME/Library/Application Support/haos-mac-mini/vm-guard.env"
+[ -f "$ENVF" ] || exit 3
+. "$ENVF"
+[ -n "$VMIP" ] || exit 3
+CHAVE="$HOME/.ssh/haos-mac-mini"
+DESTINO="$HOME/Documents/HAOS-backups"
+mkdir -p "$DESTINO"
+S() { ssh -i "$CHAVE" -o BatchMode=yes -o ConnectTimeout=10 \
+        -o StrictHostKeyChecking=accept-new "hassio@$VMIP" "$@"; }
+S "bash -lc 'ha backups new --name auto'" >/dev/null 2>&1
+ULTIMO="$(S "sudo sh -c 'ls -t /backup/*.tar 2>/dev/null | head -1'" 2>/dev/null)"
+[ -n "$ULTIMO" ] || exit 3
+NOME="auto-$(date +%Y%m%d)-$(basename "$ULTIMO")"
+[ -f "$DESTINO/$NOME" ] && exit 0
+S "sudo cat $ULTIMO" > "$DESTINO/$NOME.parcial" 2>/dev/null \
+    || { rm -f "$DESTINO/$NOME.parcial"; exit 3; }
+tar -tf "$DESTINO/$NOME.parcial" >/dev/null 2>&1 \
+    || { rm -f "$DESTINO/$NOME.parcial"; exit 3; }
+mv "$DESTINO/$NOME.parcial" "$DESTINO/$NOME"
+ls -t "$DESTINO"/*.tar 2>/dev/null | tail -n +8 | while IFS= read -r f; do
+    rm -f "$f"
+done
+exit 0
+FIM_PULL
+    if [ ! -f "$script" ] || ! cmp -s "$tmp" "$script"; then
+        install -m 0755 "$tmp" "$script" || return 1
+        vm_set cofre_script_path "$script"
+    fi
+    tmp="$(mktempfile)"
+    cat > "$tmp" <<FIM
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>$rotulo</string>
+    <key>ProgramArguments</key>
+    <array><string>$script</string></array>
+    <key>StartCalendarInterval</key>
+    <dict><key>Hour</key><integer>4</integer><key>Minute</key><integer>10</integer></dict>
+</dict>
+</plist>
+FIM
+    uid_atual="$(id -u)"
+    if [ -f "$plist" ] && cmp -s "$tmp" "$plist"; then
+        launchctl print "gui/$uid_atual/$rotulo" >/dev/null 2>&1 \
+            || launchctl bootstrap "gui/$uid_atual" "$plist" >/dev/null 2>&1 \
+            || launchctl load -w "$plist" >/dev/null 2>&1 || true
+        return 0
+    fi
+    mkdir -p "$(dirname "$plist")" || return 1
+    install -m 0644 "$tmp" "$plist" || return 1
+    vm_set cofre_agente pending
+    launchctl bootout "gui/$uid_atual/$rotulo" >/dev/null 2>&1 || true
+    launchctl bootstrap "gui/$uid_atual" "$plist" >/dev/null 2>&1 \
+        || launchctl load -w "$plist" >/dev/null 2>&1 || true
+    vm_set cofre_agente created
+    vm_set cofre_agente_path "$plist"
+    return 0
+}
+
+fase_cofre() {
+    ha_fase "$(msg fase_cofre)"
+    obter_credencial || return 1
+    garantir_log
+    garantir_chave_ssh || { ha_warn "$(msg cofre_falhou)"; return 0; }
+    # o addon SSH é a infraestrutura do cofre — garante mesmo fora da seleção
+    local slug rc=0
+    slug="$(helper_cred repo-ensure \
+        "https://github.com/hassio-addons/repository" ssh 2>>"$LOG_FILE")" \
+        || { ha_warn "$(msg cofre_falhou)"; return 0; }
+    printf '%s\n%s\n%s\n' "$HA_USER" "$HA_SENHA" \
+        "{\"ssh\":{\"authorized_keys\":[\"$CHAVE_SSH_PUB\"]}}" \
+        | helper addon-ensure "$slug" --options-stdin >/dev/null 2>>"$LOG_FILE" || rc=$?
+    { [ "$rc" = "0" ] || [ "$rc" = "100" ]; } || { ha_warn "$(msg cofre_falhou)"; return 0; }
+    # o addon pode ter renascido com host key nova
+    ssh-keygen -R "$VM_IP" >/dev/null 2>&1 || true
+    escrever_cofre_artefatos || { ha_warn "$(msg cofre_falhou)"; return 0; }
+    # primeiro backup AGORA, síncrono — instalação sem cofre não se declara ok
+    rc=0
+    "$HOME/Library/Application Support/haos-mac-mini/backup-pull.sh" \
+        >>"$LOG_FILE" 2>&1 || rc=$?
+    local dest="$HOME/Documents/HAOS-backups"
+    if [ "$rc" = "0" ] && [ -n "$(command ls -t "$dest"/*.tar 2>/dev/null | head -1)" ]; then
+        ha_ok "$(msg cofre_ok "$dest")"
+        return 0
+    fi
+    ha_warn "$(msg cofre_falhou)"
+    return 0
+}
+
+# ── --restore: o caminho de volta, de um comando ─────────────────────────────
+# Aceita o .tar do cofre, o empurra para /backup da VM e manda o Supervisor
+# restaurar — conta, integrações, dashboards e packages voltam inteiros.
+# Funciona até contra instância VIRGEM (cria conta de resgate + addon SSH).
+rodar_restore() {
+    local tar_arq="$OP_RESTORE" slug rc=0
+    if [ ! -f "$tar_arq" ] || ! tar -tf "$tar_arq" >/dev/null 2>&1; then
+        ha_err "$(msg rest_uso "$tar_arq")"
+        return "$E_USO"
+    fi
+    slug="$(tar -xOf "$tar_arq" ./backup.json 2>/dev/null \
+        | python3 -c 'import json,sys; print(json.load(sys.stdin)["slug"])' 2>/dev/null)"
+    [ -n "$slug" ] || { ha_err "$(msg rest_uso "$tar_arq")"; return "$E_USO"; }
+    sonda
+    ha_fase "$(msg fase_boot)"
+    command -v VBoxManage >/dev/null 2>&1 \
+        || PATH="$PATH:/Applications/VirtualBox.app/Contents/MacOS"
+    local rc_boot=0
+    fase_boot || rc_boot=$?
+    { [ "$rc_boot" = "0" ] || [ "$rc_boot" = "100" ]; } || return "$E_VALID"
+    obter_credencial || return "$E_USO"
+    garantir_log
+    # instância virgem: cria a conta (a restauração a substitui pela do backup)
+    local rc_conta=0
+    helper_cred conta >/dev/null 2>>"$LOG_FILE" || rc_conta=$?
+    { [ "$rc_conta" = "0" ] || [ "$rc_conta" = "100" ]; } || { ha_err "$(msg rest_falhou)"; diagnostico_log; return 1; }
+    garantir_chave_ssh || return 1
+    local slug_addon
+    slug_addon="$(helper_cred repo-ensure \
+        "https://github.com/hassio-addons/repository" ssh 2>>"$LOG_FILE")" || { ha_err "$(msg rest_falhou)"; return 1; }
+    rc=0
+    printf '%s\n%s\n%s\n' "$HA_USER" "$HA_SENHA" \
+        "{\"ssh\":{\"authorized_keys\":[\"$CHAVE_SSH_PUB\"]}}" \
+        | helper addon-ensure "$slug_addon" --options-stdin >/dev/null 2>>"$LOG_FILE" || rc=$?
+    { [ "$rc" = "0" ] || [ "$rc" = "100" ]; } || { ha_err "$(msg rest_falhou)"; return 1; }
+    ssh-keygen -R "$VM_IP" >/dev/null 2>&1 || true
+    ha_info "$(msg rest_slug "$(basename "$tar_arq")" "$slug")"
+    vmssh "sudo tee /backup/$slug.tar >/dev/null" < "$tar_arq" \
+        || { ha_err "$(msg rest_falhou)"; diagnostico_log; return 1; }
+    vmssh "bash -lc 'ha backups reload'" >>"$LOG_FILE" 2>&1 || true
+    ha_info "$(msg rest_indo)"
+    vmssh "bash -lc 'ha backups restore $slug'" >>"$LOG_FILE" 2>&1 || true
+    # a conexão CAI no meio (restore reinicia tudo) — o veredito é a volta
+    local t=0 limite="${HAOS_BOOT_TIMEOUT:-900}" ob=""
+    while [ "$t" -lt "$limite" ]; do
+        sleep "${HAOS_BOOT_PASSO:-10}"; t=$(( t + ${HAOS_BOOT_PASSO:-10} ))
+        ob="$(curl -sL -m 5 "http://$VM_IP/api/onboarding" 2>/dev/null | head -c 12 || true)"
+        case "$ob" in *404*|*Unauth*) break ;; esac
+        ob=""
+    done
+    if [ -n "$ob" ]; then
+        ha_ok "$(msg rest_ok)"
+        return 0
+    fi
+    ha_err "$(msg rest_falhou)"; diagnostico_log
+    return 1
+}
+
 
 # ── F9: arquivos em /config, por montagem SMB ────────────────────────────────
 HAOS_HACS_VERSION="2.0.5"
@@ -1852,6 +2036,16 @@ un_montar_plano() {
         *)           command -v VBoxManage >/dev/null 2>&1 && un_add_keep "$(msg un_vbox_pre)" ;;
     esac
 
+    # O cofre sai junto (agente+script) — mas os BACKUPS ficam: são do dono.
+    local cofre_st cofre_plist cofre_script
+    cofre_st="$(manifest_get "$(vm_manifest)" cofre_agente)"
+    cofre_plist="$(manifest_get "$(vm_manifest)" cofre_agente_path)"
+    cofre_script="$(manifest_get "$(vm_manifest)" cofre_script_path)"
+    if [ "$cofre_st" = "created" ] && [ -n "$cofre_plist" ]; then
+        un_add_remove "$(msg un_cofre "$HOME/Documents/HAOS-backups")"
+        un_act "rm-cofre"
+    fi
+
     # O agente de auto-start sai PRIMEIRO — enquanto ele existir, um login
     # pode religar a VM no meio da remoção (achado da banca).
     local ag_st ag_path
@@ -1919,7 +2113,7 @@ un_rm() { # <caminho> <classe>
 }
 
 un_executar() {
-    local acao vdi_path zip_path d ag_path esp guard_path
+    local acao vdi_path zip_path d ag_path esp guard_path cofre_plist cofre_script
     vdi_path="$(manifest_get "$(vm_manifest)" vdi_path)"
     zip_path="$(manifest_get "$(vm_manifest)" zip_path)"
     ag_path="$(manifest_get "$(vm_manifest)" autostart_path)"
@@ -1927,6 +2121,12 @@ un_executar() {
     while IFS= read -r acao; do
         [ -n "$acao" ] || continue
         case "$acao" in
+            rm-cofre)
+                launchctl bootout "gui/$(id -u)/com.haos-mac-mini.backup" >/dev/null 2>&1 || true
+                cofre_plist="$(manifest_get "$(vm_manifest)" cofre_agente_path)"
+                cofre_script="$(manifest_get "$(vm_manifest)" cofre_script_path)"
+                [ -n "$cofre_plist" ] && [ -f "$cofre_plist" ] && un_rm "$cofre_plist" agent
+                [ -n "$cofre_script" ] && [ -f "$cofre_script" ] && un_rm "$cofre_script" guard ;;
             rm-agent)
                 launchctl bootout "gui/$(id -u)/$(basename "${ag_path%.plist}")" >/dev/null 2>&1 || true
                 un_rm "$ag_path" agent
@@ -4404,7 +4604,7 @@ OP_PERFIL=""; OP_WITH=""; OP_VM_PERFIL=""; OP_VM_NOME="HomeAssistant"; OP_IMAGEM
 OP_DRYRUN=0; OP_LIST=0; OP_NOINPUT=0; OP_FORCE=0
 OP_QUIET=0; OP_VERBOSE=0; OP_ALL=0
 OP_KEEP_IMAGE=0; OP_INSTALL_DEPS=0; OP_NO_OPEN=0
-OP_MODO=""; OP_CONFIRM=""
+OP_MODO=""; OP_CONFIRM=""; OP_RESTORE=""
 
 modo_unico() {
     [ -z "$OP_MODO" ] || morrer "$E_USO" "--$1 / --$OP_MODO"
@@ -4451,6 +4651,8 @@ OUTRAS
   -q, --quiet        suprime a saída normal
   --no-input         não pergunta nada; falha se faltar dado obrigatório
   --no-open          não abre o navegador no fim
+  --restore <tar>    restaura um backup do cofre (~/Documents/HAOS-backups)
+                     na VM - conta, integrações e dashboards voltam inteiros
   -f, --force        refaz artefato já presente. NÃO pula portão nem hash.
   --install-deps     instala pré-requisitos ausentes sem perguntar (VirtualBox)
 
@@ -4500,6 +4702,10 @@ ler_args() {
             --image=*)      exige_valor --image "${1#*=}";     OP_IMAGEM="${1#*=}" ;;
             --doctor)       modo_unico doctor ;;
             --uninstall)    modo_unico uninstall ;;
+            --restore)      exige_valor --restore "${2:-}"; OP_RESTORE="$2"; shift
+                            modo_unico restore ;;
+            --restore=*)    exige_valor --restore "${1#*=}"; OP_RESTORE="${1#*=}"
+                            modo_unico restore ;;
             --self-update)  modo_unico self-update ;;
             --confirm=*)    OP_CONFIRM="${1#*=}" ;;
             -a|--all)       OP_ALL=1 ;;
@@ -5207,6 +5413,7 @@ main() {
         doctor)      rodar_doctor;      exit $? ;;
         uninstall)   rodar_uninstall;   exit $? ;;
         self-update) rodar_self_update; exit $? ;;
+        restore)     rodar_restore;     exit $? ;;
     esac
 
     # A partir daqui a execução conta como execução: o limpar() espelha o
@@ -5214,7 +5421,7 @@ main() {
     # NADA (cerca de snapshot no portão).
     MAIN_INICIADO=1
     MAIN_T0=$SECONDS
-    if [ "$OP_DRYRUN" = "1" ]; then HA_BAR_TOTAL=3; else HA_BAR_TOTAL=10; fi
+    if [ "$OP_DRYRUN" = "1" ]; then HA_BAR_TOTAL=3; else HA_BAR_TOTAL=11; fi
 
     # O logo só aparece quando há terminal e o usuário não pediu silêncio.
     # Em log, CI ou --quiet, um cabeçalho de uma linha. A animação nunca é
@@ -5276,6 +5483,10 @@ main() {
     local rc_arq=0
     fase_arquivos || rc_arq=$?
     [ "$rc_arq" = "0" ] || [ "$rc_arq" = "100" ] || exit "$E_VALID"
+
+    local rc_cofre=0
+    fase_cofre || rc_cofre=$?
+    [ "$rc_cofre" = "0" ] || [ "$rc_cofre" = "100" ] || exit "$E_VALID"
 
     relatorio_final
 }

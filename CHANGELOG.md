@@ -6,6 +6,23 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
 
 ## [Unreleased]
 
+### Added
+- **F11 — o Cofre**: a instalação só se declara completa com um backup FORA
+  da VM. A fase garante o add-on SSH (infra do cofre), instala o
+  `backup-pull.sh` + agente diário (04:10) que cria backup via
+  `ha backups new`, o traz por cano de cat (o add-on não expõe SFTP), valida
+  o tar e poda além de 7 — e executa o PRIMEIRO backup na hora. `--restore
+  <tar>` fecha o ciclo: empurra o tar de volta, `ha backups restore` pelo
+  slug lido do próprio arquivo, espera a instância voltar — funciona até
+  contra VM virgem (conta de resgate + add-on automáticos). Cercas para TODOS
+  os cenários: cofre feliz + poda, vigia limpo e fallback (script real sob
+  TERM, com seams `VBM_BIN`/`GUARD_TIMEOUT`), restore feliz + tar corrompido
+  recusado. De quebra, o sandbox pegou um bug de máquina virgem
+  (`~/Library/LaunchAgents` inexistente).
+- **README**: seção nova citando o guia oficial de macOS e os buracos dele
+  que este instalador cobre (flush, VirtioSCSI/ARM, shutdown, backup).
+
+
 ### Fixed
 - 🔴🔴 **A causa-raiz das perdas de dados, encontrada e morta: por padrão o
   VirtualBox IGNORA os flushes de disco do guest** — o journal do ext4 vira

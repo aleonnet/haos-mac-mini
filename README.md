@@ -127,3 +127,16 @@ catálogo, `lib/` da camada visual e da sonda, e `tools/embed.sh` embute as cóp
 
 Documentos de engenharia (contrato de API verificado, curadoria do catálogo, handoffs de
 frente) vivem em [`docs/`](docs/). Licença **MIT**.
+
+## O guia oficial e os buracos que este instalador cobre
+
+O [guia oficial de HAOS em macOS/VirtualBox](https://www.home-assistant.io/installation/macos/)
+para no "crie a VM e dê boot". Na prática (tudo medido em campo, 24–25/08/2026):
+
+| O guia | A realidade | Aqui |
+|---|---|---|
+| Silêncio sobre flush de disco | **O VirtualBox ignora flushes do guest por padrão** — o journal do ext4 vira ficção e um desligamento sujo ZERA o `/data` do HAOS | `IgnoreFlush=0` gravado na criação da VM; validado com 5 quedas de energia simuladas sem perder um byte (cerca no CI) |
+| Manda usar VirtioSCSI em Apple Silicon | O `VBoxManage` ARM **recusa** VirtioSCSI ("Invalid controller type") | SATA/AHCI sondado no binário real antes de criar |
+| Nada sobre desligamento seguro | Reboot/logout do Mac mata a VM a seco | **vm-guard**: `ha host shutdown` limpo no logout, fallback `poweroff` honesto (cercado nos dois cenários; `savestate` é proibido — quebra o runtime de containers do guest) |
+| Nada sobre backup | O backup nativo do HA fica DENTRO da VM — morre com ela | **Cofre**: backup criado na instalação e trazido para `~/Documents/HAOS-backups` no Mac, agente diário às 04:10, e `--restore <tar>` devolve a instância inteira em um comando (cercas cobrem criar/trazer/podar/restaurar/recusar adulterado) |
+| Onboarding, add-ons, integrações: "use o navegador" | horas de cliques | fases 07–10 automatizam o que não exige credencial sua |

@@ -451,6 +451,116 @@ else
 fi
 rm -rf "$sb_f5"
 
+# ── vm-guard: os DOIS cenários de desligamento, com o script de verdade ──────
+# Limpo: TERM → ssh `ha host shutdown` responde e a VM some → SEM poweroff.
+# Fallback: ssh falha e a VM não morre → poweroff após GUARD_TIMEOUT.
+titulo "vm-guard: desligamento limpo e fallback"
+sb_g="$(mktemp -d "${TMPDIR:-/tmp}/haos-gate-guard.XXXXXX")"
+# shellcheck disable=SC2016
+saida_g="$(HAOS_INSTALL_LIB=1 SB="$sb_g" "${BASH:-/bin/bash}" -c '
+    source haos-install.sh
+    HOME="$SB"
+    OP_VM_NOME=HomeAssistant
+    launchctl() { return 0; }
+    autostart_launchagent >/dev/null 2>&1
+    mkdir -p "$SB/Library/Application Support/haos-mac-mini" "$SB/bin" "$SB/c1" "$SB/c2"
+    printf "VMIP=127.0.0.2\n" > "$SB/Library/Application Support/haos-mac-mini/vm-guard.env"
+    mkdir -p "$SB/.ssh"; printf "chave-cerca\n" > "$SB/.ssh/haos-mac-mini"
+    g="$SB/Library/Application Support/haos-mac-mini/vm-guard.sh"
+    [ -x "$g" ] || { printf "sem-guard"; exit 0; }
+    # shims de PATH: o guard é processo separado — função de shell não o alcança
+    cat > "$SB/bin/VBoxManage" <<FIMV
+#!/bin/sh
+echo "\$*" >> "\$CENARIO/calls.txt"
+case "\$*" in
+    "list runningvms")
+        n=\$(cat "\$CENARIO/n" 2>/dev/null || echo 0); n=\$((n+1)); echo \$n > "\$CENARIO/n"
+        if [ -f "\$CENARIO/imortal" ] || [ \$n -le 2 ]; then echo "\"HomeAssistant\" {u}"; fi ;;
+esac
+exit 0
+FIMV
+    chmod +x "$SB/bin/VBoxManage"
+    cat > "$SB/bin/ssh" <<FIMS
+#!/bin/sh
+echo "ssh \$*" >> "\$CENARIO/calls.txt"
+[ -f "\$CENARIO/ssh-falha" ] && exit 1
+exit 0
+FIMS
+    chmod +x "$SB/bin/ssh"
+    roda_cenario() { # <dir>
+        CENARIO="$1" PATH="$SB/bin:$PATH" VBM_BIN="$SB/bin/VBoxManage" \
+            GUARD_TIMEOUT=6 /bin/sh "$g" HomeAssistant &
+        gp=$!
+        sleep 1
+        kill -TERM $gp 2>/dev/null
+        wait $gp 2>/dev/null
+    }
+    roda_cenario "$SB/c1"
+    limpo_ssh=0; grep -q "ssh .*ha host shutdown" "$SB/c1/calls.txt" && limpo_ssh=1
+    limpo_pw=0;  grep -q "controlvm HomeAssistant poweroff" "$SB/c1/calls.txt" && limpo_pw=1
+    touch "$SB/c2/imortal" "$SB/c2/ssh-falha"
+    roda_cenario "$SB/c2"
+    fb_pw=0; grep -q "controlvm HomeAssistant poweroff" "$SB/c2/calls.txt" && fb_pw=1
+    printf "limpo_ssh=%s limpo_pw=%s fb_pw=%s" "$limpo_ssh" "$limpo_pw" "$fb_pw"')"
+if [ "$saida_g" = "limpo_ssh=1 limpo_pw=0 fb_pw=1" ]; then
+    ok "vigia: limpo desliga via ha host shutdown SEM poweroff; fallback faz poweroff no prazo"
+else
+    falha "vm-guard: esperado 'limpo_ssh=1 limpo_pw=0 fb_pw=1', obtido '$saida_g'"
+fi
+rm -rf "$sb_g"
+
+# ── --restore de ponta a ponta (dublado) ─────────────────────────────────────
+# O caminho de volta: tar do cofre → push → reload → restore → espera voltar.
+# E a recusa: tar corrompido nem sai do lugar.
+titulo "--restore (dublado)"
+sb_r="$(mktemp -d "${TMPDIR:-/tmp}/haos-gate-rest.XXXXXX")"
+python3 - "$sb_r" <<'PYTAR'
+import io, json, sys, tarfile
+sb = sys.argv[1]
+with tarfile.open(f"{sb}/bom.tar", "w") as t:
+    dado = json.dumps({"slug": "feed1234", "name": "cerca"}).encode()
+    info = tarfile.TarInfo("./backup.json"); info.size = len(dado)
+    t.addfile(info, io.BytesIO(dado))
+open(f"{sb}/ruim.tar", "wb").write(b"nao sou um tar")
+PYTAR
+# shellcheck disable=SC2016
+saida_r="$(HAOS_INSTALL_LIB=1 SB="$sb_r" "${BASH:-/bin/bash}" -c '
+    source haos-install.sh
+    HOME="$SB"
+    OP_VM_NOME=HomeAssistant
+    HAOS_HA_USER=u; HAOS_HA_PASSWORD=p; OP_NOINPUT=1
+    HAOS_BOOT_PASSO=1; HAOS_BOOT_TIMEOUT=8
+    fase_boot() { VM_IP=10.9.9.9; VM_URL="http://10.9.9.9"; return 100; }
+    helper() { case "$1" in
+        conta) return 0 ;;
+        repo-ensure) printf "a1b2c3d4_ssh\n" ;;
+        addon-ensure) return 0 ;;
+    esac; }
+    garantir_chave_ssh() { CHAVE_SSH_PUB="ssh-ed25519 CERCA"; }
+    ssh-keygen() { return 0; }
+    vmssh() {
+        printf "%s\n" "$*" >> "$SB/calls.txt"
+        case "$*" in *"sudo tee /backup/feed1234.tar"*) cat > "$SB/pushed.tar" ;; esac
+        return 0
+    }
+    curl() { printf "404: Not Found"; }
+    garantir_log
+    OP_RESTORE="$SB/bom.tar"
+    rc1=0; rodar_restore >/dev/null 2>&1 || rc1=$?
+    seq_ok=1
+    grep -q "ha backups reload" "$SB/calls.txt" || seq_ok=0
+    grep -q "ha backups restore feed1234" "$SB/calls.txt" || seq_ok=0
+    igual=0; cmp -s "$SB/pushed.tar" "$SB/bom.tar" && igual=1
+    OP_RESTORE="$SB/ruim.tar"
+    rc2=0; rodar_restore >/dev/null 2>&1 || rc2=$?
+    printf "rc1=%s seq=%s igual=%s rc2=%s" "$rc1" "$seq_ok" "$igual" "$rc2"')"
+if [ "$saida_r" = "rc1=0 seq=1 igual=1 rc2=2" ]; then
+    ok "--restore: push íntegro + reload + restore pelo slug + espera; tar corrompido recusado"
+else
+    falha "--restore: esperado 'rc1=0 seq=1 igual=1 rc2=2', obtido '$saida_r'"
+fi
+rm -rf "$sb_r"
+
 # ── caminho seguro do uninstall: cerca NEGATIVA da classe agent ──────────────
 titulo "un_caminho_seguro (classe agent)"
 # shellcheck disable=SC2016
@@ -671,6 +781,10 @@ class H(BaseHTTPRequestHandler):
                     slug = ep.split("/")[2]
                     estado["addons"][slug]["state"] = "started"
                     manda({"id": mid, "type": "result", "success": True, "result": {}})
+                elif ep.endswith("/restart") and metodo == "post":
+                    slug = ep.split("/")[2]
+                    estado["addons"][slug]["state"] = "started"
+                    manda({"id": mid, "type": "result", "success": True, "result": {}})
                 elif ep.endswith("/info"):
                     slug = ep.split("/")[2]
                     a = estado["addons"].get(slug)
@@ -727,6 +841,40 @@ if [ -s "$sb_ha/porta" ]; then
         # gravar o ponto antes de a fase o zerar — nada está montado de verdade
         desmontar_smb() { PONTO_GRAVADO="$SMB_PONTO"; SMB_PONTO=""; }
         rc_f9=0; fase_arquivos >/dev/null 2>&1 || rc_f9=$?
+        # ── cofre: primeiro backup + agente + poda, com ssh/launchctl dublados
+        launchctl() { printf "%s\n" "$*" >> "$SB/launchctl.txt"; return 0; }
+        tar -cf "$SB/fake-backup.tar" -C "$SB" porta >/dev/null 2>&1
+        cat > "$SB/bin/ssh" <<FIMSSH
+#!/bin/sh
+caso="\$*"
+case "\$caso" in
+    *"ha backups new"*) exit 0 ;;
+    *"ls -t /backup"*)  echo "/backup/feed1234.tar"; exit 0 ;;
+    *"sudo cat /backup/feed1234.tar"*) cat "$SB/fake-backup.tar"; exit 0 ;;
+    *) exit 0 ;;
+esac
+FIMSSH
+        chmod +x "$SB/bin/ssh"
+        cat > "$SB/bin/ssh-keygen" <<FIMKG
+#!/bin/sh
+exit 0
+FIMKG
+        chmod +x "$SB/bin/ssh-keygen"
+        garantir_chave_ssh() { CHAVE_SSH_PUB="ssh-ed25519 CERCA"; }
+        mkdir -p "$SB/Library/Application Support/haos-mac-mini"
+        printf "VMIP=127.0.0.2\n" > "$SB/Library/Application Support/haos-mac-mini/vm-guard.env"
+        mkdir -p "$SB/Documents/HAOS-backups"
+        for n in 1 2 3 4 5 6 7 8; do
+            printf x > "$SB/Documents/HAOS-backups/velho-$n.tar"
+            touch -t 2601010$n"00" "$SB/Documents/HAOS-backups/velho-$n.tar"
+        done
+        rc_cf=0; fase_cofre >"$SB/cofre.log" 2>&1 || rc_cf=$?
+        n_tars="$(command ls "$SB/Documents/HAOS-backups"/*.tar 2>/dev/null | wc -l | tr -d " ")"
+        tem_novo=0
+        command ls "$SB/Documents/HAOS-backups"/auto-*feed1234.tar >/dev/null 2>&1 && tem_novo=1
+        cofre_arte=0
+        [ -x "$SB/Library/Application Support/haos-mac-mini/backup-pull.sh" ] \
+            && [ -f "$SB/Library/LaunchAgents/com.haos-mac-mini.backup.plist" ] && cofre_arte=1
         pkg_ok=0
         if [ -f "${PONTO_GRAVADO:-/nada}/packages/energia_br.yaml" ]; then pkg_ok=1; fi
         dash_ok=0
@@ -741,9 +889,9 @@ if [ -s "$sb_ha/porta" ]; then
             [ -e "$alvo" ] || continue
             if grep -r "SENTINELA-9f3a7c" "$alvo" >/dev/null 2>&1; then vaz=1; fi
         done
-        printf "c1=%s c2=%s a1=%s a2=%s i=%s fl=%s cj=%s f9=%s pkg=%s dash=%s sem=%s vaz=%s" \
-            "$rc_c1" "$rc_c2" "$rc_a1" "$rc_a2" "$rc_i" "$n_flows" "$rc_cj" "$rc_f9" "$pkg_ok" "$dash_ok" "$rc_sem" "$vaz"')"
-    esp_ha="c1=0 c2=100 a1=0 a2=100 i=0 fl=2 cj=1 f9=0 pkg=1 dash=1 sem=1 vaz=0"
+        printf "c1=%s c2=%s a1=%s a2=%s i=%s fl=%s cj=%s f9=%s pkg=%s dash=%s cf=%s tars=%s novo=%s arte=%s sem=%s vaz=%s" \
+            "$rc_c1" "$rc_c2" "$rc_a1" "$rc_a2" "$rc_i" "$n_flows" "$rc_cj" "$rc_f9" "$pkg_ok" "$dash_ok" "$rc_cf" "$n_tars" "$tem_novo" "$cofre_arte" "$rc_sem" "$vaz"')"
+    esp_ha="c1=0 c2=100 a1=0 a2=100 i=0 fl=2 cj=1 f9=0 pkg=1 dash=1 cf=0 tars=7 novo=1 arte=1 sem=1 vaz=0"
     if [ "$saida_ha" = "$esp_ha" ]; then
         ok "F6–F9 no dublado: conta 0→100, apps 0→100 (repo hash descoberto), conjunto reprova, F9 escreve, sentinela ausente"
     else
