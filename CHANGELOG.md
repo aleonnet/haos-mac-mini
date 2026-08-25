@@ -73,6 +73,12 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
   updates de registro (a desligada-pelo-dono não é tocada; `lo` não casa
   o glob). Mutation-testada.
 
+- **README_EN_US.md** — o README inteiro em inglês, com links cruzados entre
+  os dois idiomas. O produto já falava en-US pela locale do Mac; agora a
+  porta de entrada do repositório também. O parágrafo de estado do README
+  foi atualizado no mesmo passo: agora cita o flush honesto, o vm-guard e o
+  cofre, que tinham ficado para trás.
+
 ### Changed
 - **README fact-checkado contra as fontes primárias** (Oracle Troubleshooting
   7.2, reverificada em 25/08): a perda de `/data` em desligamento sujo é

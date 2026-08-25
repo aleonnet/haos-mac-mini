@@ -2,6 +2,8 @@
 
 ![CI](https://github.com/aleonnet/haos-mac-mini/actions/workflows/ci.yml/badge.svg)
 
+> 🇺🇸 **English version:** [README_EN_US.md](README_EN_US.md)
+
 Instalador de **Home Assistant OS** numa VM VirtualBox em **Mac Apple Silicon**, em um
 único script Bash — idempotente, bilíngue (pt-BR/en-US pelo idioma do Mac) e pronto para
 rodar direto via `curl`. Identidade visual do próprio Home Assistant, com degradação
@@ -10,11 +12,14 @@ verificada: em log, CI ou terminal sem UTF-8 a saída vira texto limpo e grepáv
 > **Estado: funcional de ponta a ponta (0.3.0).** Um comando leva do Mac vazio ao
 > **Home Assistant no ar**: valida a máquina, instala o VirtualBox (SHA-256 da
 > Oracle), baixa e confere a imagem oficial do HAOS, cria a VM (argumentos
-> sondados no VBoxManage ARM real), dá o boot e espera pelo MAC da VM, cria sua
+> sondados no VBoxManage ARM real, com flush de disco honesto desde o
+> nascimento), dá o boot e espera pelo MAC da VM, cria sua
 > conta (onboarding com analytics desligado), instala os apps escolhidos via
 > WebSocket do Supervisor, configura as integrações que fecham sem credencial,
-> escreve os packages em `/config` por SMB — e termina com o **endereço real**
-> na tela e o navegador aberto. Auto-start no login incluído. O
+> escreve packages e dashboards em `/config` por SMB — e termina com o
+> **endereço real** na tela e o navegador aberto. Auto-start no login,
+> **desligamento limpo** no logout/reboot (vm-guard) e **backup diário trazido
+> para fora da VM** (o cofre, com `--backup`/`--restore`) incluídos. O
 > [CHANGELOG](CHANGELOG.md) diz exatamente o que existe em cada versão.
 >
 > ⚠️ Se você JÁ tem um Home Assistant na rede, `homeassistant.local` continua
