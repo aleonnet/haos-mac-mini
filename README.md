@@ -61,7 +61,7 @@ Os degraus **somam**; os extras marcam-se à parte, em qualquer degrau.
 | `haos_conectado` | + infraestrutura de conectividade (MQTT, Matter, Thread, ESPHome, Cast) |
 | `haos_casa` | + integrações de hardware de casa (Hue, Tuya, Shelly, TP-Link, SmartThings…) |
 
-Extras (`--with`): `ferramentas` (SSH, File editor, Samba) · `casa_abhome` (packages de
+Extras (`--with`): `ferramentas` (SSH, Studio Code Server, Samba) · `casa_abhome` (packages de
 custo com regras brasileiras) · `extensoes` (HACS — só a instalação, e nunca no `--all`).
 
 Veja o catálogo completo com `--list`.
@@ -87,6 +87,8 @@ Veja o catálogo completo com `--list`.
 | `--doctor` | diagnóstico read-only: sistema, manifesto, imagem, estado (exit 1 com problema) |
 | `--uninstall` | remove **só o que este instalador criou** (plano + confirmação; `--dry-run` mostra o plano; `--confirm=<nome-da-vm>` confirma sem terminal) |
 | `--self-update` | atualiza o script pelo publicado — valida sintaxe, recusa downgrade, deixa backup `.bak` |
+| `--restore <tar>` | restaura um backup do cofre (`~/Documents/HAOS-backups`) na VM — conta, integrações e dashboards voltam inteiros |
+| `--no-open` | não abre o navegador no fim |
 | `--version` / `--help` | versão e ajuda |
 
 Variáveis de ambiente: `HAOS_LANG=pt|en` força o idioma; `NO_COLOR` desliga cor e
