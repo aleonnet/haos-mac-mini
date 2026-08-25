@@ -421,7 +421,12 @@ saida_f5="$(HAOS_INSTALL_LIB=1 SB="$sb_f5" "${BASH:-/bin/bash}" -c '
     ag="$(manifest_get "$(vm_manifest)" autostart)"
     plist_ok=0
     p="$SB/Library/LaunchAgents/com.haos-mac-mini.HomeAssistant.plist"
-    [ -f "$p" ] && ! grep -q -- "-c</string>" "$p" && grep -q "<string>startvm</string>" "$p" && plist_ok=1
+    g="$SB/Library/Application Support/haos-mac-mini/vm-guard.sh"
+    [ -f "$p" ] && ! grep -q -- "-c</string>" "$p" \
+        && grep -q "vm-guard.sh</string>" "$p" \
+        && grep -q "<string>HomeAssistant</string>" "$p" \
+        && [ -x "$g" ] && grep -q "savestate" "$g" \
+        && plist_ok=1
     boot_ok=0; [ -f "$SB/ligada" ] && [ -f "$SB/pingou" ] && boot_ok=1
     # convergência: agora a VM "roda" e responde de primeira
     VBoxManage() { case "$1" in showvminfo) printf "macaddress1=\"0800270C0FFB\"\nVMState=\"running\"\n";; list) printf "\"HomeAssistant\" {u}\n";; esac; return 0; }

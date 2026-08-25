@@ -6,6 +6,19 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
 
 ## [Unreleased]
 
+### Fixed
+- 🔴 **DEFEITO GRAVE, medido em perda real (24/08, noite): o auto-start só
+  LIGAVA a VM — o shutdown do Mac matava o VBoxHeadless a seco**, o `/data`
+  do HAOS corrompia e a recuperação o zerava (instância configurada foi ao
+  chão). O LaunchAgent agora roda o **vm-guard**: sobe a VM no login e, no
+  SIGTERM do launchd (logout/shutdown), faz `controlvm savestate` — congela
+  em disco sem cooperação do guest (HAOS ignora ACPI, medido) e o próximo
+  login retoma do ponto exato; `ExitTimeOut 180` dá ao launchd a paciência
+  do save. O `--uninstall` aprendeu `discardstate` (VM salva não é
+  "running") e remove o vigia. Cerca da F5 atualizada: plist aponta o
+  vm-guard com o nome em argv (sem `sh -c`), vigia executável com savestate.
+
+
 ### Added
 - **SmartIR no catálogo** (item explícito, nunca padrão — categoria casa):
   termostato IR para ar-condicionado via Broadlink RM4, **sem canal HACS** —

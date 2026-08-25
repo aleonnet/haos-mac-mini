@@ -309,8 +309,8 @@ MSG_DB=(
 "boot_esperando|esperando o HAOS aparecer na rede (MAC %s) - o primeiro boot leva alguns minutos|waiting for HAOS to show up on the network (MAC %s) - first boot takes a few minutes"
 "boot_no_ar|HAOS no ar: %s responde.|HAOS is up: %s answers."
 "boot_timeout|O HAOS não respondeu em %s s. A VM está ligada - confira a rede em ponte e o cabo, ou reexecute para esperar de novo.|HAOS did not answer within %s s. The VM is on - check the bridged network and cable, or rerun to wait again."
-"boot_autostart_ok|auto-start no login instalado: a VM sobe sozinha quando você entrar no Mac|login auto-start installed: the VM comes up by itself when you log into the Mac"
-"boot_autostart_ja|auto-start no login já instalado.|login auto-start already installed."
+"boot_autostart_ok|guarda da VM instalada: sobe no login e é SALVA (savestate) no logout/shutdown - reboot do Mac não corrompe mais o HAOS.|VM guard installed: starts at login and is SAVED (savestate) at logout/shutdown - Mac reboots no longer corrupt HAOS."
+"boot_autostart_ja|guarda da VM já instalada.|VM guard already installed."
 "un_agent|o auto-start do login (%s)|the login auto-start (%s)"
 "vm_nome_invalido|--vm-name aceita só letras, números, ponto, hífen e sublinhado (até 64, sem ponto inicial) - o nome entra em caminhos e no launchd.|--vm-name accepts only letters, digits, dot, hyphen and underscore (max 64, no leading dot) - the name goes into paths and launchd."
 "fase_conta|Conta|Account"
@@ -1171,18 +1171,44 @@ fase_boot() {
     return 0
 }
 
-# ── F5b: auto-start no login ─────────────────────────────────────────────────
-# LaunchAgent desired-state. Caminho COMPLETO do bundle no comando: launchd
-# não tem /usr/local/bin no PATH (mesma lição da sonda). SEM `sh -c` — a banca
-# reprovou a interpolação de nome dentro de shell (injeção persistente a cada
-# login); argv direto não interpreta nada, e `startvm` numa VM já rodando só
-# devolve um erro inócuo. O nome da VM é validado no parser ([A-Za-z0-9._-]).
+# ── F5b: guarda da VM — sobe no login, SALVA no logout/shutdown ─────────────
+# Nasceu de perda REAL (24/08, noite): o agente antigo só ligava a VM; o
+# reboot do Mac matava o VBoxHeadless a seco, o /data do HAOS corrompia e a
+# recuperação o zerava — a casa inteira reconfigurada foi ao chão. Agora o
+# LaunchAgent roda um VIGIA: startvm no login e, no SIGTERM do launchd
+# (logout/shutdown), `controlvm savestate` — congela a VM em disco SEM
+# cooperação do guest (o HAOS ignora ACPI, medido) e o próximo login retoma
+# do ponto exato. ExitTimeOut dá ao launchd a paciência que o save de RAM
+# precisa. Argv direto no plist (sem sh -c — banca) e nome validado no parser.
 autostart_launchagent() {
-    local rotulo plist tmp vbm_bin dir uid_atual
+    local rotulo plist tmp vbm_bin dir uid_atual guarda tmpg
     dir="$HOME/Library/LaunchAgents"
     rotulo="com.haos-mac-mini.$OP_VM_NOME"
     plist="$dir/$rotulo.plist"
     vbm_bin="/Applications/VirtualBox.app/Contents/MacOS/VBoxManage"
+    guarda="$HOME/Library/Application Support/haos-mac-mini/vm-guard.sh"
+
+    tmpg="$(mktempfile)"
+    cat > "$tmpg" <<'FIM_GUARDA'
+#!/bin/sh
+# vm-guard.sh — escrito pelo haos-install.sh (fonte de verdade: o instalador).
+# Sobe a VM no login e a SALVA (savestate) quando o launchd manda parar.
+VBM="/Applications/VirtualBox.app/Contents/MacOS/VBoxManage"
+VM="$1"
+salvar() {
+    "$VBM" controlvm "$VM" savestate >/dev/null 2>&1
+    exit 0
+}
+trap salvar TERM INT HUP
+"$VBM" list runningvms 2>/dev/null | grep -qF "\"$VM\"" \
+    || "$VBM" startvm "$VM" --type headless >/dev/null 2>&1
+# vivo para receber o sinal; sleep em background para o trap disparar na hora
+while :; do
+    sleep 300 &
+    wait $! || :
+done
+FIM_GUARDA
+
     tmp="$(mktempfile)"
     cat > "$tmp" <<FIM
 <?xml version="1.0" encoding="UTF-8"?>
@@ -1193,17 +1219,22 @@ autostart_launchagent() {
     <string>$rotulo</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$vbm_bin</string>
-        <string>startvm</string>
+        <string>$guarda</string>
         <string>$OP_VM_NOME</string>
-        <string>--type</string>
-        <string>headless</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
+    <key>ExitTimeOut</key>
+    <integer>180</integer>
 </dict>
 </plist>
 FIM
+    # o vigia primeiro (o plist aponta para ele)
+    if [ ! -f "$guarda" ] || ! cmp -s "$tmpg" "$guarda"; then
+        mkdir -p "$(dirname "$guarda")" || return 0
+        install -m 0755 "$tmpg" "$guarda" || return 0
+        vm_set guard_path "$guarda"
+    fi
     uid_atual="$(id -u)"
     if [ -f "$plist" ] && cmp -s "$tmp" "$plist"; then
         # arquivo igual não prova job carregado (banca) — conferir e sanar
@@ -1765,6 +1796,9 @@ un_caminho_seguro() { # <caminho> <classe: vdi|zip|estado>
                     # `*` de case casa `/` também — barrar travessia na cauda
                     case "${1#"$HOME/Library/LaunchAgents/"}" in */*) ;; *) return 0 ;; esac ;;
                 esac ;;
+        guard)  case "$1" in "$HOME/Library/Application Support/haos-mac-mini/"*.sh)
+                    case "${1#"$HOME/Library/Application Support/haos-mac-mini/"}" in */*) ;; *) return 0 ;; esac ;;
+                esac ;;
         zip)    case "$1" in "$HOME/Library/Caches/haos-mac-mini/"*.zip|"$HOME/Library/Caches/haos-mac-mini/"*.dmg) return 0 ;; esac ;;
         estado) case "$1" in "$(haos_state_dir)/"*) return 0 ;; esac ;;
     esac
@@ -1857,7 +1891,7 @@ un_rm() { # <caminho> <classe>
 }
 
 un_executar() {
-    local acao vdi_path zip_path d ag_path esp
+    local acao vdi_path zip_path d ag_path esp guard_path
     vdi_path="$(manifest_get "$(vm_manifest)" vdi_path)"
     zip_path="$(manifest_get "$(vm_manifest)" zip_path)"
     ag_path="$(manifest_get "$(vm_manifest)" autostart_path)"
@@ -1867,7 +1901,9 @@ un_executar() {
         case "$acao" in
             rm-agent)
                 launchctl bootout "gui/$(id -u)/$(basename "${ag_path%.plist}")" >/dev/null 2>&1 || true
-                un_rm "$ag_path" agent ;;
+                un_rm "$ag_path" agent
+                guard_path="$(manifest_get "$(vm_manifest)" guard_path)"
+                [ -n "$guard_path" ] && [ -f "$guard_path" ] && un_rm "$guard_path" guard ;;
             rm-vm)
                 command -v VBoxManage >/dev/null 2>&1 \
                     || PATH="$PATH:/Applications/VirtualBox.app/Contents/MacOS"
@@ -1881,6 +1917,9 @@ un_executar() {
                              while [ "$esp" -lt 30 ] && VBoxManage list runningvms 2>/dev/null \
                                  | grep -qF "\"$OP_VM_NOME\""; do sleep 1; esp=$((esp+1)); done
                          fi
+                         # VM em estado SALVO (savestate do vm-guard) não é
+                         # "running": descartar o estado libera o detach
+                         VBoxManage discardstate "$OP_VM_NOME" >/dev/null 2>&1 || true
                          VBoxManage storageattach "$OP_VM_NOME" --storagectl SATA \
                              --port 0 --device 0 --medium none >/dev/null 2>&1 || true
                          [ -z "$vdi_path" ] \
