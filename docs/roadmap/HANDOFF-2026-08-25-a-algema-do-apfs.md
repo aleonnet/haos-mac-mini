@@ -1,5 +1,27 @@
 # HANDOFF — a 4ª morte, a autópsia e a algema do APFS · 2026-08-25 (noite)
 
+> ## ⚠️ ERRATA (mesma noite, 0.4.1) — o assassino verdadeiro era OUTRO
+>
+> A causa da 4ª morte **não foi** a reversão do APFS descrita abaixo: foi a
+> **própria fase de imagem** do instalador. O "já está" comparava o tamanho
+> atual do `.vdi` com o da criação; disco dinâmico cresce, então **todo
+> rerun reprovava o disco vivo e movia a imagem de fábrica por cima** — a
+> VM seguia no inode antigo e a troca só aparecia no boot seguinte, como
+> instância virgem. Flagrado em flagrante no rerun do dono (lsof: VBox
+> segurando 7,8 GB deletados; no disco, os 469 MB de fábrica). O rerun das
+> ~14:55 armou a bomba; o plug das 18:20 só a revelou. **Corrigido no
+> 0.4.1**: "já está" = versão+SHA do `.origem`; **disco de VM registrada é
+> INTOCÁVEL** (nem `--force`; recriar = `--uninstall` primeiro); cerca com
+> o cenário exato + 2 mutantes mortos.
+>
+> O que PERMANECE válido da autópsia abaixo: o fato do `fsync()` sem
+> `F_FULLFSYNC` (provado no fonte) e o **apfs-pin como
+> defesa-em-profundidade**. O que CAI: a atribuição causal ao APFS, e a
+> alegação de que o pin "salvou" o 3º corte (aquele boot sobreviveu porque
+> nenhum rerun havia trocado o arquivo desde o restore). Lição-mestra:
+> **inferência forte não é prova — o dono recusou aceitá-la duas vezes, e
+> nas duas a recusa dele estava certa.**
+
 > **LEIA-ME PRIMEIRO.** Porta de entrada da frente do instalador. Supersede
 > `HANDOFF-2026-08-25-cofre-com-voz-e-principios.md` (lições preservadas lá
 > e no anterior; este cobre a noite: a quarta morte do `/data`, a autópsia

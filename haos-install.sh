@@ -16,7 +16,7 @@
 # =============================================================================
 set -Eeuo pipefail
 
-HAOS_INSTALL_VERSION="0.4.0"
+HAOS_INSTALL_VERSION="0.4.1"
 HAOS_REF_CORE="2026.8.3"      # versão do HA contra a qual o contrato foi verificado
 HAOS_REF_OS="18.2"
 HAOS_RAW_URL="https://raw.githubusercontent.com/aleonnet/haos-mac-mini/main/haos-install.sh"
@@ -202,6 +202,7 @@ MSG_DB=(
 "fase_vm|VM|VM"
 "relatorio_salvo|Relatório da execução: %s|Run report: %s"
 "img_image_invalida|O arquivo passado em --image não confere com a tabela (tamanho ou SHA-256): %s|The file passed to --image does not match the table (size or SHA-256): %s"
+"img_vdi_vivo|o disco pertence à VM %s registrada no VirtualBox - substituí-lo mataria a instância no próximo boot. Para recriar do zero: --uninstall primeiro|the disk belongs to the registered VM %s - replacing it would kill the instance on its next boot. To recreate from scratch: run --uninstall first"
 "last_sem_estado|--profile last: nenhuma seleção salva em %s. Rode uma instalação primeiro.|--profile last: no saved selection at %s. Run an install first."
 "last_repetindo|Repetindo a última seleção salva.|Repeating the last saved selection."
 "doc_sistema|Sistema|System"
@@ -861,11 +862,16 @@ fase_imagem() {
     HAOS_VDI="$vdi"
 
     # ── já está? ────────────────────────────────────────────────────────────
+    # Versão e SHA do .origem bastam. Depois do PRIMEIRO boot o disco é um
+    # ORGANISMO — dinâmico, cresce e muda por design. Comparar o tamanho
+    # atual com o da criação foi o bug da 4ª morte do /data (25/08): todo
+    # rerun reprovava o disco vivo, baixava a fábrica e a movia POR CIMA —
+    # a VM seguia no inode antigo e a troca só aparecia no próximo boot,
+    # como instância virgem.
     if [ "$OP_FORCE" != "1" ] && [ -f "$vdi" ] && [ -f "$origem" ]; then
-        local ov osha otam tam_atual
+        local ov osha otam
         IFS='|' read -r ov osha otam < "$origem"
-        tam_atual="$(wc -c < "$vdi" 2>/dev/null | tr -d ' ')"
-        if [ "$ov" = "$ver" ] && [ "$osha" = "$sha" ] && [ "$otam" = "$tam_atual" ]; then
+        if [ "$ov" = "$ver" ] && [ "$osha" = "$sha" ]; then
             ha_ok "$(msg img_ja "$ver" "$vdi")"
             # O .origem é prova NOSSA (só este script o escreve): o vdi pode
             # ser marcado created mesmo vindo de uma execução anterior.
@@ -873,6 +879,15 @@ fase_imagem() {
             vm_set vdi_path "$vdi"
             return 100
         fi
+    fi
+
+    # NUNCA substituir o disco de uma VM registrada — nem com --force. O
+    # arquivo carrega o /data do usuário; trocá-lo mata a instância no boot
+    # seguinte. Recriar do zero é decisão nomeada: --uninstall primeiro.
+    if command -v VBoxManage >/dev/null 2>&1 \
+        && VBoxManage showvminfo "$OP_VM_NOME" >/dev/null 2>&1; then
+        ha_err "$(msg img_vdi_vivo "$OP_VM_NOME")"
+        return 1
     fi
 
     mkdir -p "$destdir" || return 1

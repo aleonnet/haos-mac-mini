@@ -10,7 +10,7 @@ and ready to run straight from `curl`. Home Assistant's own visual identity, wit
 verified degradation: in a log, in CI or in a terminal without UTF-8 the output becomes
 clean, greppable text.
 
-> **Status: working end to end (0.4.0).** One command takes an empty Mac to
+> **Status: working end to end (0.4.1).** One command takes an empty Mac to
 > **Home Assistant up and running**: validates the machine, installs VirtualBox
 > (Oracle's SHA-256), downloads and verifies the official HAOS image, creates
 > the VM (arguments probed against the real ARM VBoxManage, with honest disk
@@ -171,5 +171,5 @@ Aug 24–25, 2026):
 | Tells you to use VirtioSCSI on Apple Silicon | The ARM `VBoxManage` **refuses** VirtioSCSI ("Invalid controller type") — and Oracle marks it experimental, with no documented `IgnoreFlush` | SATA/AHCI probed against the real binary before creating |
 | Nothing about safe shutdown | A Mac reboot/logout kills the VM cold | **vm-guard**: clean `ha host shutdown` at logout, honest `poweroff` fallback (fenced in both scenarios; `savestate` is banned as an engineering decision: it broke the guest's container runtime in the field, and Oracle records ARM saved states as incompatible across 7.1→7.2) |
 | Nothing about backup | HA's native backup lives INSIDE the VM — it dies with it | **The vault**: a backup created at install time and pulled to `~/Documents/HAOS-backups` on the Mac, a daily 04:10 agent, `--backup` for an immediate on-demand backup, and `--restore <tar>` brings the whole instance back in one command (fences cover create/pull/prune/restore/refuse-tampered) |
-| Silence about macOS fsync | VirtualBox's `RTFileFlush` is a plain `fsync()` (proved in the source) — on macOS that never reaches the media, and a REAL mains power cut made APFS **revert the VM disk to factory state** | **apfs-pin**: a watchdog issuing `F_FULLFSYNC` on the `.vdi` every 5 s (0-5 ms cost) - the rollback window drops to <=5 s, which the guest's ext4 journal covers; `--doctor` checks it is running |
+| Silence about macOS fsync | VirtualBox's `RTFileFlush` is a plain `fsync()` (proved in the source) — on macOS that **never reaches the media**: on a real mains cut, whatever sits in the SSD cache is lost | **apfs-pin**: a watchdog issuing `F_FULLFSYNC` on the `.vdi` every 5 s (0-5 ms cost) - the loss window drops to <=5 s, which the guest's ext4 journal covers; `--doctor` checks it is running. And a rerun **never** touches a registered VM's disk |
 | Onboarding, add-ons, integrations: "use the browser" | hours of clicking | phases 07–10 automate everything that doesn't require your credentials |

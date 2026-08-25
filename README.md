@@ -9,7 +9,7 @@ Instalador de **Home Assistant OS** numa VM VirtualBox em **Mac Apple Silicon**,
 rodar direto via `curl`. Identidade visual do próprio Home Assistant, com degradação
 verificada: em log, CI ou terminal sem UTF-8 a saída vira texto limpo e grepável.
 
-> **Estado: funcional de ponta a ponta (0.4.0).** Um comando leva do Mac vazio ao
+> **Estado: funcional de ponta a ponta (0.4.1).** Um comando leva do Mac vazio ao
 > **Home Assistant no ar**: valida a máquina, instala o VirtualBox (SHA-256 da
 > Oracle), baixa e confere a imagem oficial do HAOS, cria a VM (argumentos
 > sondados no VBoxManage ARM real, com flush de disco honesto desde o
@@ -160,5 +160,5 @@ para no "crie a VM e dê boot". Na prática (tudo medido em campo, 24–25/08/20
 | Manda usar VirtioSCSI em Apple Silicon | O `VBoxManage` ARM **recusa** VirtioSCSI ("Invalid controller type") — e a Oracle o marca como experimental, sem `IgnoreFlush` documentado | SATA/AHCI sondado no binário real antes de criar |
 | Nada sobre desligamento seguro | Reboot/logout do Mac mata a VM a seco | **vm-guard**: `ha host shutdown` limpo no logout, fallback `poweroff` honesto (cercado nos dois cenários; `savestate` fica proibido por decisão de engenharia: quebrou o runtime de containers do guest em campo, e a Oracle registra saved states ARM incompatíveis entre 7.1→7.2) |
 | Nada sobre backup | O backup nativo do HA fica DENTRO da VM — morre com ela | **Cofre**: backup criado na instalação e trazido para `~/Documents/HAOS-backups` no Mac, agente diário às 04:10, `--backup` para um backup imediato sob demanda, e `--restore <tar>` devolve a instância inteira em um comando (cercas cobrem criar/trazer/podar/restaurar/recusar adulterado) |
-| Silêncio sobre o fsync do macOS | O `RTFileFlush` do VirtualBox é `fsync()` puro (provado no fonte) — no macOS isso não desce até a mídia, e um corte REAL de tomada fez o APFS **reverter o disco da VM ao estado de fábrica** | **apfs-pin**: vigia que chama `F_FULLFSYNC` no `.vdi` a cada 5 s (0–5 ms de custo) — janela de reversão cai para ≤5 s, que o journal do ext4 cobre; o `--doctor` confere se está ativo |
+| Silêncio sobre o fsync do macOS | O `RTFileFlush` do VirtualBox é `fsync()` puro (provado no fonte) — no macOS isso **não desce até a mídia**: num corte real de tomada, o que estiver no cache do SSD se perde | **apfs-pin**: vigia que chama `F_FULLFSYNC` no `.vdi` a cada 5 s (0–5 ms de custo) — janela de perda ≤5 s, que o journal do ext4 cobre; o `--doctor` confere se está ativo. E o rerun **nunca** toca o disco de uma VM registrada |
 | Onboarding, add-ons, integrações: "use o navegador" | horas de cliques | fases 07–10 automatizam o que não exige credencial sua |

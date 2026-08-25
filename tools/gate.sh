@@ -412,6 +412,53 @@ else
 fi
 rm -rf "$sb_ds"
 
+# ── fase_imagem: o disco VIVO nunca se substitui ─────────────────────────────
+# O cenário exato da 4ª morte do /data: disco dinâmico CRESCEU depois do
+# boot, o rerun reprovava o "já está" pelo tamanho e movia a fábrica por
+# cima do disco da VM registrada. A cerca exige: (a) disco crescido + origem
+# com ver|sha certos → 100 SEM tocar na rede; (b) origem divergente + VM
+# registrada → recusa (rc=1), nada baixado, disco intacto; (c) sem VM
+# registrada, o fluxo de aquisição segue vivo (chega ao download).
+titulo "fase_imagem: disco crescido converge; disco de VM viva é intocável"
+sb_im="$(mktemp -d "${TMPDIR:-/tmp}/haos-gate-im.XXXXXX")"
+# shellcheck disable=SC2016  # o script filho expande $SB sozinho, de propósito
+saida_im="$(HAOS_INSTALL_LIB=1 SB="$sb_im" "${BASH:-/bin/bash}" -c '
+    source haos-install.sh
+    HOME="$SB"; OP_VM_NOME=HomeAssistant
+    mkdir -p "$SB/bin"; PATH="$SB/bin:$PATH"
+    printf "#!/bin/sh\necho REDE >> \"%s/rede.txt\"\nexit 1\n" "$SB" > "$SB/bin/curl"
+    cp "$SB/bin/curl" "$SB/bin/wget"; chmod +x "$SB/bin/curl" "$SB/bin/wget"
+    VBoxManage() { case "$1" in showvminfo) return 0 ;; *) return 0 ;; esac; }
+    ver="$HAOS_REF_OS"; sha=""
+    for r in "${HAOS_IMAGE_DB[@]}"; do IFS="|" read -r rv u s b <<< "$r"
+        [ "$rv" = "$ver" ] && sha="$s"; done
+    D="$SB/VirtualBox VMs/HomeAssistant"; mkdir -p "$D"
+    V="$D/haos_generic-aarch64-$ver.vdi"; O="$D/.haos_generic-aarch64-$ver.vdi.origem"
+    # (a) disco CRESCIDO (tamanho no origem difere do arquivo) + ver|sha ok
+    printf "cresci-muito-depois-do-boot" > "$V"
+    printf "%s|%s|11\n" "$ver" "$sha" > "$O"
+    rcA=0; fase_imagem >/dev/null 2>&1 || rcA=$?
+    conteudoA="$(cat "$V")"
+    # (b) origem com sha DIVERGENTE + VM registrada: recusa sem tocar
+    printf "%s|deadbeef|11\n" "$ver" > "$O"
+    rcB=0; fase_imagem >/dev/null 2>&1 || rcB=$?
+    conteudoB="$(cat "$V")"
+    redeAB=0; [ -f "$SB/rede.txt" ] && redeAB=1
+    # (c) sem VM registrada, aquisição segue viva (bate na rede e falha nela)
+    VBoxManage() { return 1; }
+    rm -f "$V" "$O"
+    rcC=0; fase_imagem >/dev/null 2>&1 || rcC=$?
+    redeC=0; [ -f "$SB/rede.txt" ] && redeC=1
+    printf "A=%s/%s B=%s/%s redeAB=%s C=%s/rede%s" \
+        "$rcA" "$conteudoA" "$rcB" "$conteudoB" "$redeAB" "$rcC" "$redeC"')"
+esp_im="A=100/cresci-muito-depois-do-boot B=1/cresci-muito-depois-do-boot redeAB=0 C=1/rede1"
+if [ "$saida_im" = "$esp_im" ]; then
+    ok "fase_imagem: crescido=100, VM viva intocável (zero rede), aquisição segue sem VM"
+else
+    falha "fase_imagem: esperado '$esp_im', obtido '$saida_im'"
+fi
+rm -rf "$sb_im"
+
 # ── apfs-pin: cerca dos artefatos + do doctor ────────────────────────────────
 # O vigia é a defesa contra o fsync fraco do VirtualBox no macOS (RTFileFlush
 # sem F_FULLFSYNC, provado no fonte; APFS reverteu o disco ao estado de

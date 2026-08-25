@@ -6,6 +6,33 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-08-25
+
+### Fixed
+- 🔴🔴 **O VERDADEIRO assassino da 4ª morte: a própria fase de imagem.**
+  A checagem "já está" comparava o tamanho atual do `.vdi` com o gravado
+  na criação — mas disco dinâmico CRESCE com o uso, então **todo rerun
+  reprovava o disco vivo, baixava a imagem de fábrica e a movia POR CIMA**.
+  A VM seguia rodando no inode antigo (invisível) e a troca só aparecia no
+  boot seguinte: instância virgem. Flagrado em flagrante delito no rerun
+  do dono (lsof: VBox segurando 7,8 GB deletados; no disco, 469 MB de
+  fábrica recém-movidos). Correção dupla: o "já está" passa a exigir só
+  versão+SHA do `.origem` (o tamanho de um disco vivo muda por design), e
+  **disco de VM registrada tornou-se INTOCÁVEL** — nem `--force` o
+  substitui (recriar do zero exige `--uninstall`, decisão nomeada). Cerca
+  nova com o cenário exato da morte (disco crescido → 100 sem rede; VM
+  viva + origem divergente → recusa; sem VM → aquisição segue), 2
+  mutantes mortos.
+
+### Changed
+- **ERRATA da narrativa do 0.4.0**: a reversão "do APFS" observada era o
+  file-swap acima — o arquivo no disco ERA a fábrica porque nós o
+  colocamos lá. Os fatos do fsync continuam verdadeiros e provados no
+  fonte (`RTFileFlush` sem `F_FULLFSYNC`), e o **apfs-pin permanece como
+  defesa-em-profundidade** contra a janela real de cache em corte de
+  tomada — mas a alegação de que ele "salvou" o 3º corte cai: aquele boot
+  sobreviveu porque nenhum rerun havia trocado o arquivo desde o restore.
+
 ## [0.4.0] — 2026-08-25
 
 ### Added
