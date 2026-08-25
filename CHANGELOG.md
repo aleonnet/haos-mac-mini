@@ -21,6 +21,25 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
   (`~/Library/LaunchAgents` inexistente).
 - **README**: seção nova citando o guia oficial de macOS e os buracos dele
   que este instalador cobre (flush, VirtioSCSI/ARM, shutdown, backup).
+- **`--doctor` ganhou a seção "Armazenamento da VM"** (adoção do §8.3 da
+  análise externa de 25/08 — "nunca inferir semântica de storage de um
+  controller a partir da documentação de outro"): lê o controller REAL da VM
+  (`showvminfo --machinereadable`) e o valor efetivo de `IgnoreFlush`;
+  AHCI + `Value: 0` aprova, AHCI sem a chave REPROVA (a Oracle só documenta
+  a correção para IDE/SATA), controller diferente vira aviso em vez de
+  promessa. Medido no 7.2.16: `getextradata` devolve rc=0 mesmo sem valor —
+  o veredito sai do texto. De quebra, T5 documental: a fase da VM grava sob
+  qual VirtualBox ela foi validada (`vbox_validada` no manifesto) e o doctor
+  avisa quando a versão corrente divergir (upgrade de hypervisor sem
+  reteste). Cerca nova no gate com 4 cenários.
+
+### Changed
+- **README fact-checkado contra as fontes primárias** (Oracle Troubleshooting
+  7.2, reverificada em 25/08): a perda de `/data` em desligamento sujo é
+  relatada como o fato medido nesta bancada (duas ocorrências), não como
+  destino universal; o banimento do `savestate` agora cita a justificativa
+  completa — incidente medido em campo + saved states ARM documentadamente
+  incompatíveis entre VirtualBox 7.1→7.2.
 
 
 ### Fixed

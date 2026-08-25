@@ -220,6 +220,13 @@ MSG_DB=(
 "doc_state_ok|seleção salva: %s|saved selection: %s"
 "doc_state_falta|nenhuma seleção salva (--profile last ainda não funciona aqui)|no saved selection (--profile last will not work here yet)"
 "doc_lastrun_ok|último relatório: %s|last report: %s"
+"doc_storage|Armazenamento da VM|VM storage"
+"doc_vm_ausente|VM %s ainda não existe nesta máquina|VM %s does not exist on this machine yet"
+"doc_flush_ok|controller %s com IgnoreFlush=0 - flush honrado (validado com quedas reais de energia)|controller %s with IgnoreFlush=0 - flushes honored (validated with real power cuts)"
+"doc_flush_falta|controller %s SEM IgnoreFlush=0 - por padrão o VirtualBox ignora flushes do guest e um desligamento sujo pode zerar o /data|controller %s WITHOUT IgnoreFlush=0 - VirtualBox ignores guest flushes by default and a dirty shutdown can wipe /data"
+"doc_ctrl_outro|controller %s - a Oracle só documenta IgnoreFlush para AHCI; durabilidade não verificada neste controller|controller %s - Oracle only documents IgnoreFlush for AHCI; durability not verified on this controller"
+"doc_vbox_igual|VirtualBox %s - mesmo sob o qual a VM foi validada|VirtualBox %s - same version the VM was validated under"
+"doc_vbox_mudou|VirtualBox %s difere do %s validado na criação da VM - após upgrade do hypervisor, teste boot e desligamento|VirtualBox %s differs from %s validated at VM creation - after a hypervisor upgrade, test boot and shutdown"
 "doc_veredito|%s ok - %s a observar - %s com problema|%s ok - %s to watch - %s broken"
 "un_plano_titulo|Plano de remoção|Removal plan"
 "un_remove|SERÁ REMOVIDO|WILL BE REMOVED"
@@ -1077,6 +1084,11 @@ fase_vm() {
         ha_err "$(msg vm_falhou)"; diagnostico_log; return 1
     fi
     vm_set vm_registrada created
+    # Escrituração T5: sob qual VirtualBox esta VM foi criada e validada —
+    # o --doctor avisa quando a versão corrente divergir desta.
+    local vbv
+    vbv="$(VBoxManage --version 2>/dev/null | tr -d '\r')"
+    if [ -n "$vbv" ]; then vm_set vbox_validada "$vbv"; fi
     ha_ok "$(msg vm_pronta "$OP_VM_NOME")"
     return 0
 }
@@ -1938,6 +1950,47 @@ doc_ok()   { DOC_OK=$((DOC_OK+1));     ha_ok "$1"; }
 doc_warn() { DOC_WARN=$((DOC_WARN+1)); ha_warn "$1"; }
 doc_fail() { DOC_FAIL=$((DOC_FAIL+1)); ha_err "$1"; }
 
+# ── Doctor: armazenamento — "nunca inferir semântica de storage de um
+# controller a partir da documentação de outro" (análise externa, 25/08).
+# A Oracle documenta IgnoreFlush SÓ para piix3ide e ahci; se um dia o VBox ARM
+# aceitar outro controller, esta seção avisa em vez de prometer durabilidade.
+# Medido no 7.2.16: getextradata devolve rc=0 MESMO sem valor ("No value
+# set!") — o veredito sai do texto da resposta, nunca do rc.
+doctor_storage() {
+    [ "$(p_get vbox.present)" = "1" ] || return 0
+    ha_fase "$(msg doc_storage)"
+    local vminfo ctrl flush vbv_reg vbv_agora
+    if ! vminfo="$(VBoxManage showvminfo "$OP_VM_NOME" --machinereadable 2>/dev/null)"; then
+        doc_warn "$(msg doc_vm_ausente "$OP_VM_NOME")"
+        return 0
+    fi
+    ctrl="$(printf '%s\n' "$vminfo" \
+        | sed -n 's/^storagecontrollertype0="\(.*\)"$/\1/p' | head -1)"
+    [ -n "$ctrl" ] || ctrl="?"
+    flush="$(VBoxManage getextradata "$OP_VM_NOME" \
+        "VBoxInternal/Devices/ahci/0/LUN#0/Config/IgnoreFlush" 2>/dev/null)"
+    case "$ctrl" in
+        IntelAhci)
+            if [ "$flush" = "Value: 0" ]; then
+                doc_ok "$(msg doc_flush_ok "$ctrl")"
+            else
+                doc_fail "$(msg doc_flush_falta "$ctrl")"
+            fi ;;
+        *) doc_warn "$(msg doc_ctrl_outro "$ctrl")" ;;
+    esac
+    # T5 documental: sob QUAL VirtualBox esta VM foi validada. Upgrade do
+    # hypervisor não é testado automaticamente — divergência vira aviso.
+    vbv_reg="$(manifest_get "$(vm_manifest)" vbox_validada)"
+    vbv_agora="$(p_get vbox.version)"
+    if [ -n "$vbv_reg" ] && [ -n "$vbv_agora" ]; then
+        if [ "$vbv_reg" = "$vbv_agora" ]; then
+            doc_ok "$(msg doc_vbox_igual "$vbv_reg")"
+        else
+            doc_warn "$(msg doc_vbox_mudou "$vbv_agora" "$vbv_reg")"
+        fi
+    fi
+}
+
 rodar_doctor() {
     sonda
     ha_fase "$(msg doc_sistema)"
@@ -1976,6 +2029,8 @@ rodar_doctor() {
     else
         doc_warn "$(msg doc_vdi_falta "$OP_VM_NOME")"
     fi
+
+    doctor_storage
 
     ha_fase "$(msg doc_estado)"
     local d; d="$(haos_state_dir)"

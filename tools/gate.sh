@@ -375,6 +375,43 @@ else
 fi
 rm -rf "$sb_f4"
 
+# ── Doctor: cerca da seção de storage (§8.3 — controller + IgnoreFlush + T5) ─
+# AHCI+flush aprova; flush ausente REPROVA (getextradata rc=0 mesmo sem valor,
+# medido no 7.2.16 — o veredito tem de sair do texto); controller estranho só
+# avisa (IgnoreFlush não é documentado para ele); versão do VBox divergente da
+# registrada na criação avisa, igual aprova.
+titulo "Doctor: storage — flush, controller e versão do hypervisor"
+sb_ds="$(mktemp -d "${TMPDIR:-/tmp}/haos-gate-ds.XXXXXX")"
+# shellcheck disable=SC2016  # o script filho expande $SB sozinho, de propósito
+saida_ds="$(HAOS_INSTALL_LIB=1 SB="$sb_ds" "${BASH:-/bin/bash}" -c '
+    source haos-install.sh
+    HOME="$SB"; OP_VM_NOME=HomeAssistant
+    p_get() { case "$1" in vbox.present) echo 1 ;; vbox.version) echo 7.2.16r174877 ;; esac; }
+    manifest_get() { cat "$SB/vbox_reg"; }
+    caso() { # <ctrl> <saida-do-getextradata> <versao-registrada>
+        CTRL="$1"; FLUSH="$2"; printf "%s" "$3" > "$SB/vbox_reg"
+        VBoxManage() {
+            case "$1" in
+                showvminfo)   printf "storagecontrollertype0=\"%s\"\n" "$CTRL" ;;
+                getextradata) printf "%s\n" "$FLUSH" ;;
+            esac
+            return 0
+        }
+        DOC_OK=0; DOC_WARN=0; DOC_FAIL=0
+        doctor_storage >/dev/null 2>&1 || true
+        printf "%s/%s/%s " "$DOC_OK" "$DOC_WARN" "$DOC_FAIL"
+    }
+    caso IntelAhci  "Value: 0"      7.2.16r174877
+    caso IntelAhci  "No value set!" 7.2.16r174877
+    caso VirtioSCSI "Value: 0"      ""
+    caso IntelAhci  "Value: 0"      7.2.14r000000')"
+if [ "$saida_ds" = "2/0/0 1/0/1 0/1/0 1/1/0 " ]; then
+    ok "doctor_storage: 4 cenários com o veredito certo (ok/warn/fail contados)"
+else
+    falha "doctor_storage: esperado '2/0/0 1/0/1 0/1/0 1/1/0 ', obtido '$saida_ds'"
+fi
+rm -rf "$sb_ds"
+
 # ── F5 de ponta a ponta (boot dublado) ───────────────────────────────────────
 # A espera do boot é por MAC→ARP, nunca por mDNS (falso positivo medido em
 # campo com outro HA vivo na rede). Os stubs FALHAM nas primeiras iterações

@@ -84,7 +84,7 @@ Veja o catálogo completo com `--list`.
 | `--force`, `-f` | refaz artefato já presente — **não** pula portão nem verificação de hash |
 | `--verbose`, `-v` | mostra a saída crua de cada ferramenta |
 | `--quiet`, `-q` | suprime a saída normal |
-| `--doctor` | diagnóstico read-only: sistema, manifesto, imagem, estado (exit 1 com problema) |
+| `--doctor` | diagnóstico read-only: sistema, manifesto, imagem, **armazenamento da VM** (controller + `IgnoreFlush` + versão do VirtualBox sob a qual a VM foi validada), estado (exit 1 com problema) |
 | `--uninstall` | remove **só o que este instalador criou** (plano + confirmação; `--dry-run` mostra o plano; `--confirm=<nome-da-vm>` confirma sem terminal) |
 | `--self-update` | atualiza o script pelo publicado — valida sintaxe, recusa downgrade, deixa backup `.bak` |
 | `--restore <tar>` | restaura um backup do cofre (`~/Documents/HAOS-backups`) na VM — conta, integrações e dashboards voltam inteiros |
@@ -137,8 +137,8 @@ para no "crie a VM e dê boot". Na prática (tudo medido em campo, 24–25/08/20
 
 | O guia | A realidade | Aqui |
 |---|---|---|
-| Silêncio sobre flush de disco | **O VirtualBox ignora flushes do guest por padrão** — o journal do ext4 vira ficção e um desligamento sujo ZERA o `/data` do HAOS | `IgnoreFlush=0` gravado na criação da VM; validado com 5 quedas de energia simuladas sem perder um byte (cerca no CI) |
-| Manda usar VirtioSCSI em Apple Silicon | O `VBoxManage` ARM **recusa** VirtioSCSI ("Invalid controller type") | SATA/AHCI sondado no binário real antes de criar |
-| Nada sobre desligamento seguro | Reboot/logout do Mac mata a VM a seco | **vm-guard**: `ha host shutdown` limpo no logout, fallback `poweroff` honesto (cercado nos dois cenários; `savestate` é proibido — quebra o runtime de containers do guest) |
+| Silêncio sobre flush de disco | **O VirtualBox ignora flushes do guest por padrão** ([documentado pela Oracle](https://docs.oracle.com/en/virtualization/virtualbox/7.2/user/Troubleshooting.html), só IDE/SATA têm a chave de correção) — o journal do ext4 vira ficção; nesta bancada, um desligamento sujo zerou o `/data` do HAOS duas vezes | `IgnoreFlush=0` gravado na criação da VM (controller AHCI, exatamente onde a Oracle documenta a chave); validado com 5 quedas de energia simuladas sem perder um byte (cerca no CI); o `--doctor` confere controller e chave na VM real |
+| Manda usar VirtioSCSI em Apple Silicon | O `VBoxManage` ARM **recusa** VirtioSCSI ("Invalid controller type") — e a Oracle o marca como experimental, sem `IgnoreFlush` documentado | SATA/AHCI sondado no binário real antes de criar |
+| Nada sobre desligamento seguro | Reboot/logout do Mac mata a VM a seco | **vm-guard**: `ha host shutdown` limpo no logout, fallback `poweroff` honesto (cercado nos dois cenários; `savestate` fica proibido por decisão de engenharia: quebrou o runtime de containers do guest em campo, e a Oracle registra saved states ARM incompatíveis entre 7.1→7.2) |
 | Nada sobre backup | O backup nativo do HA fica DENTRO da VM — morre com ela | **Cofre**: backup criado na instalação e trazido para `~/Documents/HAOS-backups` no Mac, agente diário às 04:10, e `--restore <tar>` devolve a instância inteira em um comando (cercas cobrem criar/trazer/podar/restaurar/recusar adulterado) |
 | Onboarding, add-ons, integrações: "use o navegador" | horas de cliques | fases 07–10 automatizam o que não exige credencial sua |
