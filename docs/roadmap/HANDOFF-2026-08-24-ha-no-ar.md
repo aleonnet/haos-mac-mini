@@ -1,5 +1,7 @@
 # HANDOFF — F5–F10 fechadas: o instalador entrega o HA NO AR · 2026-08-24
 
+> **SUPERADO por `HANDOFF-2026-08-25-noite-das-tres-mortes.md`.**
+>
 > **LEIA-ME PRIMEIRO.** Porta de entrada da frente do instalador. Supersede
 > `HANDOFF-2026-08-24-pos-teste-campo.md`.
 
