@@ -6,7 +6,24 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-08-25
+
 ### Added
+- **apfs-pin — a algema do APFS** (nasceu da 4ª morte do `/data`, com
+  autópsia completa): PROVADO no fonte do VirtualBox que `RTFileFlush` é
+  `fsync()` puro, sem `F_FULLFSYNC` — no macOS isso pára no cache do SSD,
+  e um corte REAL de tomada fez o APFS reverter os extents do `.vdi` ao
+  estado de FÁBRICA (fotografado: mapa interno de 448 MB sobre 7,2 GB
+  físicos órfãos; boot com `condition-first-boot` e partição de dados em
+  tamanho de fábrica). O vigia abre o mesmo `.vdi` e chama o flush
+  verdadeiro (`fcntl F_FULLFSYNC`, medido em 0–5 ms) a cada 5 s: janela
+  de reversão cai de ilimitada para ≤5 s — território do journal do ext4,
+  como num Pi de metal. LaunchAgent com KeepAlive, VDI por argv (zero
+  `sh -c`), desired-state, removido pelo `--uninstall` (`rm-pin`),
+  conferido pelo `--doctor` (ativo/ausente/PARADO). Cerca com mutação —
+  que ainda pegou a própria cerca cega duas vezes antes de valer.
+  Validação de campo: primeiro corte real de tomada com o vigia armado →
+  instância voltou íntegra (sem ele: 50% de morte em 2 cortes).
 - **F11 — o Cofre**: a instalação só se declara completa com um backup FORA
   da VM. A fase garante o add-on SSH (infra do cofre), instala o
   `backup-pull.sh` + agente diário (04:10) que cria backup via

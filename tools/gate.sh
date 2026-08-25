@@ -412,6 +412,49 @@ else
 fi
 rm -rf "$sb_ds"
 
+# ── apfs-pin: cerca dos artefatos + do doctor ────────────────────────────────
+# O vigia é a defesa contra o fsync fraco do VirtualBox no macOS (RTFileFlush
+# sem F_FULLFSYNC, provado no fonte; APFS reverteu o disco ao estado de
+# fábrica num corte real). A cerca exige: script com F_FULLFSYNC, plist sem
+# `sh -c` (mesma cerca de injeção do vm-guard) apontando o VDI por argv,
+# convergência silenciosa na 2ª chamada, e doctor com os 3 vereditos.
+titulo "apfs-pin: artefatos escritos, sem sh -c, convergentes; doctor 3 vereditos"
+sb_pn="$(mktemp -d "${TMPDIR:-/tmp}/haos-gate-pn.XXXXXX")"
+# shellcheck disable=SC2016  # o script filho expande $SB sozinho, de propósito
+saida_pn="$(HAOS_INSTALL_LIB=1 SB="$sb_pn" "${BASH:-/bin/bash}" -c '
+    source haos-install.sh
+    HOME="$SB"
+    launchctl() { printf "%s\n" "$*" >> "$SB/lc.txt"; return 0; }
+    mkdir -p "$SB/vm"; printf x > "$SB/vm/disco.vdi"
+    vm_set vdi_path "$SB/vm/disco.vdi"
+    escrever_pin_artefatos >/dev/null 2>&1
+    S="$SB/Library/Application Support/haos-mac-mini/apfs-pin.py"
+    P="$SB/Library/LaunchAgents/com.haos-mac-mini.apfs-pin.plist"
+    a=0
+    # a CHAMADA (fcntl.F_FULLFSYNC), não o comentário; e -c em tag própria
+    [ -x "$S" ] && grep -qF "fcntl.F_FULLFSYNC" "$S" \
+        && grep -qF "$SB/vm/disco.vdi" "$P" \
+        && ! grep -qE "<string>-c</string>|sh -c|bash -c" "$P" \
+        && [ "$(manifest_get "$(vm_manifest)" pin_agente)" = "created" ] && a=1
+    sum1="$(cksum "$P")"
+    escrever_pin_artefatos >/dev/null 2>&1
+    conv=0; [ "$(cksum "$P")" = "$sum1" ] && conv=1
+    # doctor_pin: ausente → warn · rodando → ok · parado → fail
+    p_get() { echo 1; }
+    d() { DOC_OK=0; DOC_WARN=0; DOC_FAIL=0; doctor_pin >/dev/null 2>&1; printf "%s%s%s" "$DOC_OK" "$DOC_WARN" "$DOC_FAIL"; }
+    mv "$P" "$P.fora"; da="$(d)"; mv "$P.fora" "$P"
+    launchctl() { printf "state = running\n"; return 0; }
+    db="$(d)"
+    launchctl() { return 1; }
+    dc="$(d)"
+    printf "arte=%s conv=%s d=%s/%s/%s" "$a" "$conv" "$da" "$db" "$dc"')"
+if [ "$saida_pn" = "arte=1 conv=1 d=010/100/001" ]; then
+    ok "apfs-pin: artefatos certos, injeção barrada, convergência e doctor nos 3 vereditos"
+else
+    falha "apfs-pin: esperado 'arte=1 conv=1 d=010/100/001', obtido '$saida_pn'"
+fi
+rm -rf "$sb_pn"
+
 # ── --backup: cerca da voz e do veredito ─────────────────────────────────────
 # O agente das 04:10 é mudo por design; a flag manual NÃO pode ser: tar novo
 # diz onde ficou (A), nada novo diz que o cofre já está atual (D), falha do

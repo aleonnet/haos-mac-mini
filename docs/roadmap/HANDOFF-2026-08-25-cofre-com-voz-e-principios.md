@@ -1,6 +1,8 @@
 # HANDOFF — cofre com voz e princípios, doctor de storage · 2026-08-25 (tarde)
 
-> **LEIA-ME PRIMEIRO.** Porta de entrada da frente do instalador. Supersede
+> **SUPERADO por `HANDOFF-2026-08-25-a-algema-do-apfs.md`** — abra aquele
+> primeiro; as lições daqui seguem válidas como referência.
+> Supersede
 > `HANDOFF-2026-08-25-noite-das-tres-mortes.md` (as lições de lá seguem
 > válidas; este cobre a tarde seguinte: análise externa absorvida, cofre
 > endurecido, bancada de energia em curso).

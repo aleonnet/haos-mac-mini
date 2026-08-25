@@ -16,7 +16,7 @@
 # =============================================================================
 set -Eeuo pipefail
 
-HAOS_INSTALL_VERSION="0.3.0"
+HAOS_INSTALL_VERSION="0.4.0"
 HAOS_REF_CORE="2026.8.3"      # versão do HA contra a qual o contrato foi verificado
 HAOS_REF_OS="18.2"
 HAOS_RAW_URL="https://raw.githubusercontent.com/aleonnet/haos-mac-mini/main/haos-install.sh"
@@ -240,6 +240,11 @@ MSG_DB=(
 "doc_ctrl_outro|controller %s - a Oracle só documenta IgnoreFlush para AHCI; durabilidade não verificada neste controller|controller %s - Oracle only documents IgnoreFlush for AHCI; durability not verified on this controller"
 "doc_vbox_igual|VirtualBox %s - mesmo sob o qual a VM foi validada|VirtualBox %s - same version the VM was validated under"
 "doc_vbox_mudou|VirtualBox %s difere do %s validado na criação da VM - após upgrade do hypervisor, teste boot e desligamento|VirtualBox %s differs from %s validated at VM creation - after a hypervisor upgrade, test boot and shutdown"
+"pin_ok|vigia apfs-pin instalado - F_FULLFSYNC no disco da VM a cada 5 s (o fsync do VirtualBox não desce até a mídia no macOS)|apfs-pin watchdog installed - F_FULLFSYNC on the VM disk every 5 s (VirtualBox's fsync does not reach the media on macOS)"
+"un_pin|o vigia apfs-pin (%s)|the apfs-pin watchdog (%s)"
+"doc_pin_ok|vigia apfs-pin ATIVO - F_FULLFSYNC a cada 5 s, o flush que chega à mídia|apfs-pin watchdog ACTIVE - F_FULLFSYNC every 5 s, the flush that reaches the media"
+"doc_pin_falta|vigia apfs-pin ausente (instalação antiga) - um corte de tomada pode reverter o disco da VM; rode a instalação para ganhá-lo|apfs-pin watchdog missing (older install) - a mains power cut can revert the VM disk; run the installer to get it"
+"doc_pin_parado|vigia apfs-pin instalado mas PARADO - um corte de tomada pode reverter o disco da VM|apfs-pin watchdog installed but STOPPED - a mains power cut can revert the VM disk"
 "doc_veredito|%s ok - %s a observar - %s com problema|%s ok - %s to watch - %s broken"
 "un_plano_titulo|Plano de remoção|Removal plan"
 "un_remove|SERÁ REMOVIDO|WILL BE REMOVED"
@@ -1211,6 +1216,7 @@ fase_boot() {
     ha_ok "$(msg boot_no_ar "$VM_URL")"
 
     autostart_launchagent
+    escrever_pin_artefatos
 
     [ "$ja" = "1" ] && return 100
     return 0
@@ -1317,6 +1323,107 @@ FIM
     vm_set autostart created
     vm_set autostart_path "$plist"
     ha_ok "$(msg boot_autostart_ok)"
+    return 0
+}
+
+# ── apfs-pin: a algema do APFS — nasceu da 4ª morte do /data (25/08) ─────────
+# PROVADO no fonte do VirtualBox (fileio-posix.cpp): RTFileFlush é fsync()
+# puro, sem F_FULLFSYNC — no macOS isso pára no cache do SSD, e um corte
+# REAL de tomada pode fazer o APFS reverter os extents recentes do .vdi
+# (medido em campo: o disco voltou ao estado de FÁBRICA — mapa interno de
+# 448 MB sobre 7,2 GB físicos órfãos). Este vigia chama o flush verdadeiro
+# (fcntl F_FULLFSYNC) no .vdi a cada 5 s: a janela de reversão cai de
+# ilimitada para ≤5 s — território do journal do ext4, como num Pi.
+escrever_pin_artefatos() {
+    local sdir script plist tmp rotulo uid_atual vdi
+    vdi="$(manifest_get "$(vm_manifest)" vdi_path)"
+    [ -n "$vdi" ] || vdi="${HAOS_VDI:-}"
+    [ -n "$vdi" ] || return 0
+    sdir="$HOME/Library/Application Support/haos-mac-mini"
+    script="$sdir/apfs-pin.py"
+    rotulo="com.haos-mac-mini.apfs-pin"
+    plist="$HOME/Library/LaunchAgents/$rotulo.plist"
+    mkdir -p "$sdir" || return 0
+    tmp="$(mktempfile)"
+    cat > "$tmp" <<'FIM_PIN'
+#!/usr/bin/env python3
+# apfs-pin.py — escrito pelo haos-install.sh. O RTFileFlush do VirtualBox
+# e um fsync() puro (provado no fonte): no macOS isso NAO descarrega o
+# cache do SSD, e um corte de tomada pode fazer o APFS reverter os extents
+# recentes do disco da VM (visto em campo: voltou ao estado de fabrica).
+# Este vigia chama o flush de verdade (fcntl F_FULLFSYNC) no mesmo arquivo
+# a cada N segundos — a janela de reversao cai para N segundos, que o
+# journal do ext4 do guest cobre. Custo medido: 0-5 ms por chamada.
+import fcntl, os, sys, time
+if len(sys.argv) < 2:
+    sys.exit(2)
+VDI = sys.argv[1]
+INTERVALO = float(os.environ.get("PIN_INTERVALO", "5"))
+def abre():
+    return os.open(VDI, os.O_RDONLY)
+try:
+    fd = abre()
+except FileNotFoundError:
+    sys.exit(3)
+falhas = 0
+while True:
+    t0 = time.monotonic()
+    try:
+        fcntl.fcntl(fd, fcntl.F_FULLFSYNC)
+        falhas = 0
+    except OSError:
+        falhas += 1
+        if falhas >= 2:  # arquivo trocado (reinstalacao): reabrir
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            try:
+                fd = abre()
+                falhas = 0
+            except FileNotFoundError:
+                sys.exit(3)
+    time.sleep(max(0.5, INTERVALO - (time.monotonic() - t0)))
+FIM_PIN
+    if [ ! -f "$script" ] || ! cmp -s "$tmp" "$script"; then
+        install -m 0755 "$tmp" "$script" || return 0
+        vm_set pin_script_path "$script"
+    fi
+    tmp="$(mktempfile)"
+    cat > "$tmp" <<FIM
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>$rotulo</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>$script</string>
+        <string>$vdi</string>
+    </array>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>ThrottleInterval</key><integer>30</integer>
+</dict>
+</plist>
+FIM
+    uid_atual="$(id -u)"
+    if [ -f "$plist" ] && cmp -s "$tmp" "$plist"; then
+        launchctl print "gui/$uid_atual/$rotulo" >/dev/null 2>&1 \
+            || launchctl bootstrap "gui/$uid_atual" "$plist" >/dev/null 2>&1 \
+            || launchctl load -w "$plist" >/dev/null 2>&1 || true
+        return 0
+    fi
+    mkdir -p "$(dirname "$plist")" || return 0
+    vm_set pin_agente pending
+    install -m 0644 "$tmp" "$plist" || return 0
+    launchctl bootout "gui/$uid_atual/$rotulo" >/dev/null 2>&1 || true
+    launchctl bootstrap "gui/$uid_atual" "$plist" >/dev/null 2>&1 \
+        || launchctl load -w "$plist" >/dev/null 2>&1 || true
+    vm_set pin_agente created
+    vm_set pin_agente_path "$plist"
+    ha_ok "$(msg pin_ok)"
     return 0
 }
 
@@ -2160,6 +2267,23 @@ doctor_storage() {
     fi
 }
 
+# Doctor: o vigia apfs-pin — sem ele, corte de tomada pode reverter o disco.
+doctor_pin() {
+    [ "$(p_get vbox.present)" = "1" ] || return 0
+    local plist="$HOME/Library/LaunchAgents/com.haos-mac-mini.apfs-pin.plist"
+    if [ ! -f "$plist" ]; then
+        doc_warn "$(msg doc_pin_falta)"
+        return 0
+    fi
+    if launchctl print "gui/$(id -u)/com.haos-mac-mini.apfs-pin" 2>/dev/null \
+        | grep -q "state = running"; then
+        doc_ok "$(msg doc_pin_ok)"
+    else
+        doc_fail "$(msg doc_pin_parado)"
+    fi
+    return 0
+}
+
 rodar_doctor() {
     sonda
     ha_fase "$(msg doc_sistema)"
@@ -2200,6 +2324,7 @@ rodar_doctor() {
     fi
 
     doctor_storage
+    doctor_pin
 
     ha_fase "$(msg doc_estado)"
     local d; d="$(haos_state_dir)"
@@ -2232,7 +2357,7 @@ un_caminho_seguro() { # <caminho> <classe: vdi|zip|estado>
                     # `*` de case casa `/` também — barrar travessia na cauda
                     case "${1#"$HOME/Library/LaunchAgents/"}" in */*) ;; *) return 0 ;; esac ;;
                 esac ;;
-        guard)  case "$1" in "$HOME/Library/Application Support/haos-mac-mini/"*.sh)
+        guard)  case "$1" in "$HOME/Library/Application Support/haos-mac-mini/"*.sh|"$HOME/Library/Application Support/haos-mac-mini/"*.py)
                     case "${1#"$HOME/Library/Application Support/haos-mac-mini/"}" in */*) ;; *) return 0 ;; esac ;;
                 esac ;;
         zip)    case "$1" in "$HOME/Library/Caches/haos-mac-mini/"*.zip|"$HOME/Library/Caches/haos-mac-mini/"*.dmg) return 0 ;; esac ;;
@@ -2268,6 +2393,15 @@ un_montar_plano() {
     if [ "$cofre_st" = "created" ] && [ -n "$cofre_plist" ]; then
         un_add_remove "$(msg un_cofre "$HOME/Documents/HAOS-backups")"
         un_act "rm-cofre"
+    fi
+
+    # O vigia apfs-pin sai junto dos agentes.
+    local pin_st pin_plist
+    pin_st="$(manifest_get "$(vm_manifest)" pin_agente)"
+    pin_plist="$(manifest_get "$(vm_manifest)" pin_agente_path)"
+    if [ "$pin_st" = "created" ] && [ -n "$pin_plist" ] && [ -f "$pin_plist" ]; then
+        un_add_remove "$(msg un_pin "$pin_plist")"
+        un_act "rm-pin"
     fi
 
     # O agente de auto-start sai PRIMEIRO — enquanto ele existir, um login
@@ -2337,7 +2471,7 @@ un_rm() { # <caminho> <classe>
 }
 
 un_executar() {
-    local acao vdi_path zip_path d ag_path esp guard_path cofre_plist cofre_script
+    local acao vdi_path zip_path d ag_path esp guard_path cofre_plist cofre_script pin_plist pin_script
     vdi_path="$(manifest_get "$(vm_manifest)" vdi_path)"
     zip_path="$(manifest_get "$(vm_manifest)" zip_path)"
     ag_path="$(manifest_get "$(vm_manifest)" autostart_path)"
@@ -2356,6 +2490,12 @@ un_executar() {
                 un_rm "$ag_path" agent
                 guard_path="$(manifest_get "$(vm_manifest)" guard_path)"
                 [ -n "$guard_path" ] && [ -f "$guard_path" ] && un_rm "$guard_path" guard ;;
+            rm-pin)
+                launchctl bootout "gui/$(id -u)/com.haos-mac-mini.apfs-pin" >/dev/null 2>&1 || true
+                pin_plist="$(manifest_get "$(vm_manifest)" pin_agente_path)"
+                pin_script="$(manifest_get "$(vm_manifest)" pin_script_path)"
+                [ -n "$pin_plist" ] && [ -f "$pin_plist" ] && un_rm "$pin_plist" agent
+                [ -n "$pin_script" ] && [ -f "$pin_script" ] && un_rm "$pin_script" guard ;;
             rm-vm)
                 command -v VBoxManage >/dev/null 2>&1 \
                     || PATH="$PATH:/Applications/VirtualBox.app/Contents/MacOS"
