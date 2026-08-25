@@ -43,6 +43,19 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
   análise externa (§11) aponta como requisito de produto. Cerca no gate
   com 4 cenários, mutation-testada.
 
+- **Cofre endurecido pelo assessment do backup automático** (26/08, medido
+  na instância real: automático da UI desligado, zero tars protegidos,
+  `/backup` interno espelhando o cofre por coincidência de contagem):
+  o puxador agora **recusa tar criptografado** (`protected: true` no
+  `backup.json` → exit 4; o cofre restaura sem chave, aceitar seria guardar
+  um backup irrestaurável que só falharia na hora do desastre) e **poda o
+  `/backup` DENTRO da VM** (mantém 2 — sem isso cresceria ~18 MB/dia até
+  encher o disco). `--backup` dá voz ao veredito novo e **converge o
+  artefato** para a versão corrente antes de rodar (cópia antiga/artesanal
+  ganha as cercas sozinha). Duas cercas novas: o puxador ESCRITO recusa
+  protegido e emite a poda interna; o dublado HA exige `podavm=1`. Tudo
+  mutation-testado (5 mutantes, 5 mortos).
+
 ### Changed
 - **README fact-checkado contra as fontes primárias** (Oracle Troubleshooting
   7.2, reverificada em 25/08): a perda de `/data` em desligamento sujo é

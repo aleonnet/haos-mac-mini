@@ -427,6 +427,9 @@ saida_bk="$(HAOS_INSTALL_LIB=1 SB="$sb_bk" HAOS_LANG=pt "${BASH:-/bin/bash}" -c 
     mkdir -p "$sdir" "$dest"
     printf x > "$dest/velho.tar"
     touch -t 202601010000 "$dest/velho.tar"
+    # esta cerca testa o VEREDITO do rodar_backup com puxadores de mentira;
+    # a convergência do artefato real tem cerca própria (tar protegido/poda)
+    escrever_cofre_artefatos() { :; }
     roda() { RC=0; OUT="$(rodar_backup 2>&1)" || RC=$?; }
     # A: o puxador traz um tar novo
     printf "#!/bin/sh\nprintf y > \"%s/novo.tar\"\nexit 0\n" "$dest" > "$sdir/backup-pull.sh"
@@ -449,6 +452,55 @@ else
     falha "--backup: esperado 'A=0/novo D=0/atual B=1 C=2', obtido '$saida_bk'"
 fi
 rm -rf "$sb_bk"
+
+# ── cofre: o puxador ESCRITO recusa tar protegido e poda dentro da VM ────────
+# O cofre restaura sem chave: um tar criptografado (backup automático ligado
+# na UI do HA) entraria mudo e falharia só na hora do desastre. E sem poda
+# interna o /backup da VM cresce ~18 MB/dia até encher o disco. A cerca roda
+# o backup-pull.sh que escrever_cofre_artefatos gerou, não uma cópia.
+titulo "cofre: tar protegido recusado (rc=4) e poda interna emitida"
+sb_pp="$(mktemp -d "${TMPDIR:-/tmp}/haos-gate-pp.XXXXXX")"
+# shellcheck disable=SC2016  # o script filho expande $SB sozinho, de propósito
+saida_pp="$(HAOS_INSTALL_LIB=1 SB="$sb_pp" "${BASH:-/bin/bash}" -c '
+    source haos-install.sh
+    HOME="$SB"; PATH="$SB/bin:$PATH"
+    mkdir -p "$SB/bin" "$SB/Documents/HAOS-backups" "$SB/fbk" \
+        "$SB/Library/Application Support/haos-mac-mini"
+    printf "VMIP=127.0.0.2\n" > "$SB/Library/Application Support/haos-mac-mini/vm-guard.env"
+    launchctl() { return 0; }
+    cat > "$SB/bin/ssh" <<FIMSSH
+#!/bin/sh
+caso="\$*"
+case "\$caso" in
+    *"tail -n +3"*) echo poda >> "$SB/poda-vm.txt"; exit 0 ;;
+    *"ha backups new"*) exit 0 ;;
+    *"ls -t /backup"*)  echo "/backup/t1.tar"; exit 0 ;;
+    *"sudo cat /backup/t1.tar"*) cat "$SB/serv.tar"; exit 0 ;;
+    *) exit 0 ;;
+esac
+FIMSSH
+    chmod +x "$SB/bin/ssh"
+    escrever_cofre_artefatos >/dev/null 2>&1
+    P="$SB/Library/Application Support/haos-mac-mini/backup-pull.sh"
+    [ -x "$P" ] || { printf "sem-artefato"; exit 0; }
+    # protegido: recusa com rc=4, nada aterrissa, nem .parcial sobra
+    printf "{\"protected\": true, \"slug\": \"t1\"}" > "$SB/fbk/backup.json"
+    tar -cf "$SB/serv.tar" -C "$SB/fbk" ./backup.json
+    rcP=0; "$P" >/dev/null 2>&1 || rcP=$?
+    nP="$(command ls "$SB/Documents/HAOS-backups" 2>/dev/null | wc -l | tr -d " ")"
+    # aberto: aceita, aterrissa, e a poda interna é emitida
+    printf "{\"protected\": false, \"slug\": \"t1\"}" > "$SB/fbk/backup.json"
+    tar -cf "$SB/serv.tar" -C "$SB/fbk" ./backup.json
+    rcA=0; "$P" >/dev/null 2>&1 || rcA=$?
+    nA="$(command ls "$SB/Documents/HAOS-backups"/*.tar 2>/dev/null | wc -l | tr -d " ")"
+    podavm=0; [ -f "$SB/poda-vm.txt" ] && podavm=1
+    printf "P=%s/%s A=%s/%s/poda%s" "$rcP" "$nP" "$rcA" "$nA" "$podavm"')"
+if [ "$saida_pp" = "P=4/0 A=0/1/poda1" ]; then
+    ok "puxador real: protegido recusado limpo, aberto aceito, poda interna emitida"
+else
+    falha "puxador real: esperado 'P=4/0 A=0/1/poda1', obtido '$saida_pp'"
+fi
+rm -rf "$sb_pp"
 
 # ── F5 de ponta a ponta (boot dublado) ───────────────────────────────────────
 # A espera do boot é por MAC→ARP, nunca por mDNS (falso positivo medido em
@@ -918,11 +970,14 @@ if [ -s "$sb_ha/porta" ]; then
         rc_f9=0; fase_arquivos >/dev/null 2>&1 || rc_f9=$?
         # ── cofre: primeiro backup + agente + poda, com ssh/launchctl dublados
         launchctl() { printf "%s\n" "$*" >> "$SB/launchctl.txt"; return 0; }
-        tar -cf "$SB/fake-backup.tar" -C "$SB" porta >/dev/null 2>&1
+        mkdir -p "$SB/fbk"
+        printf "{\"protected\": false, \"slug\": \"feed1234\"}" > "$SB/fbk/backup.json"
+        tar -cf "$SB/fake-backup.tar" -C "$SB/fbk" ./backup.json >/dev/null 2>&1
         cat > "$SB/bin/ssh" <<FIMSSH
 #!/bin/sh
 caso="\$*"
 case "\$caso" in
+    *"tail -n +3"*) echo poda >> "$SB/poda-vm.txt"; exit 0 ;;
     *"ha backups new"*) exit 0 ;;
     *"ls -t /backup"*)  echo "/backup/feed1234.tar"; exit 0 ;;
     *"sudo cat /backup/feed1234.tar"*) cat "$SB/fake-backup.tar"; exit 0 ;;
@@ -950,6 +1005,7 @@ FIMKG
         cofre_arte=0
         [ -x "$SB/Library/Application Support/haos-mac-mini/backup-pull.sh" ] \
             && [ -f "$SB/Library/LaunchAgents/com.haos-mac-mini.backup.plist" ] && cofre_arte=1
+        podavm=0; [ -f "$SB/poda-vm.txt" ] && podavm=1
         pkg_ok=0
         if [ -f "${PONTO_GRAVADO:-/nada}/packages/energia_br.yaml" ]; then pkg_ok=1; fi
         dash_ok=0
@@ -964,9 +1020,9 @@ FIMKG
             [ -e "$alvo" ] || continue
             if grep -r "SENTINELA-9f3a7c" "$alvo" >/dev/null 2>&1; then vaz=1; fi
         done
-        printf "c1=%s c2=%s a1=%s a2=%s i=%s fl=%s cj=%s f9=%s pkg=%s dash=%s cf=%s tars=%s novo=%s arte=%s sem=%s vaz=%s" \
-            "$rc_c1" "$rc_c2" "$rc_a1" "$rc_a2" "$rc_i" "$n_flows" "$rc_cj" "$rc_f9" "$pkg_ok" "$dash_ok" "$rc_cf" "$n_tars" "$tem_novo" "$cofre_arte" "$rc_sem" "$vaz"')"
-    esp_ha="c1=0 c2=100 a1=0 a2=100 i=0 fl=2 cj=1 f9=0 pkg=1 dash=1 cf=0 tars=7 novo=1 arte=1 sem=1 vaz=0"
+        printf "c1=%s c2=%s a1=%s a2=%s i=%s fl=%s cj=%s f9=%s pkg=%s dash=%s cf=%s tars=%s novo=%s arte=%s podavm=%s sem=%s vaz=%s" \
+            "$rc_c1" "$rc_c2" "$rc_a1" "$rc_a2" "$rc_i" "$n_flows" "$rc_cj" "$rc_f9" "$pkg_ok" "$dash_ok" "$rc_cf" "$n_tars" "$tem_novo" "$cofre_arte" "$podavm" "$rc_sem" "$vaz"')"
+    esp_ha="c1=0 c2=100 a1=0 a2=100 i=0 fl=2 cj=1 f9=0 pkg=1 dash=1 cf=0 tars=7 novo=1 arte=1 podavm=1 sem=1 vaz=0"
     if [ "$saida_ha" = "$esp_ha" ]; then
         ok "F6–F9 no dublado: conta 0→100, apps 0→100 (repo hash descoberto), conjunto reprova, F9 escreve, sentinela ausente"
     else

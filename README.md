@@ -111,6 +111,13 @@ animação; `HAOS_STATE_DIR` muda o diretório de estado (padrão
   saem na tela e o arquivo completo fica em `$TMPDIR`.
 - **Degrada bem**: sem TTY, sem UTF-8 ou com `NO_COLOR`, os glifos viram ASCII e a
   animação some — a mesma execução fica legível num log de CI.
+- **O cofre é a autoridade única de backup**: cria sem senha (a restauração
+  dispensa chave), guarda 7 no Mac e mantém só os 2 últimos dentro da VM. Um
+  tar **criptografado** (backup automático ligado na interface do HA) é
+  **recusado com aviso** — o cofre não teria como restaurá-lo sem a chave do
+  Emergency Kit. Recomendação: deixe o backup automático da interface
+  desligado e use `--backup`/o agente diário; se optar pelo caminho da
+  interface, guarde o kit — a chave é sua, o instalador nunca a vê.
 
 ## Requisitos
 

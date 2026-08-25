@@ -225,6 +225,7 @@ MSG_DB=(
 "bkp_atual|O cofre já tem o backup mais recente: %s|The vault already holds the latest backup: %s"
 "bkp_falhou|Não consegui criar/trazer o backup (rc=%s) - a VM está no ar? Confira com --doctor|Could not create/pull the backup (rc=%s) - is the VM up? Check with --doctor"
 "bkp_sem_cofre|O cofre ainda não existe nesta máquina - a instalação (fase 11) o cria|The vault does not exist on this machine yet - the install (phase 11) creates it"
+"bkp_protegido|O backup mais novo na VM é CRIPTOGRAFADO (protected) e o cofre restaura sem chave - recusado. Desligue o backup automático da interface do HA, ou trate esse tar à parte com a chave do Emergency Kit|The newest backup in the VM is ENCRYPTED (protected) and the vault restores keyless - refused. Turn off HA UI automatic backups, or handle that tar separately with the Emergency Kit key"
 "doc_storage|Armazenamento da VM|VM storage"
 "doc_vm_ausente|VM %s ainda não existe nesta máquina|VM %s does not exist on this machine yet"
 "doc_flush_ok|controller %s com IgnoreFlush=0 - flush honrado (validado com quedas reais de energia)|controller %s with IgnoreFlush=0 - flushes honored (validated with real power cuts)"
@@ -1523,7 +1524,8 @@ escrever_cofre_artefatos() { # script do puxador + agente 04:10 (desired-state)
 #!/bin/sh
 # backup-pull.sh — escrito pelo haos-install.sh. Cria backup no HAOS e o traz
 # para FORA da VM (este Mac). Transporte por cano de cat (addon sem SFTP).
-# exit: 0 trouxe/atual · 3 nada feito (VM fora do ar etc.)
+# exit: 0 trouxe/atual · 3 nada feito (VM fora do ar etc.) · 4 tar recusado
+#       (protegido/criptografado ou sem backup.json legível)
 ENVF="$HOME/Library/Application Support/haos-mac-mini/vm-guard.env"
 [ -f "$ENVF" ] || exit 3
 . "$ENVF"
@@ -1542,10 +1544,19 @@ S "sudo cat $ULTIMO" > "$DESTINO/$NOME.parcial" 2>/dev/null \
     || { rm -f "$DESTINO/$NOME.parcial"; exit 3; }
 tar -tf "$DESTINO/$NOME.parcial" >/dev/null 2>&1 \
     || { rm -f "$DESTINO/$NOME.parcial"; exit 3; }
+# O cofre restaura SEM chave: tar protegido (backup automático ligado na UI
+# do HA) seria irrestaurável por aqui — recusar com veredito próprio (4).
+{ tar -xOf "$DESTINO/$NOME.parcial" ./backup.json 2>/dev/null \
+    || tar -xOf "$DESTINO/$NOME.parcial" backup.json 2>/dev/null; } \
+    | python3 -c "import json,sys; sys.exit(0 if json.load(sys.stdin).get(\"protected\") is not True else 4)" \
+    || { rm -f "$DESTINO/$NOME.parcial"; exit 4; }
 mv "$DESTINO/$NOME.parcial" "$DESTINO/$NOME"
 ls -t "$DESTINO"/*.tar 2>/dev/null | tail -n +8 | while IFS= read -r f; do
     rm -f "$f"
 done
+# Poda DENTRO da VM: o cofre é a autoridade; lá dentro bastam os 2 últimos
+# (sem isto /backup cresce ~18 MB/dia até encher o disco da VM).
+S "sudo sh -c 'ls -t /backup/*.tar 2>/dev/null | tail -n +3 | while IFS= read -r f; do rm -f \"\$f\"; done'" >/dev/null 2>&1 || true
 exit 0
 FIM_PULL
     if [ ! -f "$script" ] || ! cmp -s "$tmp" "$script"; then
@@ -1685,10 +1696,19 @@ rodar_backup() {
         ha_err "$(msg bkp_sem_cofre)"
         return "$E_USO"
     fi
+    # Converge o artefato para a versão corrente (desired-state): uma cópia
+    # antiga ou editada à mão ganha aqui as cercas novas (protected, poda
+    # interna) antes de rodar. Cofre inexistente NÃO passa por aqui — o if
+    # acima já barrou; isto só atualiza o que a fase 11 criou um dia.
+    escrever_cofre_artefatos >/dev/null 2>&1 || true
     antes="$(command ls -t "$dest"/*.tar 2>/dev/null | head -1)"
     ha_info "$(msg bkp_indo)"
     "$script" || rc=$?
     depois="$(command ls -t "$dest"/*.tar 2>/dev/null | head -1)"
+    if [ "$rc" = "4" ]; then
+        ha_err "$(msg bkp_protegido)"
+        return 1
+    fi
     if [ "$rc" != "0" ] || [ -z "$depois" ]; then
         ha_err "$(msg bkp_falhou "$rc")"
         return 1
