@@ -1040,7 +1040,13 @@ fase_vm() {
         && vbm storagectl "$OP_VM_NOME" --name SATA --add sata \
                --controller IntelAhci --bootable on \
         && vbm storageattach "$OP_VM_NOME" --storagectl SATA --port 0 --device 0 \
-               --type hdd --medium "$HAOS_VDI" --nonrotational on --discard on; }; then
+               --type hdd --medium "$HAOS_VDI" --nonrotational on --discard on \
+        && vbm setextradata "$OP_VM_NOME" \
+               "VBoxInternal/Devices/ahci/0/LUN#0/Config/IgnoreFlush" "0"; }; then
+        # ^ IgnoreFlush=0: por PADRÃO o VirtualBox ignora os flushes que o
+        # guest pede — o journal do ext4 vira mentira e um desligamento sujo
+        # ZEROU o /data do HAOS duas vezes em campo (24/08). Com 0, flush é
+        # flush: provado com 5 quedas de energia simuladas sem perder um byte.
         # Rollback do parcial SEM tocar no disco: soltar o medium ANTES de
         # desregistrar — um `unregistervm --delete` levaria o .vdi junto.
         vbm storageattach "$OP_VM_NOME" --storagectl SATA --port 0 --device 0 --medium none || true
@@ -1163,6 +1169,10 @@ fase_boot() {
     vm_set vm_mac "$mac_arp"
     vm_set vm_ip "$VM_IP"
     vm_set vm_url "$VM_URL"
+    # o vigia lê daqui o IP para o desligamento limpo via SSH no logout
+    mkdir -p "$HOME/Library/Application Support/haos-mac-mini" 2>/dev/null || true
+    printf 'VMIP=%s\n' "$VM_IP" \
+        > "$HOME/Library/Application Support/haos-mac-mini/vm-guard.env" 2>/dev/null || true
     ha_ok "$(msg boot_no_ar "$VM_URL")"
 
     autostart_launchagent
@@ -1191,15 +1201,33 @@ autostart_launchagent() {
     tmpg="$(mktempfile)"
     cat > "$tmpg" <<'FIM_GUARDA'
 #!/bin/sh
-# vm-guard.sh — escrito pelo haos-install.sh (fonte de verdade: o instalador).
-# Sobe a VM no login e a SALVA (savestate) quando o launchd manda parar.
+# vm-guard.sh v3 — escrito pelo haos-install.sh (fonte de verdade: o
+# instalador). Sobe a VM no login; no SIGTERM do launchd (logout/shutdown)
+# tenta desligamento LIMPO do guest (ha host shutdown via SSH, quando o
+# instalador deixou chave e IP) e, não concluindo em 75s, poweroff — seguro
+# com IgnoreFlush=0. savestate é PROIBIDO aqui: o resume quebrou o runtime
+# de containers do guest e o par savestate+discard zerou o /data (medido).
 VBM="/Applications/VirtualBox.app/Contents/MacOS/VBoxManage"
 VM="$1"
-salvar() {
-    "$VBM" controlvm "$VM" savestate >/dev/null 2>&1
+ENVF="$HOME/Library/Application Support/haos-mac-mini/vm-guard.env"
+desligar() {
+    if [ -f "$ENVF" ]; then
+        . "$ENVF"
+        if [ -n "$VMIP" ] && [ -f "$HOME/.ssh/haos-mac-mini" ]; then
+            ssh -i "$HOME/.ssh/haos-mac-mini" -o BatchMode=yes \
+                -o ConnectTimeout=6 -o StrictHostKeyChecking=accept-new \
+                "hassio@$VMIP" "bash -lc 'ha host shutdown'" >/dev/null 2>&1 &
+        fi
+    fi
+    i=0
+    while [ $i -lt 75 ]; do
+        "$VBM" list runningvms 2>/dev/null | grep -qF "\"$VM\"" || exit 0
+        sleep 3; i=$((i+3))
+    done
+    "$VBM" controlvm "$VM" poweroff >/dev/null 2>&1
     exit 0
 }
-trap salvar TERM INT HUP
+trap desligar TERM INT HUP
 "$VBM" list runningvms 2>/dev/null | grep -qF "\"$VM\"" \
     || "$VBM" startvm "$VM" --type headless >/dev/null 2>&1
 # vivo para receber o sinal; sleep em background para o trap disparar na hora

@@ -362,6 +362,7 @@ saida_f4="$(HAOS_INSTALL_LIB=1 SB="$sb_f4" "${BASH:-/bin/bash}" -c '
     grep -q "^createvm .*--platform-architecture arm" "$SB/calls.txt" || seq=0
     grep -q "^createvm .*--ostype Linux_arm64" "$SB/calls.txt" || seq=0
     grep -q "^storagectl .*--add sata .*--controller IntelAhci" "$SB/calls.txt" || seq=0
+    grep -q "^setextradata .*IgnoreFlush 0" "$SB/calls.txt" || seq=0
     grep -q "^modifyvm .*--bridge-adapter1 en7: Cabo Fake" "$SB/calls.txt" || seq=0
     if grep -qi "virtio-scsi" "$SB/calls.txt"; then seq=0; fi
     [ "$(cat "$SB/medium" 2>/dev/null)" = "$SB/haos.vdi" ] || seq=0
@@ -425,7 +426,10 @@ saida_f5="$(HAOS_INSTALL_LIB=1 SB="$sb_f5" "${BASH:-/bin/bash}" -c '
     [ -f "$p" ] && ! grep -q -- "-c</string>" "$p" \
         && grep -q "vm-guard.sh</string>" "$p" \
         && grep -q "<string>HomeAssistant</string>" "$p" \
-        && [ -x "$g" ] && grep -q "savestate" "$g" \
+        && [ -x "$g" ] && grep -q "ha host shutdown" "$g" \
+        && grep -q "poweroff" "$g" \
+        && ! grep -qE "controlvm.*savestate" "$g" \
+        && [ -f "$SB/Library/Application Support/haos-mac-mini/vm-guard.env" ] \
         && plist_ok=1
     boot_ok=0; [ -f "$SB/ligada" ] && [ -f "$SB/pingou" ] && boot_ok=1
     # convergência: agora a VM "roda" e responde de primeira

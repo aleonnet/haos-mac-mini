@@ -7,6 +7,23 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
 ## [Unreleased]
 
 ### Fixed
+- 🔴🔴 **A causa-raiz das perdas de dados, encontrada e morta: por padrão o
+  VirtualBox IGNORA os flushes de disco do guest** — o journal do ext4 vira
+  ficção e um desligamento sujo zera o `/data` do HAOS (aconteceu DUAS vezes
+  em campo em 24/08). A fase da VM agora grava
+  `VBoxInternal/Devices/ahci/0/LUN#0/Config/IgnoreFlush=0` na criação —
+  validado com **5 quedas de energia simuladas** (poweroff seco) sem perder
+  um byte. Cerca F4 exige a chamada.
+- **vm-guard v3**: o desligamento no logout virou LIMPO — `ha host shutdown`
+  via SSH (IP em `vm-guard.env`, escrito pela fase de boot) com fallback
+  `poweroff` (seguro com flushes honestos) — **savestate foi BANIDO**: o
+  resume quebrou o runtime de containers do guest e o par savestate+discard
+  zerou o `/data` (terceira perda da noite, em teste). Provado ao vivo:
+  TERM → VM desliga limpa em 30 s; religa em boot frio de ~50 s. Cerca F5
+  exige `ha host shutdown` + `poweroff` e **reprova** `controlvm savestate`.
+
+
+### Fixed
 - 🔴 **DEFEITO GRAVE, medido em perda real (24/08, noite): o auto-start só
   LIGAVA a VM — o shutdown do Mac matava o VBoxHeadless a seco**, o `/data`
   do HAOS corrompia e a recuperação o zerava (instância configurada foi ao
