@@ -67,6 +67,24 @@ Fim-a-fim REAL no Mac mini: 3 execuções — instala tudo → converge →
    digest + ffmpeg no container). Durante a migração, cada câmera deve ter
    UM dono de stream por vez.
 
+## 2c. A PERDA DA NOITE E O VM-GUARD (24/08, 23h)
+
+**Defeito grave meu, pago com perda real**: o agente v1 só LIGAVA a VM; o
+reboot do Mac matou o VBoxHeadless a seco, o /data do HAOS corrompeu e a
+recuperação o zerou — a instância configurada do dia foi ao chão (sem
+backup: falha de prioridade MINHA, registrada). Consertos:
+
+1. **vm-guard** (LaunchAgent v2): startvm no login; no SIGTERM do launchd,
+   `controlvm savestate` (host-side; HAOS ignora ACPI). ExitTimeOut 180.
+   **Prova ao vivo**: TERM→saving em 2 s→saved; religado, HA 200 em 10 s
+   (resume). Peculiaridade medida: bootout→bootstrap imediato dá EIO no
+   launchd — o fallback `load -w` do instalador cobre.
+2. Uninstall: `discardstate` antes do detach (VM salva não é running).
+3. A reconstrução via instalador custou ~20 min do dono — o processo pagou.
+4. **PRÓXIMA FRENTE PRIORITÁRIA: backups automáticos ativados pelo
+   instalador** (WS backup/config) + primeiro backup pós-install. Nunca
+   mais uma noite dessas.
+
 ## 3. DECISÕES (registro, não pergunta)
 
 1. Credencial do HA: pedida no terminal (oculta, 2×) ou
