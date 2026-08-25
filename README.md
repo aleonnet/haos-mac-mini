@@ -99,7 +99,7 @@ Veja o catálogo completo com `--list`.
 | `--uninstall` | remove **só o que este instalador criou** (plano + confirmação; `--dry-run` mostra o plano; `--confirm=<nome-da-vm>` confirma sem terminal) |
 | `--self-update` | atualiza o script pelo publicado — valida sintaxe, recusa downgrade, deixa backup `.bak` |
 | `--backup` | cria um backup **agora** e o traz para o cofre (`~/Documents/HAOS-backups`) — o gêmeo manual do agente diário das 04:10, com o resultado dito na tela |
-| `--restore <tar>` | restaura um backup do cofre (`~/Documents/HAOS-backups`) na VM — conta, integrações e dashboards voltam inteiros |
+| `--restore <tar>` | restaura um backup do cofre (`~/Documents/HAOS-backups`) na VM — conta, integrações e dashboards voltam inteiros; ao final reaplica os **seus** scripts de `/config/pos-restore.d/*.sh`, em ordem (a pasta viaja no backup) |
 | `--no-open` | não abre o navegador no fim |
 | `--version` / `--help` | versão e ajuda |
 

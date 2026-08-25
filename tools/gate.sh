@@ -770,7 +770,11 @@ saida_r="$(HAOS_INSTALL_LIB=1 SB="$sb_r" "${BASH:-/bin/bash}" -c '
     ssh-keygen() { return 0; }
     vmssh() {
         printf "%s\n" "$*" >> "$SB/calls.txt"
-        case "$*" in *"sudo tee /backup/feed1234.tar"*) cat > "$SB/pushed.tar" ;; esac
+        case "$*" in
+            *"sudo tee /backup/feed1234.tar"*) cat > "$SB/pushed.tar" ;;
+            # pos-restore.d do dono: dois scripts, em ordem de nome
+            *"ls /config/pos-restore.d"*) printf "/config/pos-restore.d/10-a.sh\n/config/pos-restore.d/20-b.sh\n" ;;
+        esac
         return 0
     }
     curl() { printf "404: Not Found"; }
@@ -781,13 +785,19 @@ saida_r="$(HAOS_INSTALL_LIB=1 SB="$sb_r" "${BASH:-/bin/bash}" -c '
     grep -q "ha backups reload" "$SB/calls.txt" || seq_ok=0
     grep -q "ha backups restore feed1234" "$SB/calls.txt" || seq_ok=0
     igual=0; cmp -s "$SB/pushed.tar" "$SB/bom.tar" && igual=1
+    # os scripts do dono rodam DEPOIS do restore, na ordem 10 → 20
+    posr=0
+    l_rest="$(grep -n "ha backups restore feed1234" "$SB/calls.txt" | head -1 | cut -d: -f1)"
+    l_a="$(grep -n "sudo bash ./config/pos-restore.d/10-a.sh." "$SB/calls.txt" | head -1 | cut -d: -f1)"
+    l_b="$(grep -n "sudo bash ./config/pos-restore.d/20-b.sh." "$SB/calls.txt" | head -1 | cut -d: -f1)"
+    [ -n "$l_a" ] && [ -n "$l_b" ] && [ "$l_rest" -lt "$l_a" ] && [ "$l_a" -lt "$l_b" ] && posr=1
     OP_RESTORE="$SB/ruim.tar"
     rc2=0; rodar_restore >/dev/null 2>&1 || rc2=$?
-    printf "rc1=%s seq=%s igual=%s rc2=%s" "$rc1" "$seq_ok" "$igual" "$rc2"')"
-if [ "$saida_r" = "rc1=0 seq=1 igual=1 rc2=2" ]; then
-    ok "--restore: push íntegro + reload + restore pelo slug + espera; tar corrompido recusado"
+    printf "rc1=%s seq=%s igual=%s posr=%s rc2=%s" "$rc1" "$seq_ok" "$igual" "$posr" "$rc2"')"
+if [ "$saida_r" = "rc1=0 seq=1 igual=1 posr=1 rc2=2" ]; then
+    ok "--restore: push íntegro + reload + restore pelo slug + pos-restore.d na ordem; tar corrompido recusado"
 else
-    falha "--restore: esperado 'rc1=0 seq=1 igual=1 rc2=2', obtido '$saida_r'"
+    falha "--restore: esperado 'rc1=0 seq=1 igual=1 posr=1 rc2=2', obtido '$saida_r'"
 fi
 rm -rf "$sb_r"
 

@@ -24,6 +24,15 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
   viva + origem divergente → recusa; sem VM → aquisição segue), 2
   mutantes mortos.
 
+- **`/config/pos-restore.d/` — os scripts do DONO reaplicados após cada
+  restore.** Ajustes na camada gravável do container do Core (o patch TLS
+  das Tapo é o caso real) morrem em todo restore/update, e o dono estava
+  reaplicando à mão a cada ressurreição. O instalador continua sem
+  carregar scripts próprios para dentro do HAOS — mas o `--restore` agora
+  honra a pasta que o dono montar: cada `*.sh` roda em ordem de nome, via
+  SSH, com resultado dito na tela; falha avisa e segue. A pasta viaja
+  dentro do backup, então a automação sobrevive ao desastre que a motiva.
+  Cerca no restore dublado exige os scripts DEPOIS do restore e na ordem.
 - **apfs-pin reabre por inode**: visto durante o desarme — depois de um
   restore trocar o arquivo no caminho, o vigia seguia flushando o inode
   MORTO (flush em fd válido nunca erra, então a troca era invisível).

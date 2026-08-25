@@ -202,6 +202,9 @@ MSG_DB=(
 "fase_vm|VM|VM"
 "relatorio_salvo|Relatório da execução: %s|Run report: %s"
 "img_image_invalida|O arquivo passado em --image não confere com a tabela (tamanho ou SHA-256): %s|The file passed to --image does not match the table (size or SHA-256): %s"
+"posr_rodando|pos-restore.d encontrado - reaplicando os SEUS scripts (a pasta viaja dentro do backup)|pos-restore.d found - reapplying YOUR scripts (the folder travels inside the backup)"
+"posr_ok|pos-restore: %s reaplicado|pos-restore: %s reapplied"
+"posr_falhou|pos-restore: %s falhou (rc=%s) - rode-o manualmente e veja o log|pos-restore: %s failed (rc=%s) - run it manually and check the log"
 "img_vdi_vivo|o disco pertence à VM %s registrada no VirtualBox - substituí-lo mataria a instância no próximo boot. Para recriar do zero: --uninstall primeiro|the disk belongs to the registered VM %s - replacing it would kill the instance on its next boot. To recreate from scratch: run --uninstall first"
 "last_sem_estado|--profile last: nenhuma seleção salva em %s. Rode uma instalação primeiro.|--profile last: no saved selection at %s. Run an install first."
 "last_repetindo|Repetindo a última seleção salva.|Repeating the last saved selection."
@@ -1825,11 +1828,39 @@ rodar_restore() {
         ob=""
     done
     if [ -n "$ob" ]; then
+        pos_restore_hook
         ha_ok "$(msg rest_ok)"
         return 0
     fi
     ha_err "$(msg rest_falhou)"; diagnostico_log
     return 1
+}
+
+# ── pos-restore.d: os scripts do DONO, reaplicados depois de cada restore ────
+# Ajustes na camada gravável do container do Core (o patch TLS das Tapo é o
+# caso real) morrem em todo restore/update. O instalador NÃO carrega scripts
+# próprios para dentro do HAOS — mas honra a pasta /config/pos-restore.d/
+# que o dono montar: cada *.sh roda em ordem de nome, via SSH, com o
+# resultado dito na tela. A pasta viaja dentro do backup, então a automação
+# sobrevive ao próprio desastre que a motiva. Falha de um script avisa e
+# segue: o restore em si já está completo.
+pos_restore_hook() {
+    local lista s nome rc
+    lista="$(vmssh "sudo sh -c 'ls /config/pos-restore.d/*.sh 2>/dev/null'" 2>/dev/null | tr -d '\r')"
+    [ -n "$lista" ] || return 0
+    ha_info "$(msg posr_rodando)"
+    while IFS= read -r s; do
+        [ -n "$s" ] || continue
+        nome="$(basename "$s")"
+        rc=0
+        vmssh "bash -lc \"sudo bash '$s'\"" >>"$LOG_FILE" 2>&1 || rc=$?
+        if [ "$rc" = "0" ]; then
+            ha_ok "$(msg posr_ok "$nome")"
+        else
+            ha_warn "$(msg posr_falhou "$nome" "$rc")"
+        fi
+    done <<< "$lista"
+    return 0
 }
 
 # ── --backup: backup imediato, com voz — o gêmeo manual do agente das 04:10 ──

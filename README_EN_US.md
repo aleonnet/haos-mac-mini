@@ -104,7 +104,7 @@ See the full catalog with `--list`.
 | `--uninstall` | removes **only what this installer created** (plan + confirmation; `--dry-run` shows the plan; `--confirm=<vm-name>` confirms without a terminal) |
 | `--self-update` | updates the script from the published one — validates syntax, refuses downgrades, leaves a `.bak` backup |
 | `--backup` | creates a backup **now** and pulls it into the vault (`~/Documents/HAOS-backups`) — the manual twin of the daily 04:10 agent, with the result spoken on screen |
-| `--restore <tar>` | restores a vault backup (`~/Documents/HAOS-backups`) into the VM — account, integrations and dashboards come back whole |
+| `--restore <tar>` | restores a vault backup (`~/Documents/HAOS-backups`) into the VM — account, integrations and dashboards come back whole; at the end it re-runs **your** scripts from `/config/pos-restore.d/*.sh`, in order (the folder travels inside the backup) |
 | `--no-open` | doesn't open the browser at the end |
 | `--version` / `--help` | version and help |
 
