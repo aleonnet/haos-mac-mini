@@ -28,6 +28,9 @@ __pycache__/
 # tools/ É versionado: o ui-demo.sh mora lá de propósito, fora da biblioteca.
 # A máscara ASCII de origem desconhecida continua fora:
 tools/haos-mask.txt
+# Toolkit pessoal de transferência raw — carrega IP da casa e caminhos do dono;
+# ferramenta do operador, não do produto (avaliado em 26/08/2026):
+tools/HAOS_TRANSFER_TOOLKIT_*/
 
 # Superado — não vai para o repositório público
 docs/API-REFERENCE.md
