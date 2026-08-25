@@ -24,6 +24,12 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
   viva + origem divergente → recusa; sem VM → aquisição segue), 2
   mutantes mortos.
 
+- **apfs-pin reabre por inode**: visto durante o desarme — depois de um
+  restore trocar o arquivo no caminho, o vigia seguia flushando o inode
+  MORTO (flush em fd válido nunca erra, então a troca era invisível).
+  Agora cada volta compara `st_ino` do caminho com o do fd e reabre na
+  divergência. Cerca exige o reopen no script escrito.
+
 ### Changed
 - **ERRATA da narrativa do 0.4.0**: a reversão "do APFS" observada era o
   file-swap acima — o arquivo no disco ERA a fábrica porque nós o

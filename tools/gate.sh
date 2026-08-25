@@ -478,8 +478,11 @@ saida_pn="$(HAOS_INSTALL_LIB=1 SB="$sb_pn" "${BASH:-/bin/bash}" -c '
     S="$SB/Library/Application Support/haos-mac-mini/apfs-pin.py"
     P="$SB/Library/LaunchAgents/com.haos-mac-mini.apfs-pin.plist"
     a=0
-    # a CHAMADA (fcntl.F_FULLFSYNC), não o comentário; e -c em tag própria
+    # a CHAMADA (fcntl.F_FULLFSYNC), não o comentário; -c em tag própria; e
+    # o reopen por inode (st_ino) — sem ele o vigia flusha um inode morto
+    # depois de um restore trocar o arquivo no caminho
     [ -x "$S" ] && grep -qF "fcntl.F_FULLFSYNC" "$S" \
+        && grep -qF ".st_ino != os.fstat(fd).st_ino" "$S" \
         && grep -qF "$SB/vm/disco.vdi" "$P" \
         && ! grep -qE "<string>-c</string>|sh -c|bash -c" "$P" \
         && [ "$(manifest_get "$(vm_manifest)" pin_agente)" = "created" ] && a=1

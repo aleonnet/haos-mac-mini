@@ -1383,12 +1383,24 @@ except FileNotFoundError:
 falhas = 0
 while True:
     t0 = time.monotonic()
+    # Arquivo TROCADO no caminho (restore/recriacao): o flush num fd valido
+    # nao erra nunca, entao a troca so aparece comparando o inode do caminho
+    # com o do fd — visto em campo: o vigia flushava um inode morto.
+    try:
+        if os.stat(VDI).st_ino != os.fstat(fd).st_ino:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            fd = abre()
+    except (FileNotFoundError, OSError):
+        pass
     try:
         fcntl.fcntl(fd, fcntl.F_FULLFSYNC)
         falhas = 0
     except OSError:
         falhas += 1
-        if falhas >= 2:  # arquivo trocado (reinstalacao): reabrir
+        if falhas >= 2:
             try:
                 os.close(fd)
             except OSError:
