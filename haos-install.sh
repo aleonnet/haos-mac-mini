@@ -1551,12 +1551,20 @@ tar -tf "$DESTINO/$NOME.parcial" >/dev/null 2>&1 \
     | python3 -c "import json,sys; sys.exit(0 if json.load(sys.stdin).get(\"protected\") is not True else 4)" \
     || { rm -f "$DESTINO/$NOME.parcial"; exit 4; }
 mv "$DESTINO/$NOME.parcial" "$DESTINO/$NOME"
-ls -t "$DESTINO"/*.tar 2>/dev/null | tail -n +8 | while IFS= read -r f; do
+# Poda SÓ o que este cofre criou (auto-*) — backup do dono é do dono e não
+# se toca, nem no Mac nem dentro da VM (aprendido a caro: uma poda cega
+# levou um tar histórico em 26/08). Mantém 7 fora e 2 dentro; a poda de
+# dentro remove pelo slug espelhado no nome do cofre, então só alcança o
+# que este script mesmo puxou. Sem a poda interna /backup cresce
+# ~18 MB/dia até encher o disco da VM.
+ls -t "$DESTINO"/auto-*.tar 2>/dev/null | tail -n +8 | while IFS= read -r f; do
     rm -f "$f"
 done
-# Poda DENTRO da VM: o cofre é a autoridade; lá dentro bastam os 2 últimos
-# (sem isto /backup cresce ~18 MB/dia até encher o disco da VM).
-S "sudo sh -c 'ls -t /backup/*.tar 2>/dev/null | tail -n +3 | while IFS= read -r f; do rm -f \"\$f\"; done'" >/dev/null 2>&1 || true
+ls -t "$DESTINO"/auto-*.tar 2>/dev/null | tail -n +3 | while IFS= read -r f; do
+    slug="${f##*-}"
+    S "sudo rm -f /backup/$slug" >/dev/null 2>&1 || true
+done
+S "bash -lc 'ha backups reload'" >/dev/null 2>&1 || true
 exit 0
 FIM_PULL
     if [ ! -f "$script" ] || ! cmp -s "$tmp" "$script"; then

@@ -458,7 +458,7 @@ rm -rf "$sb_bk"
 # na UI do HA) entraria mudo e falharia só na hora do desastre. E sem poda
 # interna o /backup da VM cresce ~18 MB/dia até encher o disco. A cerca roda
 # o backup-pull.sh que escrever_cofre_artefatos gerou, não uma cópia.
-titulo "cofre: tar protegido recusado (rc=4) e poda interna emitida"
+titulo "cofre: protegido recusado, poda só do auto-*, backup do dono intocável"
 sb_pp="$(mktemp -d "${TMPDIR:-/tmp}/haos-gate-pp.XXXXXX")"
 # shellcheck disable=SC2016  # o script filho expande $SB sozinho, de propósito
 saida_pp="$(HAOS_INSTALL_LIB=1 SB="$sb_pp" "${BASH:-/bin/bash}" -c '
@@ -472,7 +472,7 @@ saida_pp="$(HAOS_INSTALL_LIB=1 SB="$sb_pp" "${BASH:-/bin/bash}" -c '
 #!/bin/sh
 caso="\$*"
 case "\$caso" in
-    *"tail -n +3"*) echo poda >> "$SB/poda-vm.txt"; exit 0 ;;
+    *"sudo rm -f /backup/"*) echo poda >> "$SB/poda-vm.txt"; exit 0 ;;
     *"ha backups new"*) exit 0 ;;
     *"ls -t /backup"*)  echo "/backup/t1.tar"; exit 0 ;;
     *"sudo cat /backup/t1.tar"*) cat "$SB/serv.tar"; exit 0 ;;
@@ -483,22 +483,32 @@ FIMSSH
     escrever_cofre_artefatos >/dev/null 2>&1
     P="$SB/Library/Application Support/haos-mac-mini/backup-pull.sh"
     [ -x "$P" ] || { printf "sem-artefato"; exit 0; }
+    dest="$SB/Documents/HAOS-backups"
     # protegido: recusa com rc=4, nada aterrissa, nem .parcial sobra
     printf "{\"protected\": true, \"slug\": \"t1\"}" > "$SB/fbk/backup.json"
     tar -cf "$SB/serv.tar" -C "$SB/fbk" ./backup.json
     rcP=0; "$P" >/dev/null 2>&1 || rcP=$?
-    nP="$(command ls "$SB/Documents/HAOS-backups" 2>/dev/null | wc -l | tr -d " ")"
-    # aberto: aceita, aterrissa, e a poda interna é emitida
+    nP="$(command ls "$dest" 2>/dev/null | wc -l | tr -d " ")"
+    # cofre cheio: 7 autos velhos + 1 tar do DONO, o mais antigo de todos —
+    # a lição de 26/08: a poda por contagem cega levou o transplante real
+    for n in 1 2 3 4 5 6 7; do
+        printf x > "$dest/auto-velho-$n.tar"
+        touch -t 2601020$n"00" "$dest/auto-velho-$n.tar"
+    done
+    printf x > "$dest/transplante-dono.tar"
+    touch -t 2512310000 "$dest/transplante-dono.tar"
+    # aberto: aceita; poda SÓ auto-* (o do dono fica); poda interna emitida
     printf "{\"protected\": false, \"slug\": \"t1\"}" > "$SB/fbk/backup.json"
     tar -cf "$SB/serv.tar" -C "$SB/fbk" ./backup.json
     rcA=0; "$P" >/dev/null 2>&1 || rcA=$?
-    nA="$(command ls "$SB/Documents/HAOS-backups"/*.tar 2>/dev/null | wc -l | tr -d " ")"
+    nA="$(command ls "$dest"/*.tar 2>/dev/null | wc -l | tr -d " ")"
     podavm=0; [ -f "$SB/poda-vm.txt" ] && podavm=1
-    printf "P=%s/%s A=%s/%s/poda%s" "$rcP" "$nP" "$rcA" "$nA" "$podavm"')"
-if [ "$saida_pp" = "P=4/0 A=0/1/poda1" ]; then
-    ok "puxador real: protegido recusado limpo, aberto aceito, poda interna emitida"
+    trans=0; [ -f "$dest/transplante-dono.tar" ] && trans=1
+    printf "P=%s/%s A=%s/%s/poda%s/trans%s" "$rcP" "$nP" "$rcA" "$nA" "$podavm" "$trans"')"
+if [ "$saida_pp" = "P=4/0 A=0/8/poda1/trans1" ]; then
+    ok "puxador real: protegido fora, 7 autos + o tar do dono intacto, poda interna emitida"
 else
-    falha "puxador real: esperado 'P=4/0 A=0/1/poda1', obtido '$saida_pp'"
+    falha "puxador real: esperado 'P=4/0 A=0/8/poda1/trans1', obtido '$saida_pp'"
 fi
 rm -rf "$sb_pp"
 
@@ -977,7 +987,7 @@ if [ -s "$sb_ha/porta" ]; then
 #!/bin/sh
 caso="\$*"
 case "\$caso" in
-    *"tail -n +3"*) echo poda >> "$SB/poda-vm.txt"; exit 0 ;;
+    *"sudo rm -f /backup/"*) echo poda >> "$SB/poda-vm.txt"; exit 0 ;;
     *"ha backups new"*) exit 0 ;;
     *"ls -t /backup"*)  echo "/backup/feed1234.tar"; exit 0 ;;
     *"sudo cat /backup/feed1234.tar"*) cat "$SB/fake-backup.tar"; exit 0 ;;
@@ -995,8 +1005,8 @@ FIMKG
         printf "VMIP=127.0.0.2\n" > "$SB/Library/Application Support/haos-mac-mini/vm-guard.env"
         mkdir -p "$SB/Documents/HAOS-backups"
         for n in 1 2 3 4 5 6 7 8; do
-            printf x > "$SB/Documents/HAOS-backups/velho-$n.tar"
-            touch -t 2601010$n"00" "$SB/Documents/HAOS-backups/velho-$n.tar"
+            printf x > "$SB/Documents/HAOS-backups/auto-velho-$n.tar"
+            touch -t 2601010$n"00" "$SB/Documents/HAOS-backups/auto-velho-$n.tar"
         done
         rc_cf=0; fase_cofre >"$SB/cofre.log" 2>&1 || rc_cf=$?
         n_tars="$(command ls "$SB/Documents/HAOS-backups"/*.tar 2>/dev/null | wc -l | tr -d " ")"
