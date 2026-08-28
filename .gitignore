@@ -34,3 +34,6 @@ tools/HAOS_TRANSFER_TOOLKIT_*/
 
 # Superado — não vai para o repositório público
 docs/API-REFERENCE.md
+
+# rascunho de protótipos (aberturas do ont-stick-setup) — nunca entra no repo
+temp/
