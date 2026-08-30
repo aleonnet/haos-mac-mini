@@ -6,6 +6,19 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
 
 ## [Unreleased]
 
+### Fixed
+- **Portão: o download do shellcheck não se recuperava de corte de rede.**
+  `acha_shellcheck()` fazia `curl | tar` — um `Recv failure: Connection reset by peer`
+  no meio do fluxo trunca a entrada do tar e não há como repetir. O CI de 29/08 ficou
+  vermelho por isso, com todas as outras ~40 cercas verdes (o rerun do mesmo commit passou).
+  Agora baixa para arquivo com `--retry 5 --retry-all-errors --connect-timeout 15`, extrai
+  depois e limpa o parcial em qualquer saída; a mensagem de falha diz que é **rede**, não
+  achado de código. Versão continua fixada (`SHELLCHECK_VERSION`).
+
+### Changed
+- `.gitignore`: `backups/` — o tar do cofre carrega `.storage`, tokens e credenciais das
+  integrações; nunca vai para o repositório público.
+
 ## [0.4.1] — 2026-08-25
 
 ### Fixed
