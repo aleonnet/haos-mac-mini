@@ -40,9 +40,17 @@ acha_shellcheck() {
     case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;; *) return 1 ;; esac
     case "$(uname -m)" in arm64|aarch64) arch=aarch64 ;; *) arch=x86_64 ;; esac
     mkdir -p "$cache" || return 1
-    curl -fsSL --proto '=https' --tlsv1.2 \
-        "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.${os}.${arch}.tar.xz" \
-        | tar -xJf - --strip-components=1 -C "$cache" "shellcheck-${SHELLCHECK_VERSION}/shellcheck" 2>/dev/null || return 1
+    # baixa para arquivo ANTES de extrair: com `curl | tar`, um corte no meio do
+    # fluxo (visto no CI em 29/08: "curl: (35) Recv failure: Connection reset by
+    # peer") deixa o tar com entrada truncada e não há como repetir. Com arquivo,
+    # o --retry do curl resolve sozinho.
+    if ! curl -fsSL --proto '=https' --tlsv1.2 --connect-timeout 15 \
+        --retry 5 --retry-all-errors --retry-delay 2 -o "$cache/sc.tar.xz" \
+        "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.${os}.${arch}.tar.xz"; then
+        rm -f "$cache/sc.tar.xz"; return 1
+    fi
+    tar -xJf "$cache/sc.tar.xz" --strip-components=1 -C "$cache" "shellcheck-${SHELLCHECK_VERSION}/shellcheck" 2>/dev/null || { rm -f "$cache/sc.tar.xz"; return 1; }
+    rm -f "$cache/sc.tar.xz"
     chmod +x "$cache/shellcheck" 2>/dev/null || return 1
     printf '%s' "$cache/shellcheck"
 }
@@ -57,7 +65,7 @@ elif SC="$(acha_shellcheck)"; then
         falha "shellcheck reprovou"
     fi
 else
-    falha "não consegui obter o shellcheck $SHELLCHECK_VERSION"
+    falha "não consegui BAIXAR o shellcheck $SHELLCHECK_VERSION (rede) - não é achado de código"
 fi
 
 # ── sintaxe ──────────────────────────────────────────────────────────────────
