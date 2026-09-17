@@ -33,6 +33,7 @@ implantação com volta atrás.
 | Entidade desabilitada plantada | `ENTIDADE DESABILITADA:` — pegou |
 | Implantação com defeito proposital | `CHECK-REPROVOU` seguido de `RESTAURADO sha256 confere` — o arquivo voltou com a mesma impressão digital |
 | Implantação real | `core check: passou` · `IMPLANTADO` |
+| **Correção da autonomia** (16:17) — conferência nova, escrita ANTES do conserto | reprovou 6× `AUTONOMIA ILEGIVEL:` e `FORMULA ILEGIVEL:`; depois do conserto, `RESERVA OK — 31 entidade(s) conferida(s)` |
 
 Antes da curadoria o portão reprovava com 10 falhas nominais; depois, verde.
 É o mesmo comando nos dois momentos.
@@ -63,6 +64,32 @@ O dono reiniciou o Mac mini e nada subiu. Três achados, todos medidos:
    termo de licença após atualização. Avaliar dependência mais robusta.
 3. 🟡 Registrar no produto que a máquina hospedeira precisa de sessão
    automática para que tudo suba sem gente.
+
+## 4b. A correção da autonomia (mesmo dia, depois da entrega)
+
+O painel entregou a informação mais valiosa dele — quanto tempo a casa aguenta —
+em **segundos crus**, contra a prancha aprovada, que mostrava horas e minutos.
+Defeito meu, de apresentação, visível na primeira tela.
+
+- **Causa medida:** a integração declara a autonomia em segundos, com classe de
+  duração e sem precisão de exibição sugerida; o frontend mostra o que recebe.
+- **Conserto:** quatro sensores derivados no pacote da frente — dois de texto
+  (`41 h 09 min`), que vão nos cartões e na etiqueta do topo, e dois numéricos
+  em horas, que é o que o gráfico de 24 h sabe desenhar. O número cru desceu
+  para a aba de Diagnóstico.
+- **Recusado, com razão escrita:** converter a unidade da entidade no registro.
+  Renderia número decimal em horas, não leitura, e moraria no armazenamento
+  interno da instância, fora de qualquer arquivo que viaje com o repositório.
+- **Cercas novas, ambas refutadas antes de existir conserto:** a conferência
+  reprova segundo cru em qualquer aba que não seja a de diagnóstico, e o teste
+  da fórmula roda no motor de template **do próprio Home Assistant**, seis casos
+  por sensor.
+
+Dois fatos do mesmo dia, medidos e alheios à frente: a máquina hospedeira
+reiniciou às 15:57 (desligamento ordenado, com relatório de travamento no
+desligamento) e o Core se atualizou sozinho para 2026.9.2. E um erro meu de
+diagnóstico, registrado no diário: tratei a instância como fora do ar porque
+supus a porta 8123 — ela serve na porta 80, e nunca caiu.
 
 ## 5. O que falta nesta frente
 

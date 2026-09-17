@@ -40,3 +40,63 @@ Carimbo desta entrada: 2026-09-17 14:52 -03 (tirado por comando, não digitado).
 - Injeção de refutação mal feita (quebrava o YAML antes de exercitar a
   conferência de entidades). Conserto: injeção gerada por programa, mantendo o
   YAML válido.
+
+---
+
+# Segunda entrada — a autonomia legível · 2026-09-17
+
+Carimbo desta entrada: 2026-09-17 16:18 -03 (tirado por comando, não digitado).
+
+## O defeito, e de quem era
+
+O painel entregou a informação mais valiosa dele em **segundos crus**
+(`148140 s`) na etiqueta do topo, nos dois cartões e no gráfico de 24 h. A
+prancha aprovada pelo dono mostrava `38 h 09 min`: o entregue divergiu do
+desenho aprovado, e a divergência foi minha. Causa medida: a integração declara
+a autonomia em segundos, com classe de duração e sem precisão de exibição
+sugerida — o frontend mostra o número como ele vem.
+
+## Decisões minhas, com a razão
+
+6. **Sensores derivados de template, não conversão de unidade no registro.**
+   O Home Assistant converte duração e aceita horas — mas isso renderia
+   `41,15 h`, número e não leitura, e moraria no `.storage`, fora de qualquer
+   arquivo que viaje com o repositório. Os derivados vivem no pacote da frente.
+7. **Dois derivados por no-break, não um.** O de texto rende `41 h 09 min` e
+   serve aos cartões; o numérico em horas é o que o gráfico de 24 h sabe
+   desenhar. Um só não cobriria os dois usos.
+8. **O número cru desceu para a aba de Diagnóstico** em vez de sumir: em
+   segundos ele é diagnóstico, e diagnóstico tem lugar próprio.
+
+## A prova, na ordem em que foi feita
+
+1. Conferência de legibilidade escrita **antes** do conserto → reprovou com
+   6 falhas `AUTONOMIA ILEGIVEL:`, uma por citação em segundos crus.
+2. Teste da fórmula escrito em seguida → reprovou com
+   `FORMULA ILEGIVEL: nenhum sensor de autonomia legivel no pacote`.
+3. Sensores derivados escritos → o teste da fórmula passou, rodando no motor de
+   template **do próprio Home Assistant**, com seis casos por sensor.
+4. Painel religado aos derivados → implantação com `core check: passou` e
+   `IMPLANTADO`.
+5. Portão completo depois da implantação: `RESERVA OK — 31 entidade(s)
+   conferida(s), fase 1` (eram 27 antes desta correção).
+
+## Um susto que era meu, não da casa
+
+Entre 15:50 e 16:16 achei que a instância estivesse fora do ar, porque a porta
+8123 não respondia. **A instância nunca caiu**: ela serve na porta 80 — a porta 80 devolveu
+`HTTP 200` na instância de produção e também na reserva fria.
+Classe do erro: eu supus a porta em vez de medir; a URL que o dono usa não tem
+porta nenhuma, e isso estava à vista.
+
+No meio disso, dois fatos reais e medidos, nenhum deles meu:
+
+- O **Mac mini reiniciou às 15:57** (`last reboot`), com relatório de
+  `shutdownStall` no mesmo minuto — desligamento ordenado, não pane. Subiu
+  sozinho e a VM voltou com ele.
+- O **Core se atualizou para 2026.9.2** (o supervisor registra "Successfully
+  started Home Assistant 2026.9.2" e a limpeza da imagem 2026.9.1).
+- A **reserva fria está LIGADA**: o log da produção traz "Discovered another
+  Home Assistant instance with the same instance ID" apontando para o endereço
+  da reserva. Duas instâncias com o mesmo identificador no ar ao mesmo tempo é
+  exatamente o que a reserva fria existe para não fazer.
