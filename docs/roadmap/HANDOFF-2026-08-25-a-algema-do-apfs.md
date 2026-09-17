@@ -1,5 +1,8 @@
 # HANDOFF — a 4ª morte, a autópsia e a algema do APFS · 2026-08-25 (noite)
 
+> **SUPERADO por `HANDOFF-2026-09-17-painel-reserva.md`** — abra aquele
+> primeiro; as lições daqui seguem válidas como referência.
+
 > ## ⚠️ ERRATA (mesma noite, 0.4.1) — o assassino verdadeiro era OUTRO
 >
 > A causa da 4ª morte **não foi** a reversão do APFS descrita abaixo: foi a
