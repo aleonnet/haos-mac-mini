@@ -100,3 +100,35 @@ No meio disso, dois fatos reais e medidos, nenhum deles meu:
   Home Assistant instance with the same instance ID" apontando para o endereço
   da reserva. Duas instâncias com o mesmo identificador no ar ao mesmo tempo é
   exatamente o que a reserva fria existe para não fazer.
+
+
+---
+
+# Terceira entrada — os protegidos · 2026-09-17
+
+Carimbo desta entrada: 2026-09-17 22:12 -03 (tirado por comando, não digitado).
+
+## Decisões minhas, com a razão
+
+9. **Só reiniciar o roteador entra no painel.** O servidor publica duas ordens
+   para ele e uma para a máquina hospedeira; desligar qualquer um dos dois é
+   irreversível na prática — um apaga o próprio Home Assistant, o outro derruba
+   a rede e não volta sozinho. A razão está escrita **na tela**, não só aqui.
+10. **A autonomia dos protegidos nasce no mesmo formato dos no-breaks.** O
+    defeito dos segundos crus é de CLASSE, não de instância: dois sensores de
+    texto novos, mesma fórmula já provada, e a contagem esperada da cerca subiu
+    de dois para quatro no mesmo ato — senão ela aprovaria com um faltando.
+11. **O roteiro do reinício é escrito, nunca chamado por mim.** Quem dispara é o
+    dono, por botão com confirmação; o portão reprova se uma automação aparecer
+    no pacote.
+
+## Defeitos meus, pegos por mim ao rodar
+
+- **Identificador de entidade suposto em vez de medido.** O identificador nasce
+  do NOME do sensor, não da chave única: "mac mini" virou `mac_mini`. O portão
+  reprovou com `ENTIDADE AUSENTE` antes de qualquer outra coisa. Conserto da
+  classe: comentário ao lado do sensor dizendo de onde vem o identificador, e a
+  regra de medir no registro depois de implantar.
+- **Escopo do plano nomeando o arquivo errado.** A contagem de sensores
+  esperados mora no verificador, não no conferidor de entidades. Em vez de
+  editar fora do que foi aprovado, reabri a frente com a razão escrita no plano.

@@ -91,14 +91,43 @@ desligamento) e o Core se atualizou sozinho para 2026.9.2. E um erro meu de
 diagnóstico, registrado no diário: tratei a instância como fora do ar porque
 supus a porta 8123 — ela serve na porta 80, e nunca caiu.
 
+## 4c. A fase dos protegidos, entregue no mesmo dia
+
+As duas entradas da integração foram criadas: uma por mim, pelo navegador com a
+sessão do dono, e a outra por ele — **criar entrada de integração é ato do
+aplicativo, não do disco**, e a credencial é dele, sempre.
+
+O que o painel ganhou: por aparelho protegido, a carga do no-break que o segura
+e **quanto tempo ele aguenta, em horas e minutos**; e um botão que reinicia o
+roteador, **com confirmação**. Desligar não entra — desligar a máquina
+hospedeira apagaria o próprio Home Assistant e desligar o roteador derrubaria a
+rede sem volta automática; o aviso está escrito na tela, não só aqui.
+
+Curadoria: a autonomia dos dois protegidos nasce **desabilitada pela
+integração** e foi habilitada pela interface; os limiares continuam desligados
+de propósito.
+
+| Prova | Resultado |
+|---|---|
+| Portão da fase 2 | `RESERVA OK — 41 entidade(s) conferida(s), fase 2` |
+| Aparelho inexistente plantado | `ENTIDADE AUSENTE:` — pegou |
+| Confirmação removida do botão | `SEM CONFIRMACAO` — pegou |
+| Automação plantada no pacote | `CHAMADA AUTOMATICA` — pegou |
+| Um dos quatro sensores de texto apagado | `FORMULA ILEGIVEL: … esperado 4` — pegou |
+| Restauro das injeções | as duas impressões digitais conferem |
+
+Defeito meu, pego pelo portão antes de qualquer outra coisa: **o identificador
+de uma entidade de template nasce do NOME, não da chave única** — o espaço do
+nome vira sublinhado. Eu supus em vez de medir, o portão reprovou com
+`ENTIDADE AUSENTE`, e a armadilha ficou escrita num comentário ao lado do
+sensor.
+
 ## 5. O que falta nesta frente
 
-- **Fase dos protegidos**: o dono precisa acrescentar duas entradas da
-  integração NUT (a máquina hospedeira e o roteador), que o servidor já publica.
-  Feito isso, entra a seção com carga, autonomia e o botão de reiniciar o
-  roteador, com confirmação. Comando de conferência: `--fase 2`.
 - Discussão adiada pelo dono para quando as duas frentes fecharem: oferecer
   reinício para máquina genérica por SSH no serviço que publica os dados.
+- Ligar e desligar tomada dos no-breaks: o serviço que publica os dados declarou
+  isso **fora** da versão atual, por escrito. Sem data.
 
 ## 6. Onde está o que é desta casa
 
