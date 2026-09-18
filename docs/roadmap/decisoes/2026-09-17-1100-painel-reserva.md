@@ -197,3 +197,9 @@ Duas coisas diferentes que eu tinha juntado numa só:
     nasceriam descobertos. A regra virou a inversa — todo cartão que dispara
     roteiro exige confirmação, e o inofensivo entra numa lista curta e declarada.
     Mesma coisa na busca por automação: os nomes agora saem do próprio pacote.
+
+16. **Painel não é lugar de justificativa minha.** Tirei o texto que explicava
+    por que um botão não existe: bronca do dono, procedente. O que fica na tela
+    é o que ele usa — botão e confirmação. Explicação de limite vai para o
+    documento, não para o painel. A nota técnica da aba de diagnóstico fica,
+    porque descreve o aparelho, não a minha decisão.
