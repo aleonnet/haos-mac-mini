@@ -125,10 +125,47 @@ Carimbo desta entrada: 2026-09-17 22:12 -03 (tirado por comando, não digitado).
 ## Defeitos meus, pegos por mim ao rodar
 
 - **Identificador de entidade suposto em vez de medido.** O identificador nasce
-  do NOME do sensor, não da chave única: "mac mini" virou `mac_mini`. O portão
+  do NOME do sensor, não da chave única — o espaço do nome vira sublinhado. O portão
   reprovou com `ENTIDADE AUSENTE` antes de qualquer outra coisa. Conserto da
   classe: comentário ao lado do sensor dizendo de onde vem o identificador, e a
   regra de medir no registro depois de implantar.
 - **Escopo do plano nomeando o arquivo errado.** A contagem de sensores
   esperados mora no verificador, não no conferidor de entidades. Em vez de
   editar fora do que foi aprovado, reabri a frente com a razão escrita no plano.
+
+
+---
+
+# Quarta entrada — as cercas que prometiam demais · 2026-09-17
+
+Carimbo desta entrada: 2026-09-17 22:27 -03 (tirado por comando, não digitado).
+
+A leitura fria do diff da fase 2 **reprovou**, com seis achados. Conferi um a um
+antes de aceitar: **todos procedentes, todos meus**, e todos da mesma família —
+cerca que promete mais do que prova. Nenhum defeito vivo na tela.
+
+## A classe do que faltou na MINHA verificação
+
+Eu provei que a cerca **dispara** quando planto o defeito óbvio, e não perguntei
+**o que ela deixaria passar**. As seis injeções que eu tinha escrito eram as que
+a cerca já pegava; faltou a pergunta inversa, que é a que vale: *qual é o defeito
+mais próximo que passaria?* Foi assim em todos os seis:
+
+- confirmação procurada no arquivo, não no cartão que dispara;
+- automação procurada só no meu pacote, quando a interface grava em outro lugar;
+- identificador do aparelho — o literal que decide **quem** leva o reinício — sem
+  nenhum conferidor, inclusive do lado do Home Assistant;
+- "autonomia legível" aceitando o derivado numérico, que é justamente o que a
+  cerca existe para recusar;
+- uma citação por aba bastando, quando o que se quer é cada aparelho por nome;
+- contagem de sensores provando quantidade e não identidade.
+
+## Decisões minhas, com a razão
+
+12. **Texto onde se decide, número onde se desenha.** A cerca nova, no primeiro
+    teste, reprovou a aba de histórico — que cita o derivado em horas de
+    propósito. A regra passou a valer só para a aba de operação: exigir texto num
+    gráfico seria a cerca reprovando o desenho certo.
+13. **A cerca da instância vale a ida à rede.** Ler o arquivo de automações e o
+    registro de aparelhos custa duas conexões a mais no portão, e é o que
+    transforma "nada o chama sozinho" de promessa em fato.

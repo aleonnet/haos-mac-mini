@@ -116,6 +116,23 @@ de propósito.
 | Um dos quatro sensores de texto apagado | `FORMULA ILEGIVEL: … esperado 4` — pegou |
 | Restauro das injeções | as duas impressões digitais conferem |
 
+**A leitura fria do diff reprovou esta fase**, e os seis achados eram meus, todos
+da mesma família: **cerca que promete mais do que prova**. Nenhum defeito vivo na
+tela; seis caminhos pelos quais o defeito poderia voltar sem o portão reprovar.
+Corrigidos no mesmo dia, cada um com a injeção que o refuta:
+
+| Buraco que a leitura fria achou | Cerca nova, e o que ela imprime com o defeito plantado |
+|---|---|
+| O identificador do aparelho que recebe a ordem de reiniciar não era conferido por ninguém — nem pela validação do próprio Home Assistant | `APARELHO AUSENTE: … nao esta no registro de aparelhos` |
+| "Nada o chama sozinho" só valia para o pacote; a interface grava automação em outro arquivo | `CHAMADA AUTOMATICA NA INSTANCIA: …` (injeção plantada na instância e desfeita, arquivo conferido por impressão digital) |
+| A confirmação era procurada no arquivo inteiro: bastava OUTRO cartão tê-la | `SEM CONFIRMACAO: o cartao que dispara … nao pede confirmacao` |
+| "Autonomia legível" aceitava o derivado numérico, e bastava uma citação por aba | `AUTONOMIA ILEGIVEL:` nas duas formas — aba sem texto e protegido não citado |
+| Nada amarrava cada autonomia à sua origem: copiar a origem de um aparelho para o sensor do outro passava batido | `FONTE REPETIDA: … leem a mesma origem` |
+
+E a cerca nova pegou um erro dela mesma antes de eu commitar: exigir texto em
+**toda** aba reprovava o histórico, onde o correto é o número — gráfico desenha
+número, não texto.
+
 Defeito meu, pego pelo portão antes de qualquer outra coisa: **o identificador
 de uma entidade de template nasce do NOME, não da chave única** — o espaço do
 nome vira sublinhado. Eu supus em vez de medir, o portão reprovou com
