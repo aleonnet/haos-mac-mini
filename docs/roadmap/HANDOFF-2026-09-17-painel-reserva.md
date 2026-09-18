@@ -139,10 +139,40 @@ nome vira sublinhado. Eu supus em vez de medir, o portão reprovou com
 `ENTIDADE AUSENTE`, e a armadilha ficou escrita num comentário ao lado do
 sensor.
 
+## 4d. Correção de rumo: desligar entra, por ordem do dono
+
+Eu havia tirado o botão de desligar do painel **e escrito a minha decisão como
+regra na tela dele** ("desligar não entra aqui, de propósito"). O painel é do
+dono; ele leu, discordou e mandou incluir. Cumprido no mesmo dia.
+
+O que o servidor publica, medido no ato: a máquina hospedeira oferece **só
+desligar**; o roteador oferece **desligar e reiniciar**. São três botões, não
+quatro — reiniciar a máquina hospedeira não existe por este caminho, e isso é
+limite medido do serviço que publica os dados, não escolha minha. Cada botão tem
+confirmação que diz a consequência em uma frase, e o texto da seção passou a
+informar o limite em vez de justificar decisão minha.
+
+**Conserto da CLASSE nas cercas, que era o defeito de verdade:** elas conheciam
+**um** roteiro pelo nome. Um botão perigoso novo nasceria descoberto — e nasceu:
+a lista fixa não cobria os dois roteiros de desligar. Agora a regra é inversa —
+todo cartão que dispara roteiro desta frente exige confirmação, com uma lista
+curta e declarada do que é inofensivo; e a busca por automação na instância
+deriva os nomes do próprio pacote.
+
+| Prova | Resultado |
+|---|---|
+| Confirmação tirada do botão **novo** de desligar | `SEM CONFIRMACAO: … script.reserva_desligar_mac_mini …` |
+| Aparelho inexistente num roteiro **novo** | `APARELHO AUSENTE: …` |
+| Automação na instância chamando um roteiro **novo** | `CHAMADA AUTOMATICA NA INSTANCIA: … reserva_desligar_roteador` |
+| Restauro | painel, pacote e o arquivo da instância voltaram com a mesma impressão digital |
+| Portão | `RESERVA OK — 41 entidade(s) conferida(s), fase 2` |
+
 ## 5. O que falta nesta frente
 
-- Discussão adiada pelo dono para quando as duas frentes fecharem: oferecer
-  reinício para máquina genérica por SSH no serviço que publica os dados.
+- **Reinício para a máquina hospedeira**: não existe no serviço que publica os
+  dados (ele só oferece reinício para a família do roteador). É pedido para o
+  agente daquele projeto, não para este YAML — e agora tem um botão faltando no
+  painel para justificá-lo.
 - Ligar e desligar tomada dos no-breaks: o serviço que publica os dados declarou
   isso **fora** da versão atual, por escrito. Sem data.
 

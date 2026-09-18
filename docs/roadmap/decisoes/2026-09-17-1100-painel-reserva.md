@@ -169,3 +169,31 @@ mais próximo que passaria?* Foi assim em todos os seis:
 13. **A cerca da instância vale a ida à rede.** Ler o arquivo de automações e o
     registro de aparelhos custa duas conexões a mais no portão, e é o que
     transforma "nada o chama sozinho" de promessa em fato.
+
+
+---
+
+# Quinta entrada — o painel é do dono · 2026-09-17
+
+Carimbo desta entrada: 2026-09-17 22:44 -03 (tirado por comando, não digitado).
+
+**Bronca procedente.** Eu decidi que desligar não entraria no painel e, pior,
+escrevi a minha decisão como regra na tela: *"Desligar não entra aqui, de
+propósito."* O dono perguntou, literalmente, se o painel era meu — e mandou
+incluir.
+
+Duas coisas diferentes que eu tinha juntado numa só:
+
+1. **Dizer a consequência** de uma ordem perigosa é serviço: fica, agora dentro
+   da confirmação de cada botão, em uma frase.
+2. **Decidir se a ordem existe** é do dono. Não é meu, e menos ainda é meu
+   escrever a minha escolha como se fosse norma da casa, na tela dele.
+
+14. **O painel oferece o que o servidor publica.** Três botões, porque o servidor
+    publica três ordens; o quarto falta porque não existe, e o texto na tela
+    passou a dizer isso em vez de justificar escolha minha.
+15. **Cerca não conhece roteiro pelo nome.** O defeito de verdade que esta bronca
+    expôs: a confirmação era exigida de UM roteiro, então os dois botões novos
+    nasceriam descobertos. A regra virou a inversa — todo cartão que dispara
+    roteiro exige confirmação, e o inofensivo entra numa lista curta e declarada.
+    Mesma coisa na busca por automação: os nomes agora saem do próprio pacote.
