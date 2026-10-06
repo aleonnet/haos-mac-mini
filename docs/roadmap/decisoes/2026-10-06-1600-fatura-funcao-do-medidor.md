@@ -254,3 +254,49 @@ solto sem fonte, e duas antigas com âncora nova).
 
 Não verificado, declarado: o instante do arranque em que o consumo do ciclo
 pode valer zero antes de os medidores restaurarem.
+
+## A instância desta casa (18:31–19:02)
+
+Último ensaio em réplica com o package e o roteiro finais (18:29–18:31): as
+etapas e o portão da casa contra a réplica, `CUSTOS OK`.
+
+Na casa: backup pelo cofre e cópia de guarda, escrita, conferência do Home
+Assistant, reinício (18:32). Em seguida, pela sessão do painel: campos (9
+comandos) · refazer o fechamento pela automação do package (7) · ciclo em
+curso (4) · custo pelo preço de cada ciclo (274 ajustes de soma) — cada etapa
+repetida depois para provar "nada a fazer". Depois de a hora virar (19:01), os
+4 ajustes da hora do reinício. Portão da casa: `CUSTOS OK` às 18:38 e de novo
+às 19:02.
+
+Dois tropeços, registrados:
+
+1. **A página do painel não reconectou sozinha depois do reinício** e precisou
+   ser recarregada; e eu tinha carregado nela o executor antes de o roteiro
+   regravá-lo — a versão antiga não conhecia a operação que dispara a
+   automação. O lote parou nela com cinco comandos feitos; recarregado o
+   executor, o lote seguinte refez a etapa inteira. Classe: carreguei um
+   arquivo gerado antes de gerá-lo. A etapa é idempotente por desenho, e foi
+   isso que evitou estado pela metade.
+2. O dono fechou a aba no intervalo; uma aba nova do mesmo navegador já estava
+   autenticada. Nenhuma senha foi lida nem digitada.
+
+## Fecho
+
+- Cerca nas três versões (18:21–18:28): 2026.8.3, 2026.9.3 e 2026.9.4,
+  `PACOTES OK — 14 garantias`.
+- `./tools/gate.sh` sobre a árvore do commit (18:38–18:45):
+  `RESULTADO: portão limpo`.
+- Contraprovas: 78 defeitos plantados no roteiro final. Todos dispararam em
+  rodadas parciais sobre as árvores em que foram escritos (41 + 4 + 28 + 8, com
+  as repetidas). A repetição completa sobre a árvore final começou às 18:30 e,
+  às 19:03, estava em 49 disparadas e 0 sem disparar; continua rodando — o
+  resultado final vai para o registro fora do repositório.
+- Duas mutações descartadas por serem equivalentes (não mudam número nenhum).
+- A leitura fria ficou em duas rodadas, o teto: as duas reprovaram; o que a
+  segunda achou foi consertado e contraprovado sem terceira rodada.
+- Fora do plano, feito: registro do Core na cerca; faixas do ICMS ancoradas nos
+  preços publicados; comparação bit a bit; próxima leitura nunca no passado;
+  dias medidos; calculadora no portão local; conserto do roteiro das cópias
+  embutidas.
+- Fora do plano, não feito: remover as entidades órfãs da instância; a linha do
+  catálogo e a nota de revisão da pesquisa de tarifas (fora do escopo).

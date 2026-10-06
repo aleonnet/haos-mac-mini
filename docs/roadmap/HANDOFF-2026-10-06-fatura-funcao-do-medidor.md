@@ -120,7 +120,32 @@ O detalhe, com hora, está em
 
 ## 6. A instância desta casa
 
-(preenchido ao fim da frente)
+Implantada em 2026-10-06 às 18:32, com backup completo e cópia de guarda dos
+dois arquivos trocados; ajuste terminado às 19:02. Roteiros e registro em
+`inventario/custos/`, fora do versionamento.
+
+| O quê | Como ficou |
+|---|---|
+| Package e painel | os do repositório (conferidos por impressão digital) |
+| Ciclo fechado, 03/09 → 06/10 em dias inteiros | refeito pela automação do próprio package: 356,87 kWh, 33 dias medidos; fatura pelo medidor 546,33 contra 542,46 da conta (+3,87: o medidor da casa marcou 2,87 kWh a mais que o da distribuidora) |
+| Ciclo em curso | conta desde 00:00 de 06/10; próxima leitura assumida em 06/11 |
+| Custo no histórico | cada hora pelo preço do ciclo dela — 278 ajustes de soma; o painel de Energia mostra 356,87 kWh e 479,65 no ciclo fechado |
+| Campos | média da faixa da iluminação e o complemento de 2,08 informados; os outros ajustes vazios |
+| Portão da casa | `CUSTOS OK` às 19:02 |
+
+- **Estimativa declarada:** o histórico começa no meio do ciclo de agosto; a
+  faixa do ICMS dele (24 %) saiu da proporção dos dias (313 kWh projetados) e o
+  PIS/COFINS é o último conhecido. A conta daquele ciclo resolveria.
+- **Não removi** as entidades antigas (os campos digitados da manhã e três
+  sensores): ficaram órfãs no registro, fora dos painéis. Remover é do dono.
+- O que já tinha sido contado por posto com a janela de horários antiga não foi
+  reescrito.
+- Durante dois minutos depois do reinício a tela mostrou números de transição
+  (o package novo sobre os medidores antigos); o ensaio em réplica tinha
+  previsto.
+- No meio do ajuste um comando falhou e foi repetido: a página do painel tinha
+  uma versão antiga do executor. Nada ficou pela metade — a etapa confere o
+  estado e refaz.
 
 ## 7. O que falta
 
