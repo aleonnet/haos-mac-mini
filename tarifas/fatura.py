@@ -200,6 +200,7 @@ def calcula(d: dict, inicio: datetime.date, fim: datetime.date, kwh: float, *,
 # ── --confere ───────────────────────────────────────────────────────────────
 CERTEZAS = ("lido na fonte", "deduzido de fatura")
 SEM_PARAMETRO = ("distribuidora", "sem_fonte")     # blocos que não trazem parâmetro de cálculo
+DESCRICAO = ("esquema", "o_que_e", "atualizado_em", "casos_de_conferencia")   # o que não é bloco
 
 
 def sem_fonte(d: dict) -> list[str]:
@@ -226,8 +227,11 @@ def sem_fonte(d: dict) -> list[str]:
             faltas.append(f"{nome}: fonte sem endereço")
 
     for grupo, bloco in d.items():
-        if isinstance(bloco, dict) and grupo not in SEM_PARAMETRO:
-            confere(grupo, bloco.get("fonte"))
+        if isinstance(bloco, dict):
+            if grupo not in SEM_PARAMETRO:
+                confere(grupo, bloco.get("fonte"))
+        elif grupo not in DESCRICAO:
+            faltas.append(f"{grupo}: parâmetro fora de um bloco com fonte")
     confere("bandeira.rateio", d.get("bandeira", {}).get("rateio", {}).get("fonte"))
     for nome, item in d.get("sem_fonte", {}).items():
         if item.get("certeza") != "sem fonte" or not item.get("tratamento"):

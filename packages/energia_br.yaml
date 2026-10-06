@@ -39,9 +39,9 @@
 #   leitura. Ao fechar, o consumo e as duas datas ficam guardados como ciclo
 #   fechado (é o que se compara com a conta) e a próxima leitura passa a ser
 #   assumida um mês depois — corrija a data quando a conta trouxer outra.
-#   Instalado no meio de um ciclo? O package sabe desde quando está medindo
-#   ("medido desde") e projeta o consumo do ciclo inteiro para escolher as
-#   faixas; o consumo mostrado continua sendo só o medido.
+#   Instalado no meio de um ciclo? O medidor do ciclo guarda a hora em que
+#   foi criado ou zerado, e o package projeta o consumo do ciclo inteiro para
+#   escolher as faixas; o consumo mostrado continua sendo só o medido.
 #   Os medidores diário e mensal seguem o calendário.
 #
 #   Requer a integração `workday` (core, config flow) com país BR e a
@@ -185,8 +185,10 @@ template:
       # F13 — só escolhe as FAIXAS (ICMS e iluminação) antes de o ciclo
       # terminar:
       #   projetado = já medido + taxa diária × dias do ciclo que a medição não cobriu
-      # Os dias cobertos contam de "medido desde" (ou do início do ciclo, o que
-      # for mais tarde) — quem instala no meio do ciclo mediu só parte dele.
+      # Os dias cobertos contam de quando o medidor do ciclo foi criado ou
+      # zerado pela última vez (ou do início do ciclo, o que for mais tarde) —
+      # quem instala no meio do ciclo mediu só parte dele. O campo "medido
+      # desde", quando preenchido, vale no lugar da data do medidor.
       # A taxa é a do ciclo anterior (consumo ÷ dias MEDIDOS dele) quando ele
       # cobriu ao menos um dia; sem isso, a do próprio ciclo, com o primeiro
       # dia contado inteiro. Ciclo encerrado ou sem datas: o próprio consumo.
@@ -198,7 +200,9 @@ template:
           {% set kwh = states('sensor.consumo_do_ciclo') | float(0) %}
           {% set ini = states('input_datetime.fatura_ultima_leitura') | as_datetime %}
           {% set fim = states('input_datetime.fatura_proxima_leitura') | as_datetime %}
-          {% set md = states('input_datetime.fatura_medido_desde') | as_datetime %}
+          {% set aj = states('input_text.ajuste_medido_desde') | as_datetime %}
+          {% set zerado = (state_attr('sensor.fatura_energy_offpeak', 'last_reset') or '') | as_datetime %}
+          {% set md = aj if aj is not none else zerado %}
           {% set fk = states('sensor.consumo_do_ciclo_fechado') | float(0) %}
           {% set fd = states('input_number.fatura_fechado_dias_medidos') | float(0) %}
           {% set total = (fim - ini).days if ini is not none and fim is not none else 0 %}
@@ -659,6 +663,16 @@ input_text:
     pattern: "^[0-9]*[.,]?[0-9]*$"
     icon: mdi:minus-box-outline
 
+  # Desde quando o medidor do ciclo EM CURSO está contando. VAZIO = desde que
+  # ele foi criado ou zerado pela última vez (o próprio medidor guarda a hora).
+  # Só se preenche quando o medidor foi recalibrado à mão: AAAA-MM-DD HH:MM.
+  # A automação de fechamento apaga o campo.
+  ajuste_medido_desde:
+    name: "Ciclo em curso medido desde (AAAA-MM-DD HH:MM)"
+    max: 19
+    pattern: "^([0-9]{4}-[0-9]{2}-[0-9]{2}( [0-9]{2}:[0-9]{2}(:[0-9]{2})?)?)?$"
+    icon: mdi:timer-play-outline
+
 input_number:
   # A faixa da iluminação pública é a da média de consumo que a prefeitura
   # usou (está na sua conta ou no histórico de consumo). Zero = usa o consumo
@@ -703,13 +717,6 @@ input_datetime:
     has_date: true
     has_time: false
     icon: mdi:calendar-arrow-right
-  # Desde quando o medidor do ciclo EM CURSO está contando. Nasce no dia da
-  # instalação e é regravado a cada fechamento.
-  fatura_medido_desde:
-    name: "Ciclo em curso: medido desde"
-    has_date: true
-    has_time: true
-    icon: mdi:timer-play-outline
   # As duas datas do ciclo FECHADO, gravadas ao fechar.
   fatura_fechado_inicio:
     name: "Ciclo fechado: leitura anterior"
@@ -834,7 +841,9 @@ automation:
           leitura: "{{ states('input_datetime.fatura_proxima_leitura') }}"
           medidos: >
             {% set u = states('input_datetime.fatura_ultima_leitura') | as_datetime | as_local %}
-            {% set md = states('input_datetime.fatura_medido_desde') | as_datetime %}
+            {% set aj = states('input_text.ajuste_medido_desde') | as_datetime %}
+            {% set zerado = (state_attr('sensor.fatura_energy_offpeak', 'last_reset') or '') | as_datetime %}
+            {% set md = aj if aj is not none else zerado %}
             {% set desde = [u, md | as_local] | max if md is not none else u %}
             {{ [((now() - desde).total_seconds() / 86400) | round(2), 0] | max }}
           seguinte: >
@@ -880,8 +889,8 @@ automation:
           entity_id: input_datetime.fatura_proxima_leitura
         data:
           date: "{{ seguinte }}"
-      - service: input_datetime.set_datetime
+      - service: input_text.set_value
         target:
-          entity_id: input_datetime.fatura_medido_desde
+          entity_id: input_text.ajuste_medido_desde
         data:
-          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+          value: ""

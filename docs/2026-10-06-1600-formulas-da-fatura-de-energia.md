@@ -33,7 +33,7 @@ python3 tarifas/fatura.py --confere     # as duas contas reais e os preços publ
 | Consumo do ciclo, por posto (kWh) | o medidor da casa | `sensor.fatura_energy_peak` · `_shoulder` · `_offpeak` |
 | Data da leitura anterior e da leitura | a conta; depois do primeiro ciclo, o package avança sozinho | `input_datetime.fatura_ultima_leitura` · `fatura_proxima_leitura` |
 | Média de consumo que define a faixa da iluminação pública (opcional) | a conta ou o histórico de consumo | `input_number.cosip_media_kwh` (0 = usa o consumo do ciclo) |
-| Desde quando o medidor do ciclo em curso está contando | o package grava: o dia da instalação e, depois, cada fechamento | `input_datetime.fatura_medido_desde` |
+| Desde quando o medidor do ciclo em curso está contando | o próprio medidor guarda a hora em que foi criado ou zerado; um campo de ajuste vale no lugar dela quando o medidor foi recalibrado à mão | atributo `last_reset` de `sensor.fatura_energy_offpeak`; `input_text.ajuste_medido_desde` |
 | Ajustes manuais (opcionais) | o dono, quando a conta trouxer número diferente | `input_text.ajuste_*` (vazio = vale o calculado) |
 
 Nada mais. Tarifa, bandeira, ICMS, PIS, COFINS e iluminação pública são
@@ -185,7 +185,7 @@ isso as primeiras horas de cada ciclo teriam o preço de quem é isento.
 ```
 projetado = consumo até agora + taxa diária × dias do ciclo que a medição não cobriu
 
-dias cobertos  = de "medido desde" (ou do início do ciclo, o que for mais tarde) até agora
+dias cobertos  = de quando o medidor do ciclo foi criado ou zerado (ou do início do ciclo, o que for mais tarde) até agora
 taxa diária    = consumo do ciclo anterior ÷ dias MEDIDOS dele, se ele cobriu ao menos um dia;
                  senão, consumo até agora ÷ dias cobertos (o primeiro dia conta inteiro)
 ciclo encerrado ou sem datas: projetado = consumo
@@ -197,7 +197,8 @@ início, com ciclo anterior completo, a fórmula é "o já medido + a média di�
 do ciclo anterior × os dias que faltam".
 
 - Não vem de fonte: é estimativa do produto, substituída pelo consumo real quando o ciclo fecha
-- Regra: `consumo_projetado` · Tela: `sensor.consumo_projetado_do_ciclo`; entradas `input_datetime.fatura_medido_desde` e `input_number.fatura_fechado_dias_medidos`
+- Regra: `consumo_projetado` · Tela: `sensor.consumo_projetado_do_ciclo`; entradas: a hora que o medidor guarda (ou `input_text.ajuste_medido_desde`) e `input_number.fatura_fechado_dias_medidos`
+- Limite: o medidor é criado quando o package sobe; se a fonte de consumo só for ligada dias depois, esses dias contam como medidos
 
 ### F13b — consumo de faixa de um ciclo fechado medido em parte
 
@@ -282,7 +283,7 @@ centavo de diferença nos valores em reais, e nenhuma na iluminação pública.
 | F9 | — | `calcula` | `fatura_icms`, `fatura_pis`, `fatura_cofins` | `FORMULA DIVERGE:` |
 | F10 | `iluminacao_publica.*` | `iluminacao_publica` | `iluminacao_publica_do_ciclo` | `FORMULA DIVERGE:` (isenção, faixa pelo consumo, teto) |
 | F12 | `tarifa.branca`, `postos` | `calcula` | `fatura_mensal_branca` | `FORMULA DIVERGE:` · `MEDIDOR NAO ACOMPANHA:` (horários) |
-| F13 | — | `consumo_projetado` | `consumo_projetado_do_ciclo` | `FORMULA DIVERGE:` (400 projeções sorteadas, e três cenários com o relógio do Home Assistant) |
+| F13 | — | `consumo_projetado` | `consumo_projetado_do_ciclo` | `FORMULA DIVERGE:` (400 projeções sorteadas, e cinco cenários com o relógio do Home Assistant) |
 | F13b | — | `consumo_de_faixa_do_fechado` | `consumo_de_faixa_do_ciclo_fechado` | `FORMULA DIVERGE:` |
 | F2–F7, F10 | o arquivo inteiro | `calcula` | o texto da regra em `parametros_do_ciclo` | `FORMULA DIVERGE:` (600 ciclos sorteados, comparação exata) |
 | próxima leitura | — | `proxima_depois_de` (no arnês) | automação de fechamento | `CICLO NAO ZERA:` (1.200 datas) |

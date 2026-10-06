@@ -210,3 +210,47 @@ números, sem identificação"; nada foi empurrado para o remoto.
 
 Depois dos consertos (17:28): `PACOTES OK — 14 garantias`, com a grade em onze
 ciclos e todos os sensores.
+
+## Contraprovas depois da rodada 1 (17:29–18:11)
+
+- 28 defeitos novos plantados — os que o leitor mostrou que passavam e os dos
+  consertos (preço do painel de Energia trocado pela tarifa, sensores do
+  painel, consumo sem arredondar, "um mês depois" em dia 31 e na virada de
+  ano, próxima leitura no passado, vírgula, aviso de estimativa, alíquota de
+  100 %, projeção ignorando desde quando se mede, faixa do ciclo fechado, dias
+  medidos não gravados, dado contra a conta no portão local, certeza livre,
+  data que não é data, bloco novo sem fonte): **28/28**.
+- As 45 anteriores repetidas sobre a árvore de então: 11/11 da calculadora e
+  dos blocos; 33/34 do package — a que "não disparou" disparou com outro texto
+  (a mutação da Tarifa Branca passou a ser pega um sensor antes, na energia
+  sem encargos); o texto esperado foi corrigido e ela repetida: disparou.
+- Cerca nas três versões (17:46–17:50): 2026.8.3, 2026.9.3 (a da instância) e
+  2026.9.4: `PACOTES OK — 14 garantias`.
+
+## Leitura fria do diff, rodada 2: REPROVADO (17:46–18:05) — o teto
+
+Os doze achados da primeira rodada **caíram** (um "em parte", abaixo). Um
+bloqueador novo, no código do meu conserto, e cinco avisos. A contagem de
+bloqueadores caiu de 4 para 1 e o que sobrou é mensurável: consertado e
+contraprovado por mim, sem terceira rodada.
+
+| # | O que ele achou | Classe do que eu não fiz | Conserto |
+|---|---|---|---|
+| N1 (bloqueador) | Os "dias medidos" contavam da MEIA-NOITE do dia da instalação: campo de data e hora sem valor inicial nasce às 00:00 (conferi no código do Home Assistant: `strftime("… 00:00:00")`). Instalando à noite, perto da leitura, a faixa saía errada por um ciclo e meio | **Criei um campo novo e não medi com que valor ele nasce**; e o cenário da cerca punha a medição exatamente à meia-noite | o campo de data saiu. Vale a hora que o próprio medidor guarda ao ser criado ou zerado (conferido no código: `utcnow()` na criação e no zeramento); um campo de ajuste, vazio por padrão, vale no lugar dela. Cerca: a instalação nova tem de mostrar o medidor criado na hora; cenários em hora quebrada, sem ajuste, e fechamento logo depois de zerar |
+| N2 | O aviso de estimativa passava sem a parte da bandeira | conserto do A6 pela metade: faltou o caso em que SÓ a bandeira é estimada | sexto passo na cerca |
+| N3 | Rodada que atravessasse a meia-noite do relógio do Home Assistant veria um ciclo fechar no meio da comparação | não perguntei em que hora a própria cerca quebra | perto da meia-noite a cerca espera ela passar; declarado nos limites |
+| N4 | Os cenários com relógio cruzavam borda de faixa da iluminação uma vez por dia (janela de ~1 s) | conferi a conta para o ICMS e não para a iluminação | os cenários informam a média da iluminação: a faixa dela deixa de depender da projeção |
+| N5 | A modalidade mais barata (atributo) não era lida; dois textos do arnês ainda diziam "cada número" | resto do item 2 da rodada 1 | lida na grade; textos corrigidos |
+| N6 | Parâmetro solto no nível de cima do arquivo de dados passava sem fonte | a regra só olhava blocos | todo item do nível de cima é bloco com fonte ou está na lista do que não é parâmetro |
+
+Reprovação antes do conserto (18:13): a cerca nova contra o package do commit
+anterior, numa cópia — 3 falhas, saída 3.
+
+Depois do conserto (18:15–18:28): `PACOTES OK — 14 garantias` em 2026.8.3,
+2026.9.3 e 2026.9.4. Contraprovas dos consertos desta rodada: **8/8**
+(projeção e dias medidos ignorando a hora do medidor, ajuste não apagado ao
+fechar, aviso de estimativa sem a bandeira, modalidade invertida, parâmetro
+solto sem fonte, e duas antigas com âncora nova).
+
+Não verificado, declarado: o instante do arranque em que o consumo do ciclo
+pode valer zero antes de os medidores restaurarem.

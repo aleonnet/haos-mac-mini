@@ -17,7 +17,7 @@ Assistant gerou — o arnês não reimplementa a regra de nomes.
     ./pacotes.py --url http://127.0.0.1:18123 --bootstrap
 
 A conta de energia não é mais digitada: o arnês informa só as datas de leitura
-e o consumo, e compara cada número do Home Assistant com a calculadora de
+e o consumo, e compara cada sensor calculado do package com a calculadora de
 referência (tarifas/fatura.py), que lê o mesmo arquivo de dados.
 
 Tokens de falha, um por garantia:
@@ -47,6 +47,9 @@ Limites declarados:
     consumo coincidem. A projeção do ciclo que ainda corre é conferida à parte,
     com o relógio do próprio Home Assistant e tolerância de 0,08 kWh (o
     template que usa a hora é reavaliado uma vez por minuto).
+  · Uma rodada que começaria a menos de 15 minutos da meia-noite do relógio
+    do Home Assistant espera a meia-noite passar: a automação de fechamento
+    dispara nela, e os ciclos da grade têm datas passadas.
   · O medidor é exercitado escrevendo o total da casa direto na máquina de
     estados (o contêiner não tem Shelly): prova o que o medidor faz com a
     fonte indo e voltando, não o que a fonte publica — isso é o item da soma.
@@ -93,7 +96,8 @@ ULTIMA = "input_datetime.fatura_ultima_leitura"
 PROXIMA = "input_datetime.fatura_proxima_leitura"
 FECHADO_INI = "input_datetime.fatura_fechado_inicio"
 FECHADO_FIM = "input_datetime.fatura_fechado_fim"
-MEDIDO_DESDE = "input_datetime.fatura_medido_desde"
+MEDIDO_DESDE = "input_text.ajuste_medido_desde"
+ZERADO = "sensor.fatura_energy_offpeak"        # o medidor guarda quando foi criado ou zerado
 DIAS_MEDIDOS = "input_number.fatura_fechado_dias_medidos"
 PARAMETROS = "sensor.parametros_do_ciclo"
 PARAMETROS_FECHADO = "sensor.parametros_do_ciclo_fechado"
@@ -239,9 +243,20 @@ class Arnes:
         ok = self.data(PROXIMA, proxima) and ok
         return bool(ok) and self.dispara_fechamento()
 
-    def data_hora(self, eid: str, quando: datetime.datetime) -> bool:
-        return self.servico("input_datetime", "set_datetime",
-                            {"entity_id": eid, "datetime": quando.strftime("%Y-%m-%d %H:%M:%S")})
+    def data_hora(self, eid: str, quando: datetime.datetime | None) -> bool:
+        return self.texto(eid, quando.strftime("%Y-%m-%d %H:%M:%S") if quando else "")
+
+    def fuso(self) -> datetime.timedelta:
+        return datetime.timedelta(seconds=int(float(self.template("{{ now().utcoffset().total_seconds() }}"))))
+
+    def zerado(self) -> datetime.datetime | None:
+        """Quando o medidor do ciclo foi criado ou zerado, na hora local do
+        Home Assistant, sem o fuso."""
+        try:
+            utc = datetime.datetime.fromisoformat(str(self.atributos(ZERADO).get("last_reset")))
+        except ValueError:
+            return None
+        return (utc.astimezone(datetime.timezone.utc).replace(tzinfo=None) + self.fuso())
 
     def espera_estado(self, eid: str, alvo: str, seg: int = 12) -> str | None:
         visto = None
@@ -273,7 +288,7 @@ class Arnes:
 
     def limpa_ajustes(self) -> bool:
         ok = True
-        for nome in list(AJUSTES) + ["outros_debitos", "creditos"]:
+        for nome in list(AJUSTES) + ["outros_debitos", "creditos", "medido_desde"]:
             ok &= self.texto(f"input_text.ajuste_{nome}", "")
         return bool(ok)
 
@@ -366,9 +381,10 @@ def confere_fabrica(a: Arnes) -> None:
     if a.estado(ULTIMA) != a.estado(PROXIMA):
         a.falha(token, "as duas datas de leitura nascem diferentes — a automação poderia "
                        "fechar um ciclo que o usuário nunca informou")
-    if not str(a.estado(MEDIDO_DESDE)).startswith(a.hoje().isoformat()):
-        a.falha(token, f"{MEDIDO_DESDE} nasce em {a.estado(MEDIDO_DESDE)} — a medição de uma instalação nova "
-                       "começa no dia da instalação")
+    criado = a.zerado()
+    if criado is None or abs((a.agora() - criado).total_seconds()) > 900:
+        a.falha(token, f"o medidor do ciclo diz ter sido criado em {criado} — numa instalação nova a medição "
+                       "começa na hora da instalação, e é dela que a projeção conta os dias medidos")
     preco = a.numero("sensor.preco_convencional")
     if preco is None or not 0.5 < preco < 3:
         a.falha(token, f"sem nenhum ajuste, o preço do kWh deveria sair do arquivo de dados; veio {preco}")
@@ -561,6 +577,12 @@ def confere_formulas(a: Arnes) -> None:
                 ("sensor.economia_com_tarifa_branca", r["total"] - r["total_branca"], 0.0101,
                  "economia com a Tarifa Branca"))):
             continue
+        if abs(r["total"] - r["total_branca"]) > 0.02:
+            melhor = "Tarifa Branca" if r["total"] > r["total_branca"] else "Convencional"
+            visto = a.atributos("sensor.economia_com_tarifa_branca").get("melhor_modalidade")
+            if visto != melhor:
+                a.falha(token, f"{nome}, em curso: a modalidade mais barata é {melhor!r} e o painel diz {visto!r}")
+                continue
         # ciclo fechado: os mesmos números têm de sobreviver ao fechamento
         if not a.dispara_fechamento():
             a.falha(token, f"{nome}: não há automação de fechamento")
@@ -607,7 +629,8 @@ PROJECAO = (      # entradas do texto da projeção → variáveis
     ("states('sensor.consumo_do_ciclo') | float(0)", "c_kwh", 1),
     ("states('input_datetime.fatura_ultima_leitura') | as_datetime", "c_ini | as_datetime", 1),
     ("states('input_datetime.fatura_proxima_leitura') | as_datetime", "c_fim | as_datetime", 1),
-    ("states('input_datetime.fatura_medido_desde') | as_datetime", "c_md | as_datetime", 1),
+    ("states('input_text.ajuste_medido_desde') | as_datetime", "c_md | as_datetime", 1),
+    ("(state_attr('sensor.fatura_energy_offpeak', 'last_reset') or '') | as_datetime", "c_zer | as_datetime", 1),
     ("states('sensor.consumo_do_ciclo_fechado') | float(0)", "c_fk", 1),
     ("states('input_number.fatura_fechado_dias_medidos') | float(0)", "c_fd", 1),
     ("now()", "(c_agora | as_datetime | as_local)", 2),
@@ -640,8 +663,10 @@ def projecoes_sorteadas(quantas: int = 400) -> list:
         agora = ini + datetime.timedelta(seconds=sorteio.randrange(-2 * 86400, (max(total, 1) + 3) * 86400))
         medido = sorteio.choice([None, None, ini - datetime.timedelta(days=sorteio.randrange(1, 40)),
                                  ini + datetime.timedelta(seconds=sorteio.randrange(0, (max(total, 1) + 1) * 86400))])
+        zerado = ini + datetime.timedelta(seconds=sorteio.randrange(-20 * 86400, (max(total, 1) + 1) * 86400))
         casos.append((ini.date().isoformat(), (ini + datetime.timedelta(days=total)).date().isoformat(),
                       agora.strftime("%Y-%m-%d %H:%M:%S"), medido.strftime("%Y-%m-%d %H:%M:%S") if medido else "",
+                      sorteio.choice(["", zerado.strftime("%Y-%m-%dT%H:%M:%S.%f+00:00")]),
                       round(sorteio.uniform(0, 600), 3), sorteio.choice([0, 0, round(sorteio.uniform(20, 900), 3)]),
                       sorteio.choice([0, 0.5, 0.99, 1, round(sorteio.uniform(1, 35), 2)])))
     return casos
@@ -656,23 +681,27 @@ def confere_projecao(a: Arnes, token: str) -> None:
     if modelo is None or faixa is None:
         return
     casos = projecoes_sorteadas()
-    partes = a.avalia(modelo, casos, "c_ini, c_fim, c_agora, c_md, c_kwh, c_fk, c_fd")
-    partes_f = a.avalia(faixa, casos, "c_ini, c_fim, c_agora, c_md, c_kwh, c_fk, c_fd")
+    partes = a.avalia(modelo, casos, "c_ini, c_fim, c_agora, c_md, c_zer, c_kwh, c_fk, c_fd")
+    partes_f = a.avalia(faixa, casos, "c_ini, c_fim, c_agora, c_md, c_zer, c_kwh, c_fk, c_fd")
     if isinstance(partes, str) or isinstance(partes_f, str):
         a.falha(token, f"o motor de templates não avaliou a projeção do package ({partes if isinstance(partes, str) else partes_f})")
         return
     ruins = []
-    for (ini, fim, agora, md, kwh, fk, fd), texto, texto_f in zip(casos, partes, partes_f):
+    fuso = a.fuso()
+    for (ini, fim, agora, md, zer, kwh, fk, fd), texto, texto_f in zip(casos, partes, partes_f):
+        # o ajuste, quando preenchido, vale no lugar da hora que o medidor guarda (em UTC)
+        desde = (datetime.datetime.fromisoformat(md) if md
+                 else datetime.datetime.fromisoformat(zer).replace(tzinfo=None) + fuso if zer else None)
         ref = round(referencia.consumo_projetado(
             kwh, D(ini), D(fim), datetime.datetime.fromisoformat(agora),
-            medido_desde=datetime.datetime.fromisoformat(md) if md else None, fechado_kwh=fk, fechado_dias=fd), 3)
+            medido_desde=desde, fechado_kwh=fk, fechado_dias=fd), 3)
         ref_f = round(referencia.consumo_de_faixa_do_fechado(fk, (D(fim) - D(ini)).days, fd), 3)
         try:
             ha, ha_f = float(texto), float(texto_f)
         except ValueError:
             ha = ha_f = float("nan")
         if ha != ref:
-            ruins.append(f"projeção de {kwh} kWh, ciclo {ini} → {fim}, agora {agora}, medido desde {md or 'o início'}, "
+            ruins.append(f"projeção de {kwh} kWh, ciclo {ini} → {fim}, agora {agora}, medido desde {desde or 'o início'}, "
                          f"anterior {fk} kWh em {fd} dias: {ha} ≠ {ref}")
         if ha_f != ref_f:
             ruins.append(f"consumo de faixa do ciclo fechado {ini} → {fim}, {fk} kWh medidos em {fd} dias: {ha_f} ≠ {ref_f}")
@@ -685,14 +714,19 @@ def confere_projecao(a: Arnes, token: str) -> None:
     hoje = a.hoje()
     meia_noite = datetime.datetime.combine(hoje, datetime.time.min)
     ini, fim = hoje - datetime.timedelta(days=10), hoje + datetime.timedelta(days=20)
+    # (a média da iluminação fica informada: a faixa dela não depende da
+    #  projeção, que cruza uma borda de faixa da iluminação uma vez por dia)
     for nome, anterior, dias_ant, desde, postos in (
-            ("sem ciclo anterior", 0, 0, 10, (10, 10, 100)),
-            ("com ciclo anterior de 900 kWh medidos em 30 dias", 900, 30, 10, (10, 10, 100)),
-            ("instalado no meio do ciclo, medindo há 4 dias", 0, 0, 4, (5, 5, 50))):
+            ("sem ciclo anterior", 0, 0, datetime.timedelta(days=10), (10, 10, 100)),
+            ("com ciclo anterior de 900 kWh medidos em 30 dias", 900, 30, datetime.timedelta(days=10), (10, 10, 100)),
+            ("instalado no meio do ciclo, medindo há 4 dias", 0, 0, datetime.timedelta(days=4), (5, 5, 50)),
+            ("instalado à noite, 3 dias e 4 horas antes da meia-noite de hoje", 0, 0,
+             datetime.timedelta(days=3, hours=4), (5, 5, 50)),
+            ("medidor zerado agora, sem ajuste: vale a hora que o medidor guarda", 0, 0, None, (5, 5, 50))):
         kwh = sum(postos)
-        medido = meia_noite - datetime.timedelta(days=desde)
+        medido = meia_noite - desde if desde is not None else None
         a.limpa_ajustes()
-        a.servico("input_number", "set_value", {"entity_id": "input_number.cosip_media_kwh", "value": 0})
+        a.servico("input_number", "set_value", {"entity_id": "input_number.cosip_media_kwh", "value": 425})
         a.calibra("fatura_energy", (0, 0, anterior))
         a.fecha_ciclo(ini, ini - datetime.timedelta(days=30))       # o ciclo anterior
         a.servico("input_number", "set_value", {"entity_id": DIAS_MEDIDOS, "value": dias_ant})
@@ -701,18 +735,19 @@ def confere_projecao(a: Arnes, token: str) -> None:
         a.data_hora(MEDIDO_DESDE, medido)
         a.calibra("fatura_energy", postos)
         time.sleep(2)
-        proj = referencia.consumo_projetado(kwh, ini, fim, a.agora(), medido_desde=medido,
+        proj = referencia.consumo_projetado(kwh, ini, fim, a.agora(), medido_desde=medido or a.zerado(),
                                             fechado_kwh=anterior, fechado_dias=dias_ant)
         v = a.espera_numero("sensor.consumo_projetado_do_ciclo", proj, 0.08, 12)
         if v is None or abs(v - proj) > 0.08:
             a.falha(token, f"consumo projetado, {nome}: a calculadora dá {proj:.3f} kWh, o Home Assistant {v}")
             continue
-        r = referencia.calcula(DADOS, ini, fim, kwh, kwh_ponta=postos[0], kwh_intermediario=postos[1], kwh_faixa=v)
+        r = referencia.calcula(DADOS, ini, fim, kwh, kwh_ponta=postos[0], kwh_intermediario=postos[1],
+                               kwh_faixa=v, cosip_media_kwh=425)
         if r["icms"] != 24.0 or referencia.icms_da_faixa(DADOS, kwh) == 24.0:
             raise SystemExit("[ERRO] o cenário da projeção deixou de atravessar a faixa do ICMS")
         if not compara_parametros(a, token, f"ciclo em curso, {nome}", PARAMETROS, r):
             continue
-        rp = referencia.calcula(DADOS, ini, fim, v, kwh_faixa=v)
+        rp = referencia.calcula(DADOS, ini, fim, v, kwh_faixa=v, cosip_media_kwh=425)
         compara(a, token, f"ciclo em curso, {nome}", (
             ("sensor.fatura_mensal_convencional", r["total"], 0.0051, "fatura até agora"),
             ("sensor.fatura_projetada_do_ciclo", rp["total"], 0.0051, "fatura projetada")))
@@ -720,9 +755,10 @@ def confere_projecao(a: Arnes, token: str) -> None:
     # c) ciclo FECHADO medido em parte: a automação grava os dias medidos e a
     #    faixa sai do consumo na proporção dos dias
     a.limpa_ajustes()
+    a.servico("input_number", "set_value", {"entity_id": "input_number.cosip_media_kwh", "value": 0})
     a.data(ULTIMA, hoje - datetime.timedelta(days=30))
     a.data(PROXIMA, hoje)
-    medido = meia_noite - datetime.timedelta(days=10)
+    medido = meia_noite - datetime.timedelta(days=9, hours=5)      # instalado às 19:00, não à meia-noite
     a.data_hora(MEDIDO_DESDE, medido)
     a.calibra("fatura_energy", (10, 10, 110))
     antes_de_fechar = a.agora()
@@ -741,13 +777,20 @@ def confere_projecao(a: Arnes, token: str) -> None:
             (("sensor.consumo_de_faixa_do_ciclo_fechado", fx, 0.001, "consumo de faixa"),
              ("sensor.consumo_do_ciclo_fechado", 130, 0.001, "consumo medido")))
     compara_parametros(a, token, "ciclo fechado medido em parte", PARAMETROS_FECHADO, r)
-    novo = str(a.estado(MEDIDO_DESDE))
-    try:
-        atraso = abs((datetime.datetime.fromisoformat(novo) - antes_de_fechar).total_seconds())
-    except ValueError:
-        atraso = 1e9
-    if atraso > 120:
-        a.falha(token, f"fechado o ciclo, a medição do ciclo novo deveria começar agora; ficou em {novo}")
+    novo = a.zerado()
+    if a.estado(MEDIDO_DESDE) != "" or novo is None or abs((novo - antes_de_fechar).total_seconds()) > 120:
+        a.falha(token, "fechado o ciclo, a medição do ciclo novo deveria começar agora: o ajuste de 'medido "
+                       f"desde' ficou em {a.estado(MEDIDO_DESDE)!r} (esperava vazio) e o medidor diz {novo}")
+        return
+    # sem ajuste, os dias medidos contam de quando o medidor foi zerado — agora mesmo
+    a.data(ULTIMA, hoje - datetime.timedelta(days=30))
+    a.data(PROXIMA, hoje)
+    a.calibra("fatura_energy", (1, 1, 1))
+    a.dispara_fechamento()
+    dm = a.espera_numero(DIAS_MEDIDOS, 0, 0.02, 8)
+    if dm is None or dm > 0.02 or a.numero("sensor.consumo_do_ciclo_fechado") != 3:
+        a.falha(token, "medidor zerado há instantes e ciclo fechado em seguida: os dias medidos deveriam ser "
+                       f"quase zero (a hora que o medidor guarda); a automação gravou {dm}")
 
 
 # ── 3b. a regra do package é a da calculadora, bit a bit ────────────────────
@@ -870,7 +913,8 @@ def confere_ajustes(a: Arnes) -> None:
     passos = (({}, True), ({"pis": "1,2", "cofins": "5,5"}, True),
               ({"pis": "1,2", "cofins": "5,5", "bandeira": "0,01"}, True),
               ({"pis": "1,2", "cofins": "5,5", "bandeira": "0,01", "iluminacao": "60"}, False),
-              ({"pis": "1,2", "bandeira": "0,01", "iluminacao": "60"}, True))
+              ({"pis": "1,2", "bandeira": "0,01", "iluminacao": "60"}, True),
+              ({"pis": "1,2", "cofins": "5,5", "iluminacao": "60"}, True))     # só a bandeira estimada
     for ajustes, estimado in passos:
         r = prepara_ciclo(a, antigo, ajustes)
         if r["estimado"] is not estimado:
@@ -916,7 +960,7 @@ def confere_persistencia(a: Arnes, espera_volta) -> None:
     #  reinício abaixo fecha um ciclo, e o que se confere é o que ela gravou)
     cobertos = {(d, c) for d, c, _ in PERSISTEM} | {("input_datetime", c) for c in DATAS} | {
         ("input_select", "agua_area"), ("input_number", "fatura_fechado_dias_medidos"),
-        ("input_datetime", "fatura_medido_desde")}
+        ("input_text", "ajuste_medido_desde")}
     for dominio, chave, cfg in campos_dos_pacotes():
         if "initial" in cfg:
             a.falha(token, f"{dominio}.{chave} declara `initial:` — o que o usuário digita seria "
@@ -936,6 +980,7 @@ def confere_persistencia(a: Arnes, espera_volta) -> None:
     a.calibra("fatura_energy", (11, 11, 11))
     a.data(ULTIMA, anterior)
     a.data(PROXIMA, ontem)
+    a.data_hora(MEDIDO_DESDE, datetime.datetime.combine(ontem, datetime.time(19, 0)) - datetime.timedelta(days=5))
     time.sleep(2)
     a.guarda_registro()
     a.servico("homeassistant", "restart", {})
@@ -973,9 +1018,9 @@ def confere_persistencia(a: Arnes, espera_volta) -> None:
                                   f"ciclo não fechou no início: o medidor da fatura mostra {a.soma('fatura_energy')}")
     elif a.estado(ULTIMA) != ontem.isoformat():
         a.falha("CICLO NAO ZERA", "o ciclo fechou no início mas a data da última leitura não foi gravada")
-    elif not str(a.estado(MEDIDO_DESDE)).startswith(a.hoje().isoformat()):
-        a.falha("CICLO NAO ZERA", "o ciclo fechou no início mas a medição do ciclo novo não recomeçou agora: "
-                                  f"{MEDIDO_DESDE} = {a.estado(MEDIDO_DESDE)}")
+    elif a.estado(MEDIDO_DESDE) != "":
+        a.falha("CICLO NAO ZERA", "o ciclo fechou no início mas o ajuste de 'medido desde' do ciclo que acabou "
+                                  f"continuou valendo: {a.estado(MEDIDO_DESDE)!r}")
     if len(a.falhas) == antes:
         a.ok("ciclo da fatura: fecha no primeiro início depois da data de leitura")
 
@@ -1225,6 +1270,13 @@ def main() -> int:
     if not rodando(90):
         print("[ERRO]  o Home Assistant não chegou ao estado RUNNING")
         return 3
+    # A automação de fechamento dispara à 00:00 do relógio do Home Assistant, e
+    # os ciclos da grade têm datas passadas: uma rodada que atravessasse a
+    # meia-noite veria um ciclo fechar no meio da comparação. Perto dela, espera.
+    falta = 86400 - (a.agora() - datetime.datetime.combine(a.hoje(), datetime.time.min)).total_seconds()
+    if falta < 900:
+        print(f"[OK]    faltam {falta:.0f} s para a meia-noite do Home Assistant: espero ela passar")
+        time.sleep(falta + 20)
     _, cfg = a.get("/api/config")
     print(f"alvo: HA {cfg.get('version', '?') if isinstance(cfg, dict) else '?'}")
 

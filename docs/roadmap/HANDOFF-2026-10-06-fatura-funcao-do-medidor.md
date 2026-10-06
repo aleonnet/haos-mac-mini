@@ -43,7 +43,7 @@ distribuidora.
 | `./tools/pacotes-arnes.sh` contra o package **da manhã** (cerca nova) | reprovou: 36 falhas em 6 tokens |
 | `python3 tarifas/fatura.py --confere` | `FATURAS OK`: duas contas reais (471,92 e 542,47 contra 471,92 e 542,46), os três preços com tributos publicados, as quatro bordas das faixas do ICMS e quatro casos de arredondamento |
 | `./tools/pacotes-arnes.sh`, versão fixada (2026.8.3) e estável (2026.9.4) | `PACOTES OK — 14 garantias` nas duas |
-| Leitura fria adversarial sobre o diff, duas rodadas | 1ª rodada **reprovou**: 4 bloqueadores e 8 avisos — buracos da cerca e dois defeitos de produto (diário). 2ª rodada: ver o fecho do diário |
+| Leitura fria adversarial sobre o diff, duas rodadas (o teto) | 1ª rodada **reprovou**: 4 bloqueadores e 8 avisos — buracos da cerca e dois defeitos de produto. 2ª rodada **reprovou**: os 12 da primeira caíram; 1 bloqueador novo no conserto (os dias medidos contavam da meia-noite do dia da instalação) e 5 avisos — todos consertados e contraprovados depois dela, sem terceira rodada (diário) |
 | Defeitos plantados, um por vez, em cópia do repositório | ver a contagem no diário; fontes com a mesma impressão digital antes e depois |
 | `./tools/embed.sh --check` | a calculadora, os dois blocos gerados e os oito embutidos |
 | `./tools/gate.sh` | `RESULTADO: portão limpo` |
@@ -58,7 +58,7 @@ O detalhe, com hora, está em
 |---|---|---|
 | Um conjunto só de ajustes manuais, valendo para o ciclo em curso e para o fechado | um ajuste de bandeira ou de ICMS feito para um ciclo continua valendo no outro até ser apagado | sim |
 | Consumo projetado do ciclo (o já medido + a taxa diária nos dias que a medição não cobriu) para escolher as faixas | o preço do ciclo em curso pode mudar se a projeção atravessar 300 kWh | sim |
-| O package guarda desde quando mede e por quantos dias o ciclo fechado foi medido (dois campos gravados pela automação) — acréscimo ao plano, vindo da leitura fria | dois campos a mais; quem instala no meio do ciclo deixa de cair na faixa errada | sim |
+| A projeção conta os dias de fato medidos: desde a hora em que o medidor do ciclo foi criado ou zerado (ele mesmo a guarda), e, no ciclo fechado, os dias que a automação grava ao fechar — acréscimo ao plano, vindo da leitura fria | um campo gravado pela automação e um campo de ajuste a mais; quem instala no meio do ciclo deixa de cair na faixa errada | sim |
 | Consumo com casas decimais é arredondado ao inteiro mais próximo antes de escolher a faixa do ICMS — regra do produto, a fonte só fala em kWh inteiros | perto de 50 e de 300 kWh a faixa depende de décimos | sim |
 | A próxima leitura assumida nunca fica no passado | parado mais de um mês, o consumo de dois ciclos fica num só | sim |
 | `./tools/embed.sh --check` passou a rodar também a calculadora contra as contas — acréscimo ao plano | o portão local fica alguns décimos de segundo mais lento | sim |
@@ -97,6 +97,9 @@ O detalhe, com hora, está em
 - **Quem atualiza de uma versão com os campos antigos** fica com as entidades
   antigas órfãs no registro (o Home Assistant as mostra como indisponíveis). O
   instalador não as remove.
+- **O medidor do ciclo é criado quando o package sobe.** Se a fonte de consumo
+  só for ligada dias depois, esses dias contam como medidos e a projeção fica
+  baixa até o ciclo seguinte; o campo "medido desde" corrige à mão.
 - **O gatilho da meia-noite só é conferido no arquivo**, não disparado; o
   fechamento é exercitado pelo disparo da automação e pelo início do Home
   Assistant.
