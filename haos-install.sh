@@ -4155,12 +4155,15 @@ HAOS_PKG_ENERGIA=$(cat <<'FIM_EMB_PKG_ENERGIA'
 #   leitura. Ao fechar, o consumo e as duas datas ficam guardados como ciclo
 #   fechado (é o que se compara com a conta) e a próxima leitura passa a ser
 #   assumida um mês depois — corrija a data quando a conta trouxer outra.
+#   Instalado no meio de um ciclo? O package sabe desde quando está medindo
+#   ("medido desde") e projeta o consumo do ciclo inteiro para escolher as
+#   faixas; o consumo mostrado continua sendo só o medido.
 #   Os medidores diário e mensal seguem o calendário.
 #
 #   Requer a integração `workday` (core, config flow) com país BR e a
 #   subdivisão do estado — é ela que conhece feriados nacionais e estaduais.
 #
-#   Cerca: tools/pacotes-arnes.sh sobe um Home Assistant e compara cada número
+#   Cerca: tools/pacotes-arnes.sh sobe um Home Assistant e compara os números
 #   daqui com tarifas/fatura.py.
 # =============================================================================
 
@@ -4296,9 +4299,13 @@ template:
             + state_attr('sensor.fatura_energy_offpeak', 'last_period')|float(0)) | round(3) }}
 
       # F13 — só escolhe as FAIXAS (ICMS e iluminação) antes de o ciclo
-      # terminar. Com ciclo anterior: o já medido + a média diária do anterior
-      # × os dias que faltam. Sem ele: proporção dos dias (o primeiro dia conta
-      # inteiro). Ciclo encerrado ou sem datas: o próprio consumo.
+      # terminar:
+      #   projetado = já medido + taxa diária × dias do ciclo que a medição não cobriu
+      # Os dias cobertos contam de "medido desde" (ou do início do ciclo, o que
+      # for mais tarde) — quem instala no meio do ciclo mediu só parte dele.
+      # A taxa é a do ciclo anterior (consumo ÷ dias MEDIDOS dele) quando ele
+      # cobriu ao menos um dia; sem isso, a do próprio ciclo, com o primeiro
+      # dia contado inteiro. Ciclo encerrado ou sem datas: o próprio consumo.
       - name: "Consumo Projetado do Ciclo"
         unique_id: consumo_projetado_ciclo
         unit_of_measurement: kWh
@@ -4307,24 +4314,38 @@ template:
           {% set kwh = states('sensor.consumo_do_ciclo') | float(0) %}
           {% set ini = states('input_datetime.fatura_ultima_leitura') | as_datetime %}
           {% set fim = states('input_datetime.fatura_proxima_leitura') | as_datetime %}
+          {% set md = states('input_datetime.fatura_medido_desde') | as_datetime %}
+          {% set fk = states('sensor.consumo_do_ciclo_fechado') | float(0) %}
+          {% set fd = states('input_number.fatura_fechado_dias_medidos') | float(0) %}
+          {% set total = (fim - ini).days if ini is not none and fim is not none else 0 %}
+          {% if total <= 0 or now() >= fim | as_local %}
+            {{ kwh | round(3) }}
+          {% else %}
+            {% set desde = [ini | as_local, md | as_local] | max if md is not none else ini | as_local %}
+            {% set cobertos = [(now() - desde).total_seconds() / 86400, 0] | max %}
+            {% set taxa = fk / fd if fk > 0 and fd >= 1 else kwh / [cobertos, 1] | max %}
+            {{ (kwh + taxa * [total - cobertos, 0] | max) | round(3) }}
+          {% endif %}
+
+      # F13b — ciclo fechado que só foi medido em parte (o primeiro depois da
+      # instalação): a faixa é a do consumo na proporção dos dias. Medido por
+      # inteiro, ou sem saber quantos dias, é o próprio consumo.
+      - name: "Consumo de Faixa do Ciclo Fechado"
+        unique_id: consumo_faixa_ciclo_fechado
+        unit_of_measurement: kWh
+        icon: mdi:chart-line
+        state: >
+          {% set fk = states('sensor.consumo_do_ciclo_fechado') | float(0) %}
           {% set fi = states('input_datetime.fatura_fechado_inicio') | as_datetime %}
           {% set ff = states('input_datetime.fatura_fechado_fim') | as_datetime %}
-          {% set total = (fim - ini).days if ini is not none and fim is not none else 0 %}
-          {% set dec = (now() - ini | as_local).total_seconds() / 86400 if ini is not none else 0 %}
-          {% set fk = states('sensor.consumo_do_ciclo_fechado') | float(0) %}
-          {% set fd = (ff - fi).days if fi is not none and ff is not none else 0 %}
-          {% if total <= 0 or dec >= total %}
-            {{ kwh | round(3) }}
-          {% elif fk > 0 and fd > 0 %}
-            {{ (kwh + fk / fd * (total - [dec, 0] | max)) | round(3) }}
-          {% else %}
-            {{ (kwh * total / [dec, 1] | max) | round(3) }}
-          {% endif %}
+          {% set n = (ff - fi).days if fi is not none and ff is not none else 0 %}
+          {% set dm = states('input_number.fatura_fechado_dias_medidos') | float(0) %}
+          {{ (fk * n / dm if 1 <= dm < n else fk) | round(3) }}
 
       # ═════════════════════════════════════════════════════════════════════════
       # A REGRA — um texto só, usado duas vezes: no ciclo em curso (datas da
       # última e da próxima leitura, consumo projetado) e no fechado (as duas
-      # datas guardadas, consumo real). O sensor sabe qual é pelo próprio nome.
+      # datas guardadas, consumo de faixa do fechado). O sensor sabe qual é pelo próprio nome.
       # Publica um dicionário `p`; todo o resto do package lê dele.
       #
       #   F2  bandeira   média, pelos dias do ciclo (do dia seguinte à leitura
@@ -4353,7 +4374,7 @@ template:
             {%- set fechado = this.entity_id.endswith('_fechado') -%}
             {%- set ini = states('input_datetime.fatura_fechado_inicio' if fechado else 'input_datetime.fatura_ultima_leitura') | as_datetime -%}
             {%- set fim = states('input_datetime.fatura_fechado_fim' if fechado else 'input_datetime.fatura_proxima_leitura') | as_datetime -%}
-            {%- set kwh = states('sensor.consumo_do_ciclo_fechado' if fechado else 'sensor.consumo_projetado_do_ciclo') | float(0) -%}
+            {%- set kwh = states('sensor.consumo_de_faixa_do_ciclo_fechado' if fechado else 'sensor.consumo_projetado_do_ciclo') | float(0) -%}
             {%- set media = states('input_number.cosip_media_kwh') | float(0) -%}
             {%- set a_tarifa = states('input_text.ajuste_tarifa') | replace(',', '.') -%}
             {%- set a_bandeira = states('input_text.ajuste_bandeira') | replace(',', '.') -%}
@@ -4416,7 +4437,7 @@ template:
             {%- endfor -%}
             {%- set ilum = a_ilum | float if a_ilum | is_number else l.v -%}
             {%- set est_i = ante not in ac and not a_ilum | is_number -%}
-            {{ {'dias': n, 'tarifa': tarifa, 'bandeira': bandeira, 'icms': icms, 'pis': pis,
+            {{ {'dias': [n, 0] | max, 'tarifa': tarifa, 'bandeira': bandeira, 'icms': icms, 'pis': pis,
                 'cofins': cofins, 'fator': fator, 'preco': preco, 'iluminacao': ilum,
                 'outros': a_outros | float if a_outros | is_number else 0.0,
                 'creditos': a_creditos | float if a_creditos | is_number else 0.0,
@@ -4766,6 +4787,16 @@ input_number:
     unit_of_measurement: "kWh"
     icon: mdi:lightbulb-on-outline
     mode: box
+  # Gravado pela automação ao fechar: por quantos dias o ciclo fechado foi
+  # de fato medido. Menos que os dias do ciclo = instalado no meio dele.
+  fatura_fechado_dias_medidos:
+    name: "Ciclo fechado: dias medidos"
+    min: 0
+    max: 100000
+    step: 0.01
+    unit_of_measurement: "d"
+    icon: mdi:calendar-range
+    mode: box
   fatura_conferencia:
     name: "Total da última fatura (conferência)"
     min: 0
@@ -4788,6 +4819,13 @@ input_datetime:
     has_date: true
     has_time: false
     icon: mdi:calendar-arrow-right
+  # Desde quando o medidor do ciclo EM CURSO está contando. Nasce no dia da
+  # instalação e é regravado a cada fechamento.
+  fatura_medido_desde:
+    name: "Ciclo em curso: medido desde"
+    has_date: true
+    has_time: true
+    icon: mdi:timer-play-outline
   # As duas datas do ciclo FECHADO, gravadas ao fechar.
   fatura_fechado_inicio:
     name: "Ciclo fechado: leitura anterior"
@@ -4883,9 +4921,11 @@ automation:
 
   # Fecha o ciclo da fatura à 00:00 da data de leitura — ou no primeiro início
   # depois dela, se o Home Assistant estava parado na hora. Guarda as duas
-  # datas do ciclo que fechou, zera o medidor da fatura e avança as datas: a
-  # leitura que fechou vira a última, e a próxima passa a um mês depois (o
-  # mesmo dia; mês mais curto, o último dia). Avançada a data, não fecha de novo.
+  # datas do ciclo que fechou e por quantos dias ele foi medido, zera o medidor
+  # da fatura e avança as datas: a leitura que fechou vira a última, e a
+  # próxima passa ao mesmo dia do mês seguinte (mês mais curto, o último dia)
+  # — se essa data também já passou, ao primeiro mês que ainda não chegou.
+  # Assim a próxima leitura fica sempre no futuro e o ciclo não fecha de novo.
   - id: energia_br_fecha_ciclo_fatura
     alias: "Energia BR — fecha o ciclo da fatura"
     description: >
@@ -4908,13 +4948,26 @@ automation:
       - variables:
           anterior: "{{ states('input_datetime.fatura_ultima_leitura') }}"
           leitura: "{{ states('input_datetime.fatura_proxima_leitura') }}"
+          medidos: >
+            {% set u = states('input_datetime.fatura_ultima_leitura') | as_datetime | as_local %}
+            {% set md = states('input_datetime.fatura_medido_desde') | as_datetime %}
+            {% set desde = [u, md | as_local] | max if md is not none else u %}
+            {{ [((now() - desde).total_seconds() / 86400) | round(2), 0] | max }}
           seguinte: >
             {% set d = states('input_datetime.fatura_proxima_leitura') | as_datetime %}
-            {% set a = d.year + 1 if d.month == 12 else d.year %}
-            {% set m = 1 if d.month == 12 else d.month + 1 %}
-            {% set fim_do_mes = (('%04d-%02d-01' % (a + 1 if m == 12 else a, m % 12 + 1))
-                                 | as_datetime - timedelta(days=1)).day %}
-            {{ '%04d-%02d-%02d' % (a, m, [d.day, fim_do_mes] | min) }}
+            {% set ns = namespace(r=none) %}
+            {% for k in range(1, 121) %}
+              {% if ns.r is none %}
+                {% set t = d.month - 1 + k %}
+                {% set a = d.year + t // 12 %}
+                {% set m = t % 12 + 1 %}
+                {% set fim_do_mes = (('%04d-%02d-01' % (a + 1 if m == 12 else a, m % 12 + 1))
+                                     | as_datetime - timedelta(days=1)).day %}
+                {% set c = '%04d-%02d-%02d' % (a, m, [d.day, fim_do_mes] | min) %}
+                {% if c > now().date().isoformat() %}{% set ns.r = c %}{% endif %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.r }}
       - service: input_datetime.set_datetime
         target:
           entity_id: input_datetime.fatura_fechado_inicio
@@ -4925,6 +4978,11 @@ automation:
           entity_id: input_datetime.fatura_fechado_fim
         data:
           date: "{{ leitura }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.fatura_fechado_dias_medidos
+        data:
+          value: "{{ medidos }}"
       - service: utility_meter.reset
         target:
           entity_id: select.fatura_energy
@@ -4938,6 +4996,11 @@ automation:
           entity_id: input_datetime.fatura_proxima_leitura
         data:
           date: "{{ seguinte }}"
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.fatura_medido_desde
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
 FIM_EMB_PKG_ENERGIA
 )
 # <<< PKG_ENERGIA EMBUTIDO <<<
@@ -5533,6 +5596,12 @@ views:
           - type: simple-entity
             entity: input_number.cosip_media_kwh
             name: Média da faixa da iluminação
+          - type: simple-entity
+            entity: input_datetime.fatura_medido_desde
+            name: Ciclo em curso medido desde
+          - type: simple-entity
+            entity: input_number.fatura_fechado_dias_medidos
+            name: Dias medidos do ciclo fechado
           - type: divider
           - entity: sensor.ajustes_ativos
             name: Ajustes preenchidos

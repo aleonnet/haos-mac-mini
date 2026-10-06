@@ -130,6 +130,12 @@ views:
           - type: simple-entity
             entity: input_number.cosip_media_kwh
             name: Média da faixa da iluminação
+          - type: simple-entity
+            entity: input_datetime.fatura_medido_desde
+            name: Ciclo em curso medido desde
+          - type: simple-entity
+            entity: input_number.fatura_fechado_dias_medidos
+            name: Dias medidos do ciclo fechado
           - type: divider
           - entity: sensor.ajustes_ativos
             name: Ajustes preenchidos

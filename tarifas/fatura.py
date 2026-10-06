@@ -95,19 +95,33 @@ def fator_de_tributos(icms: float, pis: float, cofins: float) -> float:
 
 
 def consumo_projetado(kwh: float, inicio: datetime.date, fim: datetime.date, agora: datetime.datetime, *,
-                      fechado_kwh: float = 0.0, fechado_dias: int = 0) -> float:
+                      medido_desde: datetime.datetime | None = None,
+                      fechado_kwh: float = 0.0, fechado_dias: float = 0.0) -> float:
     """F13 — o consumo que o ciclo em curso deve fechar. Serve só para escolher
     a faixa do ICMS e a da iluminação antes de o ciclo terminar.
-    Com ciclo anterior: o já medido + a média diária do ciclo anterior × os
-    dias que faltam. Sem ele: o já medido, na proporção dos dias (o primeiro
-    dia conta inteiro). Ciclo encerrado ou sem datas: o próprio consumo."""
+
+        projetado = já medido + taxa diária × dias do ciclo que a medição não cobriu
+
+    Os dias cobertos contam de `medido_desde` (ou do início do ciclo, o que
+    for mais tarde): quem instala no meio do ciclo mediu só uma parte dele.
+    A taxa é a do ciclo anterior (consumo ÷ dias MEDIDOS dele) quando ele
+    cobriu ao menos um dia; sem isso, a do próprio ciclo, com o primeiro dia
+    contado inteiro. Ciclo encerrado ou sem datas: o próprio consumo."""
     total = (fim - inicio).days
-    decorrido = (agora - datetime.datetime.combine(inicio, datetime.time.min)).total_seconds() / 86400
-    if total <= 0 or decorrido >= total:
+    comeco = datetime.datetime.combine(inicio, datetime.time.min)
+    if total <= 0 or agora >= datetime.datetime.combine(fim, datetime.time.min):
         return kwh
-    if fechado_kwh > 0 and fechado_dias > 0:
-        return kwh + fechado_kwh / fechado_dias * (total - max(decorrido, 0))
-    return kwh * total / max(decorrido, 1)
+    desde = max(comeco, medido_desde) if medido_desde is not None else comeco
+    cobertos = max((agora - desde).total_seconds() / 86400, 0)
+    taxa = fechado_kwh / fechado_dias if fechado_kwh > 0 and fechado_dias >= 1 else kwh / max(cobertos, 1)
+    return kwh + taxa * max(total - cobertos, 0)
+
+
+def consumo_de_faixa_do_fechado(kwh: float, dias: int, dias_medidos: float) -> float:
+    """F13b — ciclo fechado que só foi medido em parte (o primeiro depois da
+    instalação): a faixa é a do consumo na proporção dos dias. Medido por
+    inteiro, ou sem saber quantos dias, é o próprio consumo."""
+    return kwh * dias / dias_medidos if 1 <= dias_medidos < dias else kwh
 
 
 def iluminacao_publica(d: dict, base_kwh: float, fim: datetime.date) -> tuple[float, bool]:
@@ -164,6 +178,11 @@ def calcula(d: dict, inicio: datetime.date, fim: datetime.date, kwh: float, *,
     energia_branca = (kwh_ponta * (br["ponta"] + bandeira) + kwh_intermediario * (br["intermediaria"] + bandeira)
                       + fora * (br["fora_ponta"] + bandeira)) * fator
     return {
+        "preco_ponta": (br["ponta"] + bandeira) * fator,
+        "preco_intermediario": (br["intermediaria"] + bandeira) * fator,
+        "preco_fora_ponta": (br["fora_ponta"] + bandeira) * fator,
+        "energia_branca": round(energia_branca, 2),
+        "encargos": round(fixos, 2),
         "dias": len(dias_do_ciclo(inicio, fim)),
         "tarifa": tarifa, "bandeira": bandeira, "tarifa_com_bandeira": tarifa_com_bandeira,
         "icms": icms, "pis": pis, "cofins": cofins, "fator": fator, "preco": preco,
@@ -179,9 +198,14 @@ def calcula(d: dict, inicio: datetime.date, fim: datetime.date, kwh: float, *,
 
 
 # ── --confere ───────────────────────────────────────────────────────────────
+CERTEZAS = ("lido na fonte", "deduzido de fatura")
+SEM_PARAMETRO = ("distribuidora", "sem_fonte")     # blocos que não trazem parâmetro de cálculo
+
+
 def sem_fonte(d: dict) -> list[str]:
-    """Todo grupo de parâmetros diz de onde veio, o que a fonte diz e quando
-    foi conferido. Endereço só é dispensado no que vem da própria fatura."""
+    """Todo bloco de parâmetros diz de onde veio, o que a fonte diz, quando
+    foi conferido e com que certeza. Vale para bloco que venha a ser criado:
+    a lista não é fixa. Endereço só é dispensado no que vem da própria fatura."""
     faltas = []
 
     def confere(nome: str, fonte) -> None:
@@ -191,13 +215,20 @@ def sem_fonte(d: dict) -> list[str]:
         for campo in ("documento", "citacao", "conferido_em", "certeza"):
             if not fonte.get(campo):
                 faltas.append(f"{nome}: fonte sem '{campo}'")
+        if fonte.get("certeza") and fonte["certeza"] not in CERTEZAS:
+            faltas.append(f"{nome}: certeza '{fonte['certeza']}' não é uma de {CERTEZAS}")
+        try:
+            datetime.date.fromisoformat(str(fonte.get("conferido_em")))
+        except ValueError:
+            if fonte.get("conferido_em"):
+                faltas.append(f"{nome}: 'conferido_em' não é data ({fonte['conferido_em']})")
         if not fonte.get("url") and fonte.get("certeza") != "deduzido de fatura":
             faltas.append(f"{nome}: fonte sem endereço")
 
-    for grupo in ("tarifa", "postos", "bandeira", "icms", "pis_cofins", "iluminacao_publica"):
-        confere(grupo, d.get(grupo, {}).get("fonte"))
+    for grupo, bloco in d.items():
+        if isinstance(bloco, dict) and grupo not in SEM_PARAMETRO:
+            confere(grupo, bloco.get("fonte"))
     confere("bandeira.rateio", d.get("bandeira", {}).get("rateio", {}).get("fonte"))
-    confere("casos_de_preco", d.get("casos_de_preco", {}).get("fonte"))
     for nome, item in d.get("sem_fonte", {}).items():
         if item.get("certeza") != "sem fonte" or not item.get("tratamento"):
             faltas.append(f"sem_fonte.{nome}: tem de declarar certeza 'sem fonte' e o tratamento")

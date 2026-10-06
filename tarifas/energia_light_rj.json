@@ -40,7 +40,7 @@
   "fonte": {
    "documento": "Resolução Homologatória ANEEL nº 3.014/2022, art. 11",
    "url": "https://www.light.com.br/Documentos%20Compartilhados/Legislacao-Resolucoes-da-Aneel/reh20223014ti.pdf",
-   "citacao": "O horário de ponta para a área de concessão da Light compreende o período entre as 17 horas e 30 minutos e as 20 horas e 29 minutos.",
+   "citacao": "Art. 11. O horário de ponta para a área de concessão da Light compreende o período entre as 17 horas e 30 minutos e as 20 horas e 29 minutos. Parágrafo único. Para aplicação da Tarifa Branca o posto intermediário compreende duas horas imediatamente posterior ao posto (horário) ponta.",
    "conferido_em": "2026-10-06",
    "certeza": "lido na fonte",
    "nota": "Fonte de 2022; não conferido se a REH 3.571/2026 repete os horários."
@@ -125,7 +125,8 @@
    "conferido_em": "2026-10-06",
    "certeza": "lido na fonte",
    "nota": "As três colunas do PDF conferem pela conta: 0.94793 ÷ ((1 − ICMS) × (1 − 0,0599)) = 1.00833, 1.22967 e 1.32675. Não conferido: se a faixa usa o kWh faturado ou normalizado para 30 dias."
-  }
+  },
+  "arredondamento": "Regra do produto, não da fonte: a conta fatura kWh inteiros; o consumo medido, com casas decimais, é arredondado ao inteiro mais próximo (metade exata vai ao par) antes de escolher a faixa."
  },
  "pis_cofins": {
   "unidade": "%",
@@ -578,6 +579,26 @@
    {
     "nome": "borda: 301 kWh já paga 24 %",
     "kwh": 301,
+    "preco": 1.32675
+   },
+   {
+    "nome": "arredondamento: 50,4 kWh conta como 50",
+    "kwh": 50.4,
+    "preco": 1.00833
+   },
+   {
+    "nome": "arredondamento: 50,6 kWh conta como 51",
+    "kwh": 50.6,
+    "preco": 1.22967
+   },
+   {
+    "nome": "arredondamento: 300,4 kWh conta como 300",
+    "kwh": 300.4,
+    "preco": 1.22967
+   },
+   {
+    "nome": "arredondamento: 300,6 kWh conta como 301",
+    "kwh": 300.6,
     "preco": 1.32675
    }
   ]

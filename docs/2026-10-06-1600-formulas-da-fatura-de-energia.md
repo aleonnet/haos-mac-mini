@@ -13,7 +13,7 @@ que a carregam — se as quatro concordam, a fórmula está certa no produto:
 | Dado | [`tarifas/energia_light_rj.json`](../tarifas/energia_light_rj.json) | cada parâmetro com valor, fonte, citação literal, data da conferência e grau de certeza |
 | Regra | [`tarifas/fatura.py`](../tarifas/fatura.py) | a calculadora de referência, só biblioteca padrão; cada função traz o número da sua fórmula |
 | Tela | [`packages/energia_br.yaml`](../packages/energia_br.yaml) | o package do Home Assistant: a mesma regra em template |
-| Cerca | [`contract/pacotes.py`](../contract/pacotes.py) | sobe um Home Assistant e reprova se algum número dele diferir da calculadora |
+| Cerca | [`contract/pacotes.py`](../contract/pacotes.py) | sobe um Home Assistant e reprova se um sensor calculado do package diferir da calculadora |
 
 A decisão de desenho está em
 [2026-10-06-1600-fatura-como-funcao-do-medidor.md](2026-10-06-1600-fatura-como-funcao-do-medidor.md).
@@ -21,9 +21,9 @@ A decisão de desenho está em
 ## Como conferir, em três comandos
 
 ```
-python3 tarifas/fatura.py --confere     # as duas contas reais, só com kWh e datas
-./tools/embed.sh --check                # o package carrega o mesmo dado do arquivo
-./tools/pacotes-arnes.sh                # o Home Assistant dá o mesmo que a calculadora
+python3 tarifas/fatura.py --confere     # as duas contas reais e os preços publicados, só com kWh e datas
+./tools/embed.sh --check                # roda a de cima, e confere que o package carrega o mesmo dado do arquivo
+./tools/pacotes-arnes.sh                # o Home Assistant dá o mesmo que a calculadora (precisa de Docker; roda no CI)
 ```
 
 ## O que entra
@@ -33,6 +33,7 @@ python3 tarifas/fatura.py --confere     # as duas contas reais, só com kWh e da
 | Consumo do ciclo, por posto (kWh) | o medidor da casa | `sensor.fatura_energy_peak` · `_shoulder` · `_offpeak` |
 | Data da leitura anterior e da leitura | a conta; depois do primeiro ciclo, o package avança sozinho | `input_datetime.fatura_ultima_leitura` · `fatura_proxima_leitura` |
 | Média de consumo que define a faixa da iluminação pública (opcional) | a conta ou o histórico de consumo | `input_number.cosip_media_kwh` (0 = usa o consumo do ciclo) |
+| Desde quando o medidor do ciclo em curso está contando | o package grava: o dia da instalação e, depois, cada fechamento | `input_datetime.fatura_medido_desde` |
 | Ajustes manuais (opcionais) | o dono, quando a conta trouxer número diferente | `input_text.ajuste_*` (vazio = vale o calculado) |
 
 Nada mais. Tarifa, bandeira, ICMS, PIS, COFINS e iluminação pública são
@@ -87,7 +88,8 @@ o consumo todo.
 
 - Dado: `icms.faixas` · certeza: **lido na fonte** (cabeçalhos das colunas do PDF de tarifas; LC estadual RJ 210/2023)
 - Não conferido: se a faixa usa o kWh faturado ou o normalizado para 30 dias
-- Enquanto o ciclo corre, a faixa é a do consumo **projetado** (F13)
+- **Arredondamento — regra do produto, não da fonte:** a conta fatura kWh inteiros; o consumo medido tem casas decimais e é arredondado ao inteiro mais próximo (metade exata vai ao par) antes de escolher a faixa. 300,4 kWh contam como 300; 300,6, como 301
+- Enquanto o ciclo corre, a faixa é a do consumo **projetado** (F13); num ciclo fechado que só foi medido em parte, a do consumo na proporção dos dias (F13b)
 - Regra: `icms_da_faixa` · Tela: `sensor.icms_do_ciclo` · Ajuste: `input_text.ajuste_icms`
 
 ### F5 — PIS e COFINS (%)
@@ -181,13 +183,34 @@ Serve só para escolher as **faixas** (F4 e F10) antes de o ciclo terminar — s
 isso as primeiras horas de cada ciclo teriam o preço de quem é isento.
 
 ```
-com ciclo anterior:  projetado = consumo até agora + (consumo do ciclo anterior ÷ dias dele) × dias que faltam
-sem ciclo anterior:  projetado = consumo até agora × dias do ciclo ÷ dias decorridos   (o primeiro dia conta inteiro)
-ciclo encerrado:     projetado = consumo
+projetado = consumo até agora + taxa diária × dias do ciclo que a medição não cobriu
+
+dias cobertos  = de "medido desde" (ou do início do ciclo, o que for mais tarde) até agora
+taxa diária    = consumo do ciclo anterior ÷ dias MEDIDOS dele, se ele cobriu ao menos um dia;
+                 senão, consumo até agora ÷ dias cobertos (o primeiro dia conta inteiro)
+ciclo encerrado ou sem datas: projetado = consumo
 ```
 
+Quem instala no meio de um ciclo mediu só parte dele: por isso a conta usa os
+dias **cobertos pela medição**, não os dias do calendário. Medido desde o
+início, com ciclo anterior completo, a fórmula é "o já medido + a média diária
+do ciclo anterior × os dias que faltam".
+
 - Não vem de fonte: é estimativa do produto, substituída pelo consumo real quando o ciclo fecha
-- Regra: `consumo_projetado` · Tela: `sensor.consumo_projetado_do_ciclo`
+- Regra: `consumo_projetado` · Tela: `sensor.consumo_projetado_do_ciclo`; entradas `input_datetime.fatura_medido_desde` e `input_number.fatura_fechado_dias_medidos`
+
+### F13b — consumo de faixa de um ciclo fechado medido em parte
+
+```
+dias medidos ≥ 1 e menores que os dias do ciclo:  consumo de faixa = consumo medido × dias do ciclo ÷ dias medidos
+senão:                                            consumo de faixa = consumo medido
+```
+
+Só escolhe as faixas (F4 e F10) do ciclo fechado; a fatura dele continua sendo
+o consumo medido × o preço. Os dias medidos são gravados pela automação ao
+fechar.
+
+- Regra: `consumo_de_faixa_do_fechado` · Tela: `sensor.consumo_de_faixa_do_ciclo_fechado`
 
 ## As duas contas, passo a passo
 
@@ -212,8 +235,11 @@ iluminação (425 kWh) e as linhas sem regra.
 | Linhas sem regra | + 2,08 de complemento, − 10,13 de crédito | + 2,08 de complemento |
 | F11 total | **471,92** (conta: 471,92) | **542,47** (conta: 542,46) |
 
-O centavo de outubro vem do preço: a conta multiplica pelo preço já arredondado
-em cinco casas.
+Em outubro a conta traz 475,78 de energia e a calculadora, 475,79
+(354 × 1,344046 = 475,792; com o preço impresso, 354 × 1,34405 = 475,794).
+**Não sei explicar esse centavo** — a conta provavelmente soma parcelas
+arredondadas em separado, que ela não mostra. Por isso a conferência aceita um
+centavo de diferença nos valores em reais, e nenhuma na iluminação pública.
 
 ## O que não tem fonte, e o que não foi conferido
 
@@ -248,7 +274,7 @@ em cinco casas.
 | F1 | `bandeira.rateio` | `dias_do_ciclo` | `parametros_do_ciclo` | `FORMULA DIVERGE:` (bandeira) · `CONTA NAO REPRODUZ:` |
 | F2 | `bandeira.adicional`, `.acionada` | `bandeira_do_ciclo` | `bandeira_do_ciclo` | `FORMULA DIVERGE:` |
 | F3 | `tarifa.convencional` | `calcula` | `parametros_do_ciclo` | `CONTA NAO REPRODUZ:` |
-| F4 | `icms.faixas` | `icms_da_faixa` | `icms_do_ciclo` | `FORMULA DIVERGE:` (bordas de 300 e 301 kWh) |
+| F4 | `icms.faixas`, `casos_de_preco` | `icms_da_faixa` | `icms_do_ciclo` | `FORMULA DIVERGE:` (bordas de 300 e 301 kWh; 300,4 e 300,6) · `CONTA NAO REPRODUZ:` (os preços publicados por faixa) |
 | F5 | `pis_cofins.por_mes` | `pis_cofins_do_mes` | `pis_do_ciclo`, `cofins_do_ciclo` | `FORMULA DIVERGE:` (mês sem dado) |
 | F6 | — | `fator_de_tributos` | `fator_de_tributos` | `FORMULA DIVERGE:` (preço) |
 | F7 | — | `calcula` | `preco_convencional` | `FORMULA DIVERGE:` |
@@ -256,6 +282,9 @@ em cinco casas.
 | F9 | — | `calcula` | `fatura_icms`, `fatura_pis`, `fatura_cofins` | `FORMULA DIVERGE:` |
 | F10 | `iluminacao_publica.*` | `iluminacao_publica` | `iluminacao_publica_do_ciclo` | `FORMULA DIVERGE:` (isenção, faixa pelo consumo, teto) |
 | F12 | `tarifa.branca`, `postos` | `calcula` | `fatura_mensal_branca` | `FORMULA DIVERGE:` · `MEDIDOR NAO ACOMPANHA:` (horários) |
-| F13 | — | `consumo_projetado` | `consumo_projetado_do_ciclo` | `FORMULA DIVERGE:` (projeção) |
+| F13 | — | `consumo_projetado` | `consumo_projetado_do_ciclo` | `FORMULA DIVERGE:` (400 projeções sorteadas, e três cenários com o relógio do Home Assistant) |
+| F13b | — | `consumo_de_faixa_do_fechado` | `consumo_de_faixa_do_ciclo_fechado` | `FORMULA DIVERGE:` |
+| F2–F7, F10 | o arquivo inteiro | `calcula` | o texto da regra em `parametros_do_ciclo` | `FORMULA DIVERGE:` (600 ciclos sorteados, comparação exata) |
+| próxima leitura | — | `proxima_depois_de` (no arnês) | automação de fechamento | `CICLO NAO ZERA:` (1.200 datas) |
 | ajustes | — | `calcula(ajustes=…)` | `input_text.ajuste_*` | `AJUSTE IGNORADO:` |
 | dado → tela | o arquivo inteiro | — | bloco `DADOS DA FATURA` | `DIVERGE` (`./tools/embed.sh --check`) |

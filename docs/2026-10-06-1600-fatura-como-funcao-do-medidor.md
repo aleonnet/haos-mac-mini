@@ -35,9 +35,10 @@ comando (detalhe e citações no arquivo de dados e no
 | Iluminação pública | sim — parcela fixa da faixa + coeficiente × (tarifa de referência + bandeira) | lei municipal; tabelas mensais da Fazenda |
 | "Complemento" de R$ 2,08 | **não** | nenhuma |
 
-Com isso, as duas contas reais saem ao centavo só com consumo, datas, a faixa
-da iluminação e as linhas sem regra: 304 kWh → 471,92 (conta: 471,92);
-354 kWh → 542,47 (conta: 542,46).
+Com isso, as duas contas reais saem com no máximo um centavo de diferença só
+com consumo, datas, a faixa da iluminação e as linhas sem regra: 304 kWh →
+471,92 (conta: 471,92); 354 kWh → 542,47 (conta: 542,46 — um centavo na
+parcela de energia, que não sei explicar).
 
 O dono pediu fonte melhor que PDF. Foi procurada no conteúdo público inteiro do
 site da distribuidora, pela interface de dados que fica por trás das páginas:
@@ -76,7 +77,8 @@ conta (2,90 kWh acima do faturado; a de meio-dia a meio-dia dava 4,33).
 ## Consequências
 
 - Nenhum campo obrigatório. Instalação nova mostra preço desde o primeiro
-  minuto.
+  minuto — mas, enquanto não houver um dia de medição nem as datas de leitura,
+  a faixa do ICMS é a do pouco que se mediu (isento até 50 kWh).
 - **O que continua dependendo de alguém:** bandeira, PIS, COFINS e tabela da
   iluminação valem pelo último valor conhecido até o arquivo de dados ser
   atualizado ou o ajuste ser preenchido. O resultado sai marcado como estimado
@@ -85,8 +87,9 @@ conta (2,90 kWh acima do faturado; a de meio-dia a meio-dia dava 4,33).
   de dados.
 - **O ICMS depende do consumo**, então o preço do kWh do ciclo em curso depende
   de quanto o ciclo vai fechar: o package projeta o consumo para escolher a
-  faixa. Enquanto o ciclo corre, o preço pode mudar se a projeção atravessar
-  300 kWh.
+  faixa, contando só os dias de fato medidos (quem instala no meio do ciclo
+  mediu parte dele). Enquanto o ciclo corre, o preço pode mudar se a projeção
+  atravessar 300 kWh.
 - **Os ajustes valem para o ciclo em curso e para o fechado**, até serem
   apagados.
 - O arquivo de dados é de uma distribuidora e de um município. Outra
@@ -95,6 +98,8 @@ conta (2,90 kWh acima do faturado; a de meio-dia a meio-dia dava 4,33).
   intermediário até 22h30); o que já foi contado por posto com a janela antiga
   não é reescrito.
 - Garantia: a calculadora tem de reproduzir as duas contas e os três preços com
-  tributos que a distribuidora publica; o Home Assistant tem de dar o mesmo que
-  a calculadora numa grade de ciclos; o package tem de carregar o mesmo dado do
-  arquivo. As três conferências rodam no portão.
+  tributos que a distribuidora publica; o package tem de carregar o mesmo dado
+  do arquivo; o Home Assistant tem de dar o mesmo que a calculadora. As duas
+  primeiras rodam no portão local (`./tools/embed.sh --check`) e no CI; a
+  terceira precisa subir um Home Assistant e roda no CI e no fechamento de cada
+  frente.

@@ -31,21 +31,23 @@ manual. Decisão em
 
 O que mudou para quem usa: nenhum campo obrigatório; cada parâmetro tem ajuste
 manual (vazio vale o calculado); o ciclo fecha à 00:00 da data de leitura,
-guarda as duas datas e assume a próxima um mês depois; o preço do ciclo em
-curso escolhe a faixa do ICMS pelo consumo projetado; os horários dos postos
-são os da distribuidora.
+guarda as duas datas e assume a próxima um mês depois (nunca no passado); o
+preço do ciclo em curso escolhe a faixa do ICMS pelo consumo projetado,
+contando só os dias de fato medidos; os horários dos postos são os da
+distribuidora.
 
 ## 2. As provas (comandos rodados no ato, 2026-10-06)
 
 | Portão | Resultado |
 |---|---|
 | `./tools/pacotes-arnes.sh` contra o package **da manhã** (cerca nova) | reprovou: 36 falhas em 6 tokens |
-| `python3 tarifas/fatura.py --confere` | `FATURAS OK`: duas contas reais (471,92 e 542,47 contra 471,92 e 542,46) e os três preços com tributos publicados, com as quatro bordas das faixas do ICMS |
-| `./tools/pacotes-arnes.sh`, versão fixada (2026.8.3) e estável (2026.9.4) | `PACOTES OK — 13 garantias` nas duas |
-| 41 defeitos plantados, um por vez, em cópia do repositório (8 na calculadora e no dado, 3 nos blocos gerados, 30 no package e no painel) | 41/41 dispararam o token e o texto esperados; oito fontes com a mesma impressão digital antes e depois |
-| `./tools/embed.sh --check` | os dois blocos gerados e os oito embutidos idênticos às fontes |
+| `python3 tarifas/fatura.py --confere` | `FATURAS OK`: duas contas reais (471,92 e 542,47 contra 471,92 e 542,46), os três preços com tributos publicados, as quatro bordas das faixas do ICMS e quatro casos de arredondamento |
+| `./tools/pacotes-arnes.sh`, versão fixada (2026.8.3) e estável (2026.9.4) | `PACOTES OK — 14 garantias` nas duas |
+| Leitura fria adversarial sobre o diff, duas rodadas | 1ª rodada **reprovou**: 4 bloqueadores e 8 avisos — buracos da cerca e dois defeitos de produto (diário). 2ª rodada: ver o fecho do diário |
+| Defeitos plantados, um por vez, em cópia do repositório | ver a contagem no diário; fontes com a mesma impressão digital antes e depois |
+| `./tools/embed.sh --check` | a calculadora, os dois blocos gerados e os oito embutidos |
 | `./tools/gate.sh` | `RESULTADO: portão limpo` |
-| Ensaio geral em réplica local, com as estatísticas reais | as seis etapas do ajuste da casa, e o portão da casa em `CUSTOS OK` contra a réplica |
+| Ensaio geral em réplica local, com as estatísticas reais, duas vezes (a segunda com o package final) | as seis etapas do ajuste da casa, e o portão da casa em `CUSTOS OK` contra a réplica |
 
 O detalhe, com hora, está em
 [decisoes/2026-10-06-1600-fatura-funcao-do-medidor.md](decisoes/2026-10-06-1600-fatura-funcao-do-medidor.md).
@@ -55,7 +57,11 @@ O detalhe, com hora, está em
 | Decisão | Custo | Reversível |
 |---|---|---|
 | Um conjunto só de ajustes manuais, valendo para o ciclo em curso e para o fechado | um ajuste de bandeira ou de ICMS feito para um ciclo continua valendo no outro até ser apagado | sim |
-| Consumo projetado do ciclo (o já medido + a média diária do ciclo anterior nos dias que faltam) para escolher as faixas | o preço do ciclo em curso pode mudar se a projeção atravessar 300 kWh | sim |
+| Consumo projetado do ciclo (o já medido + a taxa diária nos dias que a medição não cobriu) para escolher as faixas | o preço do ciclo em curso pode mudar se a projeção atravessar 300 kWh | sim |
+| O package guarda desde quando mede e por quantos dias o ciclo fechado foi medido (dois campos gravados pela automação) — acréscimo ao plano, vindo da leitura fria | dois campos a mais; quem instala no meio do ciclo deixa de cair na faixa errada | sim |
+| Consumo com casas decimais é arredondado ao inteiro mais próximo antes de escolher a faixa do ICMS — regra do produto, a fonte só fala em kWh inteiros | perto de 50 e de 300 kWh a faixa depende de décimos | sim |
+| A próxima leitura assumida nunca fica no passado | parado mais de um mês, o consumo de dois ciclos fica num só | sim |
+| `./tools/embed.sh --check` passou a rodar também a calculadora contra as contas — acréscimo ao plano | o portão local fica alguns décimos de segundo mais lento | sim |
 | Os dois sensores de parâmetros compartilham um texto por âncora do YAML, em vez de serem gerados por ferramenta — desvio do plano | o sensor descobre qual é pelo próprio identificador | sim |
 | A ferramenta gera também a automação dos postos, a partir dos horários do arquivo de dados — acréscimo ao plano | mais um bloco gerado | sim |
 | O registro do Core entra na cerca (erro de template reprova) — acréscimo ao plano | uma garantia e um token a mais (`ERRO NO REGISTRO:`) | sim |
@@ -78,8 +84,16 @@ O detalhe, com hora, está em
   para 30 dias; se a resolução de 2026 repete os horários de ponta da de 2022;
   quais dias contam no rateio da bandeira além da conta que serviu de prova.
 - **A projeção é estimativa do produto, não regra da distribuidora.** Sem ciclo
-  anterior (instalação nova) ela é proporcional aos dias, e as primeiras horas
-  ficam com a faixa do pouco que se mediu.
+  anterior ela usa a taxa do próprio ciclo, com o primeiro dia contado inteiro:
+  nas primeiras horas de uma instalação nova a faixa é a do pouco que se mediu.
+  E sem as datas de leitura informadas não há projeção: vale o consumo
+  acumulado.
+- **No arranque do Home Assistant**, por instantes, o consumo do ciclo pode
+  valer zero antes de os medidores restaurarem; com ciclo anterior a projeção
+  não sente, sem ele o preço pode sair na faixa de isento por esse instante.
+  Não medi.
+- **A conta traz um centavo a menos na energia de outubro** (475,78; a
+  calculadora dá 475,79) e não sei explicar. A tolerância é de um centavo.
 - **Quem atualiza de uma versão com os campos antigos** fica com as entidades
   antigas órfãs no registro (o Home Assistant as mostra como indisponíveis). O
   instalador não as remove.
@@ -123,6 +137,16 @@ O detalhe, com hora, está em
 - **Comando que sinaliza por código de saída, canalizado, sob `errexit`,
   encerra o roteiro no lugar errado.** O conferidor de cópias saía com 1 antes
   de conferir os blocos seguintes.
+- **Segui o dado até o total da fatura e parei.** A cerca comparava os totais e
+  não lia os sensores que a tela mostra — entre eles o preço que o painel de
+  Energia usa. A leitura fria achou; agora a grade lê todos.
+- **Grade escolhida à mão tem os números que eu acho naturais**: kWh inteiros,
+  a data de hoje, vírgula em dois campos. O que cercou de verdade foi avaliar o
+  texto do package no motor do Home Assistant para centenas de casos
+  sorteados, com comparação exata.
+- **Pensei só na instalação que já tem um ciclo inteiro medido — a desta
+  casa.** Quem instala no meio do ciclo caía na faixa errada por um ciclo e
+  meio.
 - **O que a tela mostra logo depois de implantar é o estado de fábrica dos
   campos novos sobre os medidores antigos** — e não é o que o dono deve ver. O
   ensaio em réplica mostrou os números errados desse intervalo; a implantação

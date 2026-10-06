@@ -14,7 +14,7 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
   aos dados abertos da ANEEL, que não a contêm. Decisão em
   `docs/2026-10-06-1600-fatura-como-funcao-do-medidor.md`; fórmulas numeradas, cada uma ligada
   ao dado, ao código e à cerca, em `docs/2026-10-06-1600-formulas-da-fatura-de-energia.md`.
-  Duas contas reais saem ao centavo só com consumo e datas.
+  Duas contas reais saem com no máximo um centavo de diferença só com consumo e datas.
   **Quem atualiza:** os campos `aliquota_*`, `encargo_*` e a tabela escrita no package deixam
   de existir; informe as duas datas de leitura no painel Custos.
 - **Energia: ajuste manual por parâmetro.** Cada parâmetro calculado tem um campo de ajuste no
@@ -26,11 +26,15 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
   `fatura_energy`, zerado à 00:00 da data de leitura (ou no primeiro início depois dela). O
   que ele tinha fica guardado como **ciclo fechado**, com as duas datas dele — é o que se
   compara com a conta: consumo, preço, fatura, ICMS, PIS e COFINS em reais, e a diferença para
-  o total digitado. Fechado o ciclo, a próxima leitura passa a ser assumida um mês depois e
-  pode ser corrigida. Os medidores diário e mensal seguem o calendário, como antes.
+  o total digitado. Fechado o ciclo, a próxima leitura passa a ser assumida um mês depois (se
+  o Home Assistant ficou parado mais que isso, no primeiro mês que ainda não chegou — o ciclo
+  não fecha duas vezes) e pode ser corrigida. Os medidores diário e mensal seguem o calendário, como antes.
 - **Energia: o preço do ciclo em curso usa o consumo projetado** para escolher a faixa do
-  ICMS e a da iluminação pública — o já medido mais a média diária do ciclo anterior nos dias
-  que faltam. Sem isso as primeiras horas de cada ciclo teriam o preço de quem é isento.
+  ICMS e a da iluminação pública — o já medido mais a taxa diária (a do ciclo anterior, quando
+  há) nos dias que a medição não cobriu. Sem isso as primeiras horas de cada ciclo teriam o
+  preço de quem é isento. Conta só os dias de fato medidos: quem instala no meio de um ciclo
+  não tem a projeção puxada para baixo, e o primeiro ciclo fechado, medido em parte, escolhe
+  a faixa pelo consumo na proporção dos dias.
 - **Energia: os horários dos postos são os da distribuidora do arquivo de dados** (ponta
   17h30–20h30, intermediário só depois da ponta, até 22h30). O package trazia uma janela de
   exemplo com intermediário antes e depois. O que já foi contado por posto não é reescrito.
@@ -48,15 +52,18 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
 - **`tarifas/fatura.py` — a calculadora de referência**, só biblioteca padrão. Recebe consumo e
   datas e devolve a fatura decomposta. `--confere` refaz duas contas reais e os três preços
   com tributos que a distribuidora publica (um por faixa de ICMS), e reprova parâmetro sem
-  fonte.
+  fonte. `./tools/embed.sh --check` — e com ele o portão local — passou a rodá-lo.
 - **`tools/pacotes-arnes.sh` + `contract/pacotes.py` — os packages provados contra um Home
   Assistant de verdade.** O portão só conferia que o instalador *escreve* os packages; isto
   confere que eles *fazem a conta*: toda entidade citada existe; o total da casa não é
-  publicado com fase sem valor; numa grade de nove ciclos (as três faixas do ICMS e as bordas,
-  bandeira trocando no meio do ciclo, mês sem PIS conhecido, isenção e teto da iluminação)
-  cada número do Home Assistant é o da calculadora de referência, em curso e fechado; o
-  ajuste manual vale e, apagado, volta o calculado; campo digitado sobrevive a reinício; o
-  ciclo fecha à meia-noite da data, uma vez, e guarda as datas; os três medidores trocam de
+  publicado com fase sem valor; numa grade de onze ciclos (as três faixas do ICMS, as bordas e
+  consumo com casas decimais, bandeira trocando no meio do ciclo, mês sem PIS conhecido,
+  isenção e teto da iluminação) cada sensor calculado do package é o da calculadora de
+  referência, em curso e fechado; o texto da regra, o da projeção e o de "um mês depois" são
+  avaliados no motor do Home Assistant para centenas de casos sorteados e comparados com a
+  calculadora; o ajuste manual vale, com ponto ou vírgula, e, apagado, volta o calculado;
+  campo digitado sobrevive a reinício; o ciclo fecha à meia-noite da data, uma vez, e guarda
+  as datas; os três medidores trocam de
   posto juntos e não perdem nem inventam consumo quando a fonte some e volta; instalação nova
   não nasce com número inventado; o registro do Core não traz erro de template; e água e gás
   devolvem os exemplos validados. Roda no CI na versão fixada e na estável.

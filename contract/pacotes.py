@@ -39,6 +39,10 @@ Limites declarados:
     repetição do disparo e no início do Home Assistant. O gatilho da meia-noite
     é só CONFERIDO no arquivo (existe e marca 00:00): fazê-lo disparar exigiria
     mexer no relógio.
+  · A comparação bit a bit (regra, projeção, próxima leitura) avalia o TEXTO
+    do package no motor do Home Assistant com as entradas trocadas por
+    variáveis: prova a conta, não a leitura das entradas — essa é a grade de
+    ciclos, com as entidades.
   · A grade de fórmulas usa ciclos já encerrados, em que consumo projetado e
     consumo coincidem. A projeção do ciclo que ainda corre é conferida à parte,
     com o relógio do próprio Home Assistant e tolerância de 0,08 kWh (o
@@ -52,7 +56,10 @@ Limites declarados:
 from __future__ import annotations
 
 import argparse
+import ast
 import datetime
+import json
+import random
 import re
 import sys
 import time
@@ -86,6 +93,8 @@ ULTIMA = "input_datetime.fatura_ultima_leitura"
 PROXIMA = "input_datetime.fatura_proxima_leitura"
 FECHADO_INI = "input_datetime.fatura_fechado_inicio"
 FECHADO_FIM = "input_datetime.fatura_fechado_fim"
+MEDIDO_DESDE = "input_datetime.fatura_medido_desde"
+DIAS_MEDIDOS = "input_number.fatura_fechado_dias_medidos"
 PARAMETROS = "sensor.parametros_do_ciclo"
 PARAMETROS_FECHADO = "sensor.parametros_do_ciclo_fechado"
 # ajuste manual → nome do mesmo ajuste na calculadora de referência
@@ -105,11 +114,17 @@ def D(texto: str) -> datetime.date:
     return datetime.date.fromisoformat(texto)
 
 
-def mes_seguinte(d: datetime.date) -> datetime.date:
-    """O mesmo dia do mês seguinte; mês mais curto fica no último dia."""
-    ano, mes = (d.year + 1, 1) if d.month == 12 else (d.year, d.month + 1)
-    ultimo = (datetime.date(ano + (mes == 12), mes % 12 + 1, 1) - datetime.timedelta(days=1)).day
-    return datetime.date(ano, mes, min(d.day, ultimo))
+def proxima_depois_de(leitura: datetime.date, hoje: datetime.date) -> datetime.date:
+    """O mesmo dia do mês seguinte ao da leitura (mês mais curto: o último
+    dia); se essa data já passou, o primeiro mês que ainda não chegou."""
+    for k in range(1, 121):
+        t = leitura.month - 1 + k
+        ano, mes = leitura.year + t // 12, t % 12 + 1
+        ultimo = (datetime.date(ano + (mes == 12), mes % 12 + 1, 1) - datetime.timedelta(days=1)).day
+        candidata = datetime.date(ano, mes, min(leitura.day, ultimo))
+        if candidata > hoje:
+            return candidata
+    raise ValueError(leitura)
 
 
 # A grade: (nome, leitura anterior, leitura, kWh ponta, intermediário, fora de
@@ -124,6 +139,8 @@ GRADE = [
     ("40 kWh, isento de ICMS e de iluminação", "2026-04-03", "2026-05-06", 0, 0, 40, 0, 0.0, 0.0),
     ("300 kWh, borda de baixo do ICMS", "2026-06-05", "2026-07-03", 25, 25, 250, 0, 0.0, 0.0),
     ("301 kWh, borda de cima do ICMS", "2026-06-05", "2026-07-03", 25, 25, 251, 0, 0.0, 0.0),
+    ("300,4 kWh, que contam como 300", "2026-06-05", "2026-07-03", 25.2, 25.1, 250.1, 0, 0.0, 0.0),
+    ("300,6 kWh, que contam como 301", "2026-06-05", "2026-07-03", 25.2, 25.1, 250.3, 0, 0.0, 0.0),
     ("460 kWh, iluminação pelo consumo do ciclo", "2026-09-03", "2026-10-06", 60, 40, 360, 0, 0.0, 0.0),
     ("1.200 kWh, da bandeira amarela para a verde", "2025-12-05", "2026-01-06", 150, 100, 950, 0, 0.0, 0.0),
     ("60.000 kWh, iluminação no teto", "2026-09-03", "2026-10-06", 0, 0, 60000, 0, 0.0, 0.0),
@@ -221,6 +238,35 @@ class Arnes:
         ok = self.data(ULTIMA, ultima or proxima - datetime.timedelta(days=30))
         ok = self.data(PROXIMA, proxima) and ok
         return bool(ok) and self.dispara_fechamento()
+
+    def data_hora(self, eid: str, quando: datetime.datetime) -> bool:
+        return self.servico("input_datetime", "set_datetime",
+                            {"entity_id": eid, "datetime": quando.strftime("%Y-%m-%d %H:%M:%S")})
+
+    def espera_estado(self, eid: str, alvo: str, seg: int = 12) -> str | None:
+        visto = None
+        for _ in range(seg * 2):
+            visto = self.estado(eid)
+            if visto == alvo:
+                return visto
+            time.sleep(0.5)
+        return visto
+
+    def avalia(self, modelo: str, casos: list, nomes: str) -> list[str] | str:
+        """Avalia um texto de template para cada caso (as variáveis `nomes`
+        recebem os campos do caso) e devolve os resultados, na ordem."""
+        saida: list[str] = []
+        for i in range(0, len(casos), 100):
+            lote = casos[i:i + 100]
+            st, r = self.post("/api/template", {"template": (
+                "{% set o = namespace(l=[]) %}{% for " + nomes + " in " + json.dumps(lote)
+                + " %}{% set r %}" + modelo + "{% endset %}{% set o.l = o.l + [r | trim] %}{% endfor %}"
+                "{{ o.l | join('@') }}")})
+            partes = str(r).split("@") if st == 200 else []
+            if len(partes) != len(lote):
+                return f"HTTP {st}: {str(r)[:200]}"
+            saida += partes
+        return saida
 
     def texto(self, eid: str, valor) -> bool:
         return self.servico("input_text", "set_value", {"entity_id": eid, "value": "" if valor is None else str(valor)})
@@ -320,6 +366,9 @@ def confere_fabrica(a: Arnes) -> None:
     if a.estado(ULTIMA) != a.estado(PROXIMA):
         a.falha(token, "as duas datas de leitura nascem diferentes — a automação poderia "
                        "fechar um ciclo que o usuário nunca informou")
+    if not str(a.estado(MEDIDO_DESDE)).startswith(a.hoje().isoformat()):
+        a.falha(token, f"{MEDIDO_DESDE} nasce em {a.estado(MEDIDO_DESDE)} — a medição de uma instalação nova "
+                       "começa no dia da instalação")
     preco = a.numero("sensor.preco_convencional")
     if preco is None or not 0.5 < preco < 3:
         a.falha(token, f"sem nenhum ajuste, o preço do kWh deveria sair do arquivo de dados; veio {preco}")
@@ -434,15 +483,15 @@ def prepara_ciclo(a: Arnes, caso, ajustes: dict | None = None) -> dict | None:
     ok = a.limpa_ajustes()
     for chave, valor in (ajustes or {}).items():
         ok &= a.texto(f"input_text.ajuste_{chave}", valor)
-    ok &= a.texto("input_text.ajuste_outros_debitos", outros if outros else "")
-    ok &= a.texto("input_text.ajuste_creditos", creditos if creditos else "")
+    ok &= a.texto("input_text.ajuste_outros_debitos", str(outros).replace(".", ",") if outros else "")
+    ok &= a.texto("input_text.ajuste_creditos", str(creditos).replace(".", ",") if creditos else "")
     ok &= a.servico("input_number", "set_value", {"entity_id": "input_number.cosip_media_kwh", "value": media})
     ok &= a.servico("input_number", "set_value", {"entity_id": "input_number.fatura_conferencia", "value": CONTA})
     ok &= a.data(ULTIMA, D(ini)) and a.data(PROXIMA, D(fim))
     ok &= a.calibra("fatura_energy", (ponta, inter, fora))
     if not ok:
         return None
-    return referencia.calcula(DADOS, D(ini), D(fim), ponta + inter + fora, kwh_ponta=ponta,
+    return referencia.calcula(DADOS, D(ini), D(fim), round(ponta + inter + fora, 3), kwh_ponta=ponta,
                               kwh_intermediario=inter, cosip_media_kwh=media, outros_debitos=outros,
                               creditos=creditos,
                               ajustes={AJUSTES[k]: float(str(v).replace(",", "."))
@@ -486,15 +535,31 @@ def confere_formulas(a: Arnes) -> None:
             a.falha(token, f"{nome}: o Home Assistant recusou datas, ajustes ou medidor do ciclo "
                            "(entidade do cálculo por consumo inexistente)")
             return
-        kwh = ponta + inter + fora
+        kwh = round(ponta + inter + fora, 3)
         # ciclo em curso (as datas já passaram, então projeção = consumo)
         if not compara_parametros(a, token, nome + ", em curso", PARAMETROS, r):
             continue
         if not compara(a, token, nome + ", em curso", (
                 ("sensor.consumo_do_ciclo", kwh, 0.001, "consumo"),
+                ("sensor.consumo_projetado_do_ciclo", kwh, 0.001, "consumo projetado de ciclo encerrado"),
+                ("sensor.preco_convencional", r["preco"], 6e-7, "preço do kWh (o do painel de Energia)"),
+                ("sensor.bandeira_do_ciclo", r["bandeira"], 6e-7, "bandeira"),
+                ("sensor.icms_do_ciclo", r["icms"], 1e-9, "ICMS"),
+                ("sensor.pis_do_ciclo", r["pis"], 1e-9, "PIS"),
+                ("sensor.cofins_do_ciclo", r["cofins"], 1e-9, "COFINS"),
+                ("sensor.fator_de_tributos", r["fator"], 6e-7, "fator de tributos"),
+                ("sensor.iluminacao_publica_do_ciclo", r["iluminacao"], 0.001, "iluminação pública"),
+                ("sensor.encargos_fixos_do_mes", r["encargos"], 0.0051, "encargos fixos"),
+                ("sensor.preco_ponta", r["preco_ponta"], 6e-7, "preço da Branca na ponta"),
+                ("sensor.preco_intermediario", r["preco_intermediario"], 6e-7, "preço da Branca no intermediário"),
+                ("sensor.preco_fora_ponta", r["preco_fora_ponta"], 6e-7, "preço da Branca fora de ponta"),
+                ("sensor.energia_mensal_convencional", r["energia"], 0.0051, "energia sem encargos"),
+                ("sensor.energia_mensal_branca", r["energia_branca"], 0.0051, "energia na Branca sem encargos"),
                 ("sensor.fatura_mensal_convencional", r["total"], 0.0051, "fatura"),
                 ("sensor.fatura_projetada_do_ciclo", r["total"], 0.0051, "fatura projetada"),
-                ("sensor.fatura_mensal_branca", r["total_branca"], 0.0051, "fatura na Tarifa Branca"))):
+                ("sensor.fatura_mensal_branca", r["total_branca"], 0.0051, "fatura na Tarifa Branca"),
+                ("sensor.economia_com_tarifa_branca", r["total"] - r["total_branca"], 0.0101,
+                 "economia com a Tarifa Branca"))):
             continue
         # ciclo fechado: os mesmos números têm de sobreviver ao fechamento
         if not a.dispara_fechamento():
@@ -502,8 +567,15 @@ def confere_formulas(a: Arnes) -> None:
             return
         if not compara_parametros(a, token, nome + ", fechado", PARAMETROS_FECHADO, r):
             continue
+        estimou = "sim" if r["estimado"] else "não"
+        if a.espera_estado("sensor.ciclo_fechado_com_estimativa", estimou) != estimou:
+            a.falha(token, f"{nome}, fechado: o aviso de estimativa deveria dizer {estimou!r} e diz "
+                           f"{a.estado('sensor.ciclo_fechado_com_estimativa')!r}")
+            continue
         if not compara(a, token, nome + ", fechado", (
                 ("sensor.consumo_do_ciclo_fechado", kwh, 0.001, "consumo"),
+                ("sensor.consumo_de_faixa_do_ciclo_fechado", kwh, 0.001, "consumo de faixa"),
+                ("sensor.preco_do_ciclo_fechado", r["preco"], 6e-7, "preço do kWh"),
                 ("sensor.fatura_do_ciclo_fechado", r["total"], 0.0051, "fatura"),
                 ("sensor.fatura_icms", r["icms_valor"], 0.0051, "ICMS em reais"),
                 ("sensor.fatura_pis", r["pis_valor"], 0.0051, "PIS em reais"),
@@ -517,35 +589,126 @@ def confere_formulas(a: Arnes) -> None:
                                outros_debitos=caso[7], creditos=caso[8])
         if abs(r["total"] - conta["esperado"]["total"]) > 0.0101:
             a.falha(token, f"{caso[0]}: a calculadora dá {r['total']:.2f} e a conta {conta['esperado']['total']:.2f}")
+    # os dois sensores que não dependem do ciclo
+    dias = (D(DADOS["tarifa"]["vigencia_fim"]) - a.hoje()).days
+    compara(a, token, "tarifa", (("sensor.dias_ate_reajuste_tarifario", dias, 0, "dias até o fim da vigência"),))
+    posto = {"peak": "Ponta", "shoulder": "Intermediário", "offpeak": "Fora Ponta"}.get(
+        str(a.estado("select.monthly_energy")), "?")
+    if a.espera_estado("sensor.posto_tarifario_atual", posto, 5) != posto:
+        a.falha(token, f"posto tarifário mostrado: {a.estado('sensor.posto_tarifario_atual')!r}; o medidor "
+                       f"está em {posto!r}")
     confere_projecao(a, token)
     if len(a.falhas) == antes:
-        a.ok(f"{feitos} ciclos: bandeira, ICMS, PIS, COFINS, preço, iluminação, impostos em reais e totais "
-             "iguais aos da calculadora, em curso e fechados")
+        a.ok(f"{feitos} ciclos: cada sensor calculado (parâmetros, preços, energia, faturas, impostos em reais, "
+             "encargos, avisos) igual à calculadora, em curso e fechado")
+
+
+PROJECAO = (      # entradas do texto da projeção → variáveis
+    ("states('sensor.consumo_do_ciclo') | float(0)", "c_kwh", 1),
+    ("states('input_datetime.fatura_ultima_leitura') | as_datetime", "c_ini | as_datetime", 1),
+    ("states('input_datetime.fatura_proxima_leitura') | as_datetime", "c_fim | as_datetime", 1),
+    ("states('input_datetime.fatura_medido_desde') | as_datetime", "c_md | as_datetime", 1),
+    ("states('sensor.consumo_do_ciclo_fechado') | float(0)", "c_fk", 1),
+    ("states('input_number.fatura_fechado_dias_medidos') | float(0)", "c_fd", 1),
+    ("now()", "(c_agora | as_datetime | as_local)", 2),
+)
+FAIXA_FECHADO = (
+    ("states('sensor.consumo_do_ciclo_fechado') | float(0)", "c_fk", 1),
+    ("states('input_datetime.fatura_fechado_inicio') | as_datetime", "c_ini | as_datetime", 1),
+    ("states('input_datetime.fatura_fechado_fim') | as_datetime", "c_fim | as_datetime", 1),
+    ("states('input_number.fatura_fechado_dias_medidos') | float(0)", "c_fd", 1),
+)
+
+
+def texto_com_variaveis(a: Arnes, token: str, unique_id: str, trocas) -> str | None:
+    texto = str(sensor_do_pacote(carrega_yaml("packages/energia_br.yaml"), unique_id).get("state", ""))
+    for entrada, variavel, vezes in trocas:
+        if texto.count(entrada) != vezes:
+            a.falha(token, f"não achei no sensor {unique_id} a entrada que o arnês troca por variável "
+                           f"({entrada}) — o arnês precisa acompanhar a mudança")
+            return None
+        texto = texto.replace(entrada, variavel)
+    return texto
+
+
+def projecoes_sorteadas(quantas: int = 400) -> list:
+    sorteio = random.Random(20261007)
+    casos = []
+    for _ in range(quantas):
+        ini = datetime.datetime(2025, 1, 1) + datetime.timedelta(days=sorteio.randrange(0, 900))
+        total = sorteio.choice([28, 29, 30, 31, 32, 33, 34, 35, 31, 30, 0, -2])
+        agora = ini + datetime.timedelta(seconds=sorteio.randrange(-2 * 86400, (max(total, 1) + 3) * 86400))
+        medido = sorteio.choice([None, None, ini - datetime.timedelta(days=sorteio.randrange(1, 40)),
+                                 ini + datetime.timedelta(seconds=sorteio.randrange(0, (max(total, 1) + 1) * 86400))])
+        casos.append((ini.date().isoformat(), (ini + datetime.timedelta(days=total)).date().isoformat(),
+                      agora.strftime("%Y-%m-%d %H:%M:%S"), medido.strftime("%Y-%m-%d %H:%M:%S") if medido else "",
+                      round(sorteio.uniform(0, 600), 3), sorteio.choice([0, 0, round(sorteio.uniform(20, 900), 3)]),
+                      sorteio.choice([0, 0.5, 0.99, 1, round(sorteio.uniform(1, 35), 2)])))
+    return casos
 
 
 def confere_projecao(a: Arnes, token: str) -> None:
     """Ciclo que ainda corre: as faixas saem do consumo PROJETADO, não do já
-    medido. 120 kWh em 10 dias de 30 fecham acima de 300: ICMS de 24 %."""
+    medido; e a projeção só conta como cobertos os dias de fato medidos."""
+    # a) o texto da projeção e o da faixa do ciclo fechado, contra a calculadora
+    modelo = texto_com_variaveis(a, token, "consumo_projetado_ciclo", PROJECAO)
+    faixa = texto_com_variaveis(a, token, "consumo_faixa_ciclo_fechado", FAIXA_FECHADO)
+    if modelo is None or faixa is None:
+        return
+    casos = projecoes_sorteadas()
+    partes = a.avalia(modelo, casos, "c_ini, c_fim, c_agora, c_md, c_kwh, c_fk, c_fd")
+    partes_f = a.avalia(faixa, casos, "c_ini, c_fim, c_agora, c_md, c_kwh, c_fk, c_fd")
+    if isinstance(partes, str) or isinstance(partes_f, str):
+        a.falha(token, f"o motor de templates não avaliou a projeção do package ({partes if isinstance(partes, str) else partes_f})")
+        return
+    ruins = []
+    for (ini, fim, agora, md, kwh, fk, fd), texto, texto_f in zip(casos, partes, partes_f):
+        ref = round(referencia.consumo_projetado(
+            kwh, D(ini), D(fim), datetime.datetime.fromisoformat(agora),
+            medido_desde=datetime.datetime.fromisoformat(md) if md else None, fechado_kwh=fk, fechado_dias=fd), 3)
+        ref_f = round(referencia.consumo_de_faixa_do_fechado(fk, (D(fim) - D(ini)).days, fd), 3)
+        try:
+            ha, ha_f = float(texto), float(texto_f)
+        except ValueError:
+            ha = ha_f = float("nan")
+        if ha != ref:
+            ruins.append(f"projeção de {kwh} kWh, ciclo {ini} → {fim}, agora {agora}, medido desde {md or 'o início'}, "
+                         f"anterior {fk} kWh em {fd} dias: {ha} ≠ {ref}")
+        if ha_f != ref_f:
+            ruins.append(f"consumo de faixa do ciclo fechado {ini} → {fim}, {fk} kWh medidos em {fd} dias: {ha_f} ≠ {ref_f}")
+    for linha in ruins[:5]:
+        a.falha(token, "projeção do package ≠ calculadora — " + linha)
+    if len(ruins) > 5:
+        a.falha(token, f"... e mais {len(ruins) - 5} projeção(ões) sorteada(s) com diferença")
+
+    # b) com as entidades e o relógio do Home Assistant
     hoje = a.hoje()
+    meia_noite = datetime.datetime.combine(hoje, datetime.time.min)
     ini, fim = hoje - datetime.timedelta(days=10), hoje + datetime.timedelta(days=20)
-    for nome, anterior in (("sem ciclo anterior", 0), ("com ciclo anterior de 900 kWh em 30 dias", 900)):
-        # o ciclo anterior: fecha um de 30 dias com o consumo dado
+    for nome, anterior, dias_ant, desde, postos in (
+            ("sem ciclo anterior", 0, 0, 10, (10, 10, 100)),
+            ("com ciclo anterior de 900 kWh medidos em 30 dias", 900, 30, 10, (10, 10, 100)),
+            ("instalado no meio do ciclo, medindo há 4 dias", 0, 0, 4, (5, 5, 50))):
+        kwh = sum(postos)
+        medido = meia_noite - datetime.timedelta(days=desde)
         a.limpa_ajustes()
         a.servico("input_number", "set_value", {"entity_id": "input_number.cosip_media_kwh", "value": 0})
         a.calibra("fatura_energy", (0, 0, anterior))
-        a.fecha_ciclo(ini, ini - datetime.timedelta(days=30))
+        a.fecha_ciclo(ini, ini - datetime.timedelta(days=30))       # o ciclo anterior
+        a.servico("input_number", "set_value", {"entity_id": DIAS_MEDIDOS, "value": dias_ant})
         a.data(ULTIMA, ini)
         a.data(PROXIMA, fim)
-        a.calibra("fatura_energy", (10, 10, 100))
+        a.data_hora(MEDIDO_DESDE, medido)
+        a.calibra("fatura_energy", postos)
         time.sleep(2)
-        proj = referencia.consumo_projetado(120, ini, fim, a.agora(), fechado_kwh=anterior,
-                                            fechado_dias=30 if anterior else 0)
+        proj = referencia.consumo_projetado(kwh, ini, fim, a.agora(), medido_desde=medido,
+                                            fechado_kwh=anterior, fechado_dias=dias_ant)
         v = a.espera_numero("sensor.consumo_projetado_do_ciclo", proj, 0.08, 12)
         if v is None or abs(v - proj) > 0.08:
             a.falha(token, f"consumo projetado, {nome}: a calculadora dá {proj:.3f} kWh, o Home Assistant {v}")
             continue
-        r = referencia.calcula(DADOS, ini, fim, 120, kwh_ponta=10, kwh_intermediario=10, kwh_faixa=v)
-        if r["icms"] != 24.0:
+        r = referencia.calcula(DADOS, ini, fim, kwh, kwh_ponta=postos[0], kwh_intermediario=postos[1], kwh_faixa=v)
+        if r["icms"] != 24.0 or referencia.icms_da_faixa(DADOS, kwh) == 24.0:
             raise SystemExit("[ERRO] o cenário da projeção deixou de atravessar a faixa do ICMS")
         if not compara_parametros(a, token, f"ciclo em curso, {nome}", PARAMETROS, r):
             continue
@@ -553,6 +716,112 @@ def confere_projecao(a: Arnes, token: str) -> None:
         compara(a, token, f"ciclo em curso, {nome}", (
             ("sensor.fatura_mensal_convencional", r["total"], 0.0051, "fatura até agora"),
             ("sensor.fatura_projetada_do_ciclo", rp["total"], 0.0051, "fatura projetada")))
+
+    # c) ciclo FECHADO medido em parte: a automação grava os dias medidos e a
+    #    faixa sai do consumo na proporção dos dias
+    a.limpa_ajustes()
+    a.data(ULTIMA, hoje - datetime.timedelta(days=30))
+    a.data(PROXIMA, hoje)
+    medido = meia_noite - datetime.timedelta(days=10)
+    a.data_hora(MEDIDO_DESDE, medido)
+    a.calibra("fatura_energy", (10, 10, 110))
+    antes_de_fechar = a.agora()
+    a.dispara_fechamento()
+    esperado = (antes_de_fechar - medido).total_seconds() / 86400
+    dm = a.espera_numero(DIAS_MEDIDOS, esperado, 0.02, 8)
+    if dm is None or abs(dm - esperado) > 0.02:
+        a.falha(token, f"ciclo fechado medido em parte: a automação deveria gravar {esperado:.2f} dias medidos "
+                       f"(de {medido} até o fechamento); gravou {dm}")
+        return
+    fx = round(referencia.consumo_de_faixa_do_fechado(130, 30, dm), 3)
+    r = referencia.calcula(DADOS, hoje - datetime.timedelta(days=30), hoje, 130, kwh_faixa=fx)
+    if r["icms"] != 24.0:
+        raise SystemExit("[ERRO] o cenário do ciclo fechado em parte deixou de atravessar a faixa do ICMS")
+    compara(a, token, "ciclo fechado medido em parte",
+            (("sensor.consumo_de_faixa_do_ciclo_fechado", fx, 0.001, "consumo de faixa"),
+             ("sensor.consumo_do_ciclo_fechado", 130, 0.001, "consumo medido")))
+    compara_parametros(a, token, "ciclo fechado medido em parte", PARAMETROS_FECHADO, r)
+    novo = str(a.estado(MEDIDO_DESDE))
+    try:
+        atraso = abs((datetime.datetime.fromisoformat(novo) - antes_de_fechar).total_seconds())
+    except ValueError:
+        atraso = 1e9
+    if atraso > 120:
+        a.falha(token, f"fechado o ciclo, a medição do ciclo novo deveria começar agora; ficou em {novo}")
+
+
+# ── 3b. a regra do package é a da calculadora, bit a bit ────────────────────
+# As entradas do texto da regra (as duas datas, o consumo e a média) são
+# trocadas por variáveis, e o MESMO texto é avaliado pelo motor do Home
+# Assistant para centenas de ciclos sorteados: bordas de todas as faixas,
+# virada de ano, meses que a tabela não tem, datas iguais e invertidas.
+ENTRADAS = (
+    ("{%- set fechado = this.entity_id.endswith('_fechado') -%}", ""),
+    ("{%- set ini = states('input_datetime.fatura_fechado_inicio' if fechado else "
+     "'input_datetime.fatura_ultima_leitura') | as_datetime -%}", "{%- set ini = c_ini | as_datetime -%}"),
+    ("{%- set fim = states('input_datetime.fatura_fechado_fim' if fechado else "
+     "'input_datetime.fatura_proxima_leitura') | as_datetime -%}", "{%- set fim = c_fim | as_datetime -%}"),
+    ("{%- set kwh = states('sensor.consumo_de_faixa_do_ciclo_fechado' if fechado else "
+     "'sensor.consumo_projetado_do_ciclo') | float(0) -%}", "{%- set kwh = c_kwh -%}"),
+    ("{%- set media = states('input_number.cosip_media_kwh') | float(0) -%}", "{%- set media = c_media -%}"),
+)
+EXATOS = ("dias", "bandeira", "icms", "pis", "cofins", "fator", "preco", "iluminacao", "estimado")
+
+
+def ciclos_sorteados(quantos: int = 600) -> list[tuple[str, str, float, float]]:
+    sorteio = random.Random(20261006)        # semente fixa: a mesma grade em toda rodada
+    limites = sorted({float(x[0]) for x in DADOS["iluminacao_publica"]["faixas"] if x[0] is not None}
+                     | {float(x[0]) for x in DADOS["icms"]["faixas"] if x[0] is not None})
+    bordas = [0.0, 0.4] + [v + d for v in limites for d in (-0.5, -0.001, 0, 0.001, 0.4, 0.5, 0.51, 1)]
+    medias = [0, 0, 0, 425, 100, 119, 121, 130, 451, 99999, 250000]
+    casos = []
+    for n in range(quantos):
+        ini = datetime.date(2024, 11, 1) + datetime.timedelta(days=sorteio.randrange(0, 1000))
+        dias = sorteio.choice([28, 29, 30, 31, 32, 33, 34, 35, 30, 31, 33, 1, 2, 60, 0, -3])
+        kwh = sorteio.choice(bordas) if n % 2 else round(sorteio.uniform(0, 1500), 3)
+        casos.append((ini.isoformat(), (ini + datetime.timedelta(days=dias)).isoformat(), kwh,
+                      sorteio.choice(medias)))
+    return casos
+
+
+def confere_identidade(a: Arnes) -> None:
+    token = "FORMULA DIVERGE"
+    pacote = carrega_yaml("packages/energia_br.yaml")
+    regra = str(sensor_do_pacote(pacote, "parametros_ciclo").get("attributes", {}).get("p", ""))
+    if regra != str(sensor_do_pacote(pacote, "parametros_ciclo_fechado").get("attributes", {}).get("p", "")):
+        a.falha(token, "o ciclo em curso e o fechado não usam o mesmo texto de regra")
+        return
+    for entrada, variavel in ENTRADAS:
+        if regra.count(entrada) != 1:
+            a.falha(token, "não achei no package a linha de entrada da regra que o arnês troca por variável "
+                           f"({entrada[:60]}…) — o arnês precisa acompanhar a mudança")
+            return
+        regra = regra.replace(entrada, variavel)
+    a.limpa_ajustes()
+    time.sleep(1)
+    casos, ruins, feitos = ciclos_sorteados(), [], 0
+    partes = a.avalia(regra, casos, "c_ini, c_fim, c_kwh, c_media")
+    if isinstance(partes, str):
+        a.falha(token, f"o motor de templates não avaliou a regra do package ({partes})")
+        return
+    for (ini, fim, kwh, media), texto in zip(casos, partes):
+        try:
+            p = ast.literal_eval(texto)
+        except (ValueError, SyntaxError):
+            p = {}
+        ref = referencia.calcula(DADOS, D(ini), D(fim), kwh, cosip_media_kwh=media)
+        difere = [k for k in EXATOS if p.get(k) != ref[k]]
+        feitos += 1
+        if difere:
+            ruins.append(f"{ini} → {fim}, {kwh} kWh, média {media}: "
+                         + ", ".join(f"{k} {p.get(k)} ≠ {ref[k]}" for k in difere))
+    for linha in ruins[:6]:
+        a.falha(token, "regra do package ≠ calculadora — " + linha)
+    if len(ruins) > 6:
+        a.falha(token, f"... e mais {len(ruins) - 6} ciclo(s) sorteado(s) com diferença")
+    if not ruins:
+        a.ok(f"{feitos} ciclos sorteados: a regra do package dá exatamente o que a calculadora dá "
+             "(bandeira, ICMS, PIS, COFINS, fator, preço, iluminação, dias e estimativa)")
 
 
 # ── 4. o ajuste manual vale; apagado, volta o padrão ────────────────────────
@@ -565,8 +834,8 @@ def confere_ajustes(a: Arnes) -> None:
         if padrao is None:
             a.falha(token, "os campos de ajuste manual não existem")
         return
-    # a vírgula é como o dono digita: tem de valer igual ao ponto
-    valores = {"tarifa": 0.91357, "bandeira": 0.02113, "icms": 20.0, "pis": "1,47", "cofins": 6.11,
+    # com VÍRGULA, que é como o dono digita — em todos os campos
+    valores = {"tarifa": "0,91357", "bandeira": "0,02113", "icms": "20,5", "pis": "1,47", "cofins": "6,11",
                "iluminacao": "51,37"}
     for chave, valor in valores.items():
         r = prepara_ciclo(a, caso, {chave: valor})
@@ -575,6 +844,15 @@ def confere_ajustes(a: Arnes) -> None:
         compara(a, token, f"ajuste de {chave} = {valor}",
                 (("sensor.fatura_mensal_convencional", r["total"], 0.0051, "fatura"),
                  ("sensor.ajustes_ativos", 2 if caso[7] else 1, 0, "contagem de ajustes ativos")))
+    # débitos e créditos: caso[7] e caso[8] já vão com vírgula; aqui os dois juntos
+    r = prepara_ciclo(a, caso[:7] + (7.31, 4.19))
+    compara(a, token, "outros débitos 7,31 e créditos 4,19",
+            (("sensor.encargos_fixos_do_mes", r["encargos"], 0.0051, "encargos fixos"),
+             ("sensor.fatura_mensal_convencional", r["total"], 0.0051, "fatura"),
+             ("sensor.ajustes_ativos", 2, 0, "contagem de ajustes ativos")))
+    # alíquota impossível não derruba o cálculo: o preço vai a zero
+    r = prepara_ciclo(a, caso, {"icms": "100"})
+    compara_parametros(a, token, "ajuste de ICMS = 100", PARAMETROS, r)
     # texto que o campo aceita e não é número não é ajuste: vale o padrão
     prepara_ciclo(a, caso)
     a.texto("input_text.ajuste_pis", ".")
@@ -585,11 +863,26 @@ def confere_ajustes(a: Arnes) -> None:
     compara_parametros(a, token, "ajuste com texto que não é número", PARAMETROS, padrao)
     compara(a, token, "ajuste com texto que não é número",
             (("sensor.ajustes_ativos", 1, 0, "contagem de ajustes ativos"),))
+    # o aviso de estimativa: ciclo anterior à tabela (bandeira, PIS/COFINS e a
+    # bandeira da iluminação saem do último valor conhecido). Cada ajuste tira
+    # a sua parte do aviso; só com todos ele some.
+    antigo = ("ciclo anterior à tabela", "2024-11-05", "2024-12-05", 30, 20, 304, 425, 0.0, 0.0)
+    passos = (({}, True), ({"pis": "1,2", "cofins": "5,5"}, True),
+              ({"pis": "1,2", "cofins": "5,5", "bandeira": "0,01"}, True),
+              ({"pis": "1,2", "cofins": "5,5", "bandeira": "0,01", "iluminacao": "60"}, False),
+              ({"pis": "1,2", "bandeira": "0,01", "iluminacao": "60"}, True))
+    for ajustes, estimado in passos:
+        r = prepara_ciclo(a, antigo, ajustes)
+        if r["estimado"] is not estimado:
+            raise SystemExit("[ERRO] o cenário do aviso de estimativa deixou de exercitar o que devia")
+        compara_parametros(a, token, f"aviso de estimativa com os ajustes {sorted(ajustes) or 'nenhum'}",
+                           PARAMETROS, r)
     # apagado, volta o padrão
     prepara_ciclo(a, caso)
     compara_parametros(a, token, "ajustes apagados", PARAMETROS, padrao)
     if len(a.falhas) == antes:
-        a.ok(f"{len(valores)} ajustes manuais: preenchido vale o do dono; apagado ou inválido, volta o padrão")
+        a.ok(f"{len(valores) + 2} ajustes manuais, todos com vírgula: preenchido vale o do dono; apagado ou "
+             "inválido, volta o padrão; o aviso de estimativa segue cada ajuste")
 
 
 # ── 5. o que o dono digita sobrevive ao reinício ────────────────────────────
@@ -619,8 +912,11 @@ def confere_persistencia(a: Arnes, espera_volta) -> None:
     token = "CAMPO NAO PERSISTE"
     antes = len(a.falhas)
     # a) nenhum campo declara valor inicial — com ele o HA não restaura
+    # (os dois últimos são gravados pela automação a cada fechamento: o
+    #  reinício abaixo fecha um ciclo, e o que se confere é o que ela gravou)
     cobertos = {(d, c) for d, c, _ in PERSISTEM} | {("input_datetime", c) for c in DATAS} | {
-        ("input_select", "agua_area")}
+        ("input_select", "agua_area"), ("input_number", "fatura_fechado_dias_medidos"),
+        ("input_datetime", "fatura_medido_desde")}
     for dominio, chave, cfg in campos_dos_pacotes():
         if "initial" in cfg:
             a.falha(token, f"{dominio}.{chave} declara `initial:` — o que o usuário digita seria "
@@ -677,6 +973,9 @@ def confere_persistencia(a: Arnes, espera_volta) -> None:
                                   f"ciclo não fechou no início: o medidor da fatura mostra {a.soma('fatura_energy')}")
     elif a.estado(ULTIMA) != ontem.isoformat():
         a.falha("CICLO NAO ZERA", "o ciclo fechou no início mas a data da última leitura não foi gravada")
+    elif not str(a.estado(MEDIDO_DESDE)).startswith(a.hoje().isoformat()):
+        a.falha("CICLO NAO ZERA", "o ciclo fechou no início mas a medição do ciclo novo não recomeçou agora: "
+                                  f"{MEDIDO_DESDE} = {a.estado(MEDIDO_DESDE)}")
     if len(a.falhas) == antes:
         a.ok("ciclo da fatura: fecha no primeiro início depois da data de leitura")
 
@@ -727,10 +1026,44 @@ def confere_ciclo(a: Arnes) -> None:
                        f"{a.estado(FECHADO_INI)} → {a.estado(FECHADO_FIM)} "
                        f"(esperava {anterior.isoformat()} → {hoje.isoformat()})")
         return
-    if a.estado(PROXIMA) != mes_seguinte(hoje).isoformat():
-        a.falha(token, f"fechado o ciclo, a próxima leitura deveria passar a {mes_seguinte(hoje).isoformat()} "
+    seguinte = proxima_depois_de(hoje, hoje).isoformat()
+    if a.estado(PROXIMA) != seguinte:
+        a.falha(token, f"fechado o ciclo, a próxima leitura deveria passar a {seguinte} "
                        f"(um mês depois); ficou em {a.estado(PROXIMA)}")
         return
+    # "um mês depois", para toda data: o texto da automação avaliado para três
+    # anos de leituras (fins de mês, bissexto, virada de ano, e leituras tão
+    # atrasadas que o mês seguinte também já passou).
+    passo = next((x for x in auto.get("action", []) if "variables" in x), {})
+    texto = str(passo.get("variables", {}).get("seguinte", ""))
+    entrada = "states('input_datetime.fatura_proxima_leitura') | as_datetime"
+    if texto.count(entrada) != 1:
+        a.falha(token, "não achei na automação o cálculo da próxima leitura que o arnês avalia")
+        return
+    datas = [hoje + datetime.timedelta(days=n) for n in range(-800, 400)]
+    partes = a.avalia(texto.replace(entrada, "c_data | as_datetime"), [d.isoformat() for d in datas], "c_data")
+    if isinstance(partes, str):
+        a.falha(token, f"o motor de templates não avaliou o cálculo da próxima leitura ({partes})")
+        return
+    erradas = [(d.isoformat(), v, proxima_depois_de(d, hoje).isoformat()) for d, v in zip(datas, partes)
+               if v != proxima_depois_de(d, hoje).isoformat()]
+    if erradas:
+        d, v, certo = erradas[0]
+        a.falha(token, f"próxima leitura depois de {d}: a automação daria {v}, o certo é {certo} "
+                       f"({len(erradas)} de {len(datas)} datas erradas)")
+        return
+    # leitura tão atrasada que o mês seguinte já passou: fecha UMA vez
+    a.calibra("fatura_energy", (30, 30, 30))
+    a.fecha_ciclo(hoje - datetime.timedelta(days=40), hoje - datetime.timedelta(days=70))
+    a.calibra("fatura_energy", (1, 1, 1))
+    a.dispara_fechamento()
+    if a.numero("sensor.consumo_do_ciclo_fechado") != 90 or a.soma("fatura_energy") != 3:
+        a.falha(token, "leitura atrasada em mais de um mês: o ciclo fechou duas vezes — o fechado mostra "
+                       f"{a.numero('sensor.consumo_do_ciclo_fechado')} (esperava 90) e o medidor "
+                       f"{a.soma('fatura_energy')} (esperava 3)")
+        return
+    a.calibra("fatura_energy", (40, 40, 40))
+    a.fecha_ciclo(hoje, anterior)
     # não fecha duas vezes: o consumo novo fica, o ciclo fechado também
     a.calibra("fatura_energy", (5, 5, 5))
     a.dispara_fechamento()
@@ -746,8 +1079,9 @@ def confere_ciclo(a: Arnes) -> None:
     if a.estado(PROXIMA) != corrigida.isoformat() or a.soma("fatura_energy") != 15:
         a.falha(token, "a próxima leitura corrigida pelo dono não foi respeitada")
         return
-    a.ok("ciclo da fatura: não zera antes da data; zera à meia-noite dela, uma vez; guarda as duas "
-         "datas; assume a próxima um mês depois; só o medidor da fatura")
+    a.ok("ciclo da fatura: não zera antes da data; zera à meia-noite dela, uma vez, mesmo com mais de um "
+         f"mês de atraso; guarda as duas datas; assume a próxima um mês depois ({len(datas)} datas "
+         "conferidas); só o medidor da fatura")
 
 
 # ── 6b. a fonte some e volta: o medidor não perde nem inventa consumo ───────
@@ -900,6 +1234,7 @@ def main() -> int:
     confere_persistencia(a, espera_volta)
     confere_formulas(a)
     confere_ajustes(a)
+    confere_identidade(a)
     confere_ciclo(a)
     confere_medidor(a)
     confere_postos(a)

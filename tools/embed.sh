@@ -34,6 +34,15 @@ BLOCOS="CATALOGO|catalog/catalog.bash UI|lib/haos-ui.sh HELPER|lib/ha-api.py|var
 
 falhou=0
 if [ "${1:-}" = "--check" ]; then
+    # o dado tem de se sustentar (fonte em tudo, contas e preços publicados
+    # reproduzidos) antes de se perguntar se o package o carrega
+    if python3 "$RAIZ/tarifas/fatura.py" --confere >/dev/null 2>&1; then
+        echo "[OK] tarifas/fatura.py --confere: dado com fonte, contas e preços publicados reproduzidos"
+    else
+        echo "[ERRO] o arquivo de dados DIVERGE das contas ou das fontes — python3 tarifas/fatura.py --confere" >&2
+        python3 "$RAIZ/tarifas/fatura.py" --confere 2>&1 | grep -E "DADO SEM FONTE|CONTA NAO REPRODUZ" | head -6 >&2 || true
+        falhou=1
+    fi
     python3 "$RAIZ/tools/tarifas-bloco.py" --check || falhou=1
 else
     python3 "$RAIZ/tools/tarifas-bloco.py"

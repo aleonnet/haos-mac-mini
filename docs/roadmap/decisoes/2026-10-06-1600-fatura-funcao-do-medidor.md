@@ -154,3 +154,59 @@ casa está, estatísticas horárias reais importadas. O que o ensaio mostrou:
 4. O portão da casa contra a réplica: `CUSTOS OK`.
 5. O painel Custos conferido por captura de tela na réplica: linhas da mesma
    altura, ajustes vazios em branco.
+
+## A regra do package comparada bit a bit com a calculadora (17:05–17:12)
+
+Antes de chamar o leitor frio, fiz por minha conta a pergunta que a grade de
+nove ciclos não responde: a regra do package dá o MESMO número que a
+calculadora fora dos casos que eu escolhi? O texto da regra foi avaliado no
+motor de templates do Home Assistant para 600 ciclos sorteados (bordas de
+todas as faixas, virada de ano, meses que a tabela não tem, datas iguais e
+invertidas), com comparação exata.
+
+- Resultado da primeira rodada: bandeira, ICMS, PIS, COFINS, fator, preço e
+  iluminação **idênticos nos 600**; uma diferença, só informativa — com as
+  datas invertidas o package publicava "dias: −3" e a calculadora, 0.
+  Corrigido no package.
+- A comparação entrou na cerca (`PACOTES OK — 14 garantias`, 17:08).
+- Contraprovas: quatro defeitos que só ela pega (dias negativos; faixa do ICMS
+  truncando em vez de arredondar; borda da faixa da iluminação; mês anterior
+  ao primeiro da tabela) — 4/4. Duas mutações que eu tinha plantado **não**
+  dispararam e foram descartadas por serem equivalentes: arredondar uma vez em
+  vez de duas quando a parcela fixa já tem duas casas, e escrever
+  1 − PIS − COFINS em vez de 1 − (PIS + COFINS) dão o mesmo número para estes
+  dados.
+- "Um mês depois", na automação: o texto dela avaliado para 791 datas seguidas
+  (dois anos, um bissexto, e a virada) contra a função de referência — zero
+  divergência.
+
+## Leitura fria do diff, rodada 1: REPROVADO (17:05–17:17)
+
+Quatro bloqueadores e oito avisos. Achado do leitor é defeito da MINHA
+verificação; a classe do que faltou:
+
+| # | O que ele achou | Classe do que eu não fiz | Conserto |
+|---|---|---|---|
+| 1 | "dias" negativo com as datas invertidas | — (eu já tinha achado e corrigido pela comparação bit a bit, antes de o leitor terminar) | corrigido; a comparação exata inclui "dias" |
+| 2 | A cerca não lia 16 sensores calculados — entre eles o preço que o painel de Energia usa. Trocar o preço pela tarifa sem tributos passava | **Conferi o caminho do dado até o total da fatura e parei; não segui até cada sensor que a tela mostra.** E escrevi "cada número" em três textos sem contar | todos os sensores calculados entram na grade, em curso e fechado; os textos dizem o que a cerca faz |
+| 3 | A grade só tinha kWh inteiros; o arredondamento não estava cercado, nem no package nem na calculadora | **Grade escolhida por mim, com números redondos** — a mesma classe das duas contas do mesmo lado da faixa | consumo com casas na grade (300,4 e 300,6), na comparação sorteada e nos casos da calculadora |
+| 4 | "Um mês depois" só era conferido para o dia em que a cerca roda | **Conta que depende da data testada só com a data de hoje** | o texto da automação avaliado para 1.200 datas |
+| 5 | Vírgula provada em 2 dos 8 campos | amostra em vez do conjunto | todos os campos com vírgula |
+| 6 | A composição do aviso de estimativa não era exercitada | um caminho só (PIS) | ciclo anterior à tabela, cinco combinações de ajuste |
+| 7 | A guarda contra alíquota de 100 % não era exercitada | guarda escrita sem teste | ajuste de ICMS = 100 na cerca |
+| 8 | **Defeito de produto:** parado mais de um mês, o ciclo fecharia duas vezes e o fechado de verdade seria sobrescrito | não perguntei "e se a data que eu gravo também já passou?" | a próxima leitura vai ao primeiro mês que ainda não chegou; cenário na cerca |
+| 9 | **Defeito de produto:** instalado no meio do ciclo, a projeção dividia o consumo medido pelos dias do calendário e caía na faixa errada por um ciclo e meio | **só pensei na instalação que já tem um ciclo inteiro medido — a desta casa** | o package passa a saber desde quando mede; projeção e faixa do ciclo fechado contam os dias medidos; 400 projeções sorteadas e três cenários na cerca |
+| 10 | A explicação do centavo de outubro não fechava (354 × 1,34405 dá 475,79, não 475,78) | **afirmei uma causa sem fazer a conta** | o documento diz que não sei explicar; "ao centavo" virou "no máximo um centavo" |
+| 11 | "As três conferências rodam no portão": só uma rodava | afirmação não conferida contra o roteiro do portão | a calculadora entrou no portão local; o documento diz onde cada uma roda |
+| 12 | O que `DADO SEM FONTE` deixava passar (certeza livre, data que não é data, bloco novo sem fonte) | lista fixa de blocos | certeza de vocabulário fechado, data validada, todo bloco de parâmetro |
+
+Fora dos itens: a citação dos horários só trazia a ponta. Baixei de novo a
+resolução (17:19) e a citação agora inclui o parágrafo do posto intermediário
+("duas horas imediatamente posterior ao posto (horário) ponta").
+
+Escalado pelo leitor ao dono, e é do dono: as duas contas reais (datas, kWh,
+totais) num repositório público. O plano aprovado as previa "só com os
+números, sem identificação"; nada foi empurrado para o remoto.
+
+Depois dos consertos (17:28): `PACOTES OK — 14 garantias`, com a grade em onze
+ciclos e todos os sensores.
