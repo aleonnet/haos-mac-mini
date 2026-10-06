@@ -55,8 +55,7 @@
 template:
   # ═══════════════════════════════════════════════════════════════════════════
   # TABELA TARIFÁRIA — R$/m³ JÁ COM TRIBUTOS
-  # Literais no YAML e não input_number: o step mínimo do input_number é 0,001
-  # e a tarifa tem 4 casas decimais.
+  # Literais no YAML: a tabela muda por ato da agência, não a cada conta.
   #
   # Valores desta fatura (JUL/2026). O PDF vigente a partir de 01/08/2026 traz
   # 9,7235 e 12,6756 — a virada de tarifa está capturada aqui.
@@ -105,8 +104,8 @@ template:
         icon: mdi:gas-cylinder
         state: >
           {% set m = states('sensor.gas_consumo_medido')|float(0) %}
-          {% set f = states('input_number.gas_fator_correcao')|float(1) %}
-          {{ (m * f) | round(0) | int }}
+          {% set f = states('input_number.gas_fator_correcao')|float(0) %}
+          {{ (m * (f if f > 0 else 1)) | round(0) | int }}
         attributes:
           medido: "{{ states('sensor.gas_consumo_medido') }}"
           fator: "{{ states('input_number.gas_fator_correcao') }}"
@@ -186,18 +185,17 @@ template:
           {{ (states('sensor.gas_custo_fornecimento')|float(0)
             - states('input_number.gas_fatura_conferencia')|float(0)) | round(2) }}
 
+# SEM `initial:` — com ele o Home Assistant descarta o que foi digitado a cada
+# início. O exemplo validado (19 m³ × 1,03372 → 20 m³ → 229,01) está na cerca:
+# tools/pacotes-arnes.sh.
 input_number:
   # ── Fator de correção COMBINADO = P,T,Z × PCS, lido da sua fatura
-  #    Fatura JUL/2026: 1,02146 × 1,012 = 1,03372
-  #    ⚠️ step mínimo do input_number é 0,001, então guarda 1,034.
-  #       Verificado: 19 × 1,03372 = 19,6407 e 19 × 1,034 = 19,646 — os dois
-  #       arredondam para 20. A perda só importaria a ~0,05% de uma fronteira
-  #       de arredondamento. Se a sua fatura divergir, ajuste este valor.
+  #    Fatura JUL/2026: 1,02146 × 1,012 = 1,03372 — digite as cinco casas.
+  #    Enquanto não for digitado (zero), o volume medido passa sem correção.
   # ── Leitura do ciclo, em m³ (diferença das leituras da fatura) — alimenta
   #    o sensor Gás Consumo Medido acima
   gas_consumo_ciclo_m3:
     name: "Gás — leitura do ciclo"
-    initial: 19
     min: 0
     max: 500
     step: 1
@@ -207,17 +205,15 @@ input_number:
 
   gas_fator_correcao:
     name: "Gás — fator de correção (P,T,Z × PCS)"
-    initial: 1.034
-    min: 0.9
+    min: 0
     max: 1.2
-    step: 0.001
+    step: 0.00001
     icon: mdi:tune-variant
     mode: box
 
   # ── Conferência: total de fornecimento da última fatura
   gas_fatura_conferencia:
     name: "Gás — total da última fatura (conferência)"
-    initial: 229.01
     min: 0
     max: 100000
     step: 0.01

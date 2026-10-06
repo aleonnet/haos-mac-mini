@@ -365,7 +365,7 @@ MSG_DB=(
 "int_espera|%s descoberto - confirme no painel.|%s discovered - confirm it in the panel."
 "int_manual|%s pede credencial sua - abra: %s|%s needs your credential - open: %s"
 "plano_mao|Pedem a SUA mão no final (conta, botão ou confirmação - nada é inventado): %s|Will need YOUR hand at the end (account, button or confirmation - nothing is invented): %s"
-"painel_energia_ok|painel de Energia configurado: 3 conexões de rede (ponta, intermediário, fora ponta) com o preço da sua tarifa.|Energy dashboard configured: 3 grid connections (peak, shoulder, off-peak) with your tariff price."
+"painel_energia_ok|painel de Energia configurado: 3 conexões de rede (ponta, intermediário, fora ponta). O preço vem da sua conta: digite os números da fatura no painel Custos.|Energy dashboard configured: 3 grid connections (peak, shoulder, off-peak). The price comes from your bill: type the bill figures into the Custos dashboard."
 "painel_energia_ja|painel de Energia já configurado - o que é seu não é tocado.|Energy dashboard already configured - yours is not touched."
 "painel_energia_falhou|não consegui configurar o painel de Energia - faça na tela: 3 conexões monthly_energy_* com preço sensor.preco_convencional.|could not configure the Energy dashboard - do it in the UI: 3 monthly_energy_* connections priced by sensor.preco_convencional."
 "arq_dash_ok|dashboard Custos escrito - aparece na barra lateral após o restart.|Custos dashboard written - shows in the sidebar after restart."
@@ -4116,53 +4116,67 @@ FIM_EMB_HELPER
 HAOS_PKG_ENERGIA=$(cat <<'FIM_EMB_PKG_ENERGIA'
 # =============================================================================
 # energia_br.yaml — custo de energia elétrica no Brasil
-#                   Reproduz a fatura NA VÍRGULA e simula Convencional × Branca
+#                   Fecha com a fatura e simula Convencional × Branca
 #
 # Instalação: copie para /config/packages/ e no configuration.yaml:
 #               homeassistant:
 #                 packages: !include_dir_named packages
 #
 # -----------------------------------------------------------------------------
-# COMO A FATURA SE COMPÕE — validado contra fatura Light AGO/2026, 304 kWh
+# O QUE VEM DA FATURA — e é digitado a cada conta
+# -----------------------------------------------------------------------------
+#   Preço unitário COM tributos · tarifa unitária SEM tributos · ICMS · PIS ·
+#   COFINS · iluminação pública · complementos · bônus · total a pagar · data da
+#   próxima leitura.
+#
+#   Motivo: PIS, COFINS e bandeira mudam todo mês, e a bandeira vem rateada
+#   pelos dias do ciclo. Nenhuma tabela pública reproduz isso; a conta, sim.
+#   Nenhum desses campos tem valor de fábrica: o que você digita fica, inclusive
+#   depois de reiniciar (campo com `initial:` volta ao valor inicial a cada
+#   início do Home Assistant — foi defeito deste package até 2026-10).
+#
+# -----------------------------------------------------------------------------
+# COMO A FATURA SE COMPÕE — validado contra duas faturas Light (RJ) de 2026
 # -----------------------------------------------------------------------------
 #   Tributos são "por dentro": ICMS sobre o BRUTO, PIS/COFINS sobre o LÍQUIDO DE ICMS.
 #     fator = 1 / (1 − icms − (pis + cofins) × (1 − icms))
-#     ICMS 24,00% · PIS 1,23% · COFINS 5,67% → 1,413308
-#     fatura mediu 1,36636 ÷ 0,96678 = 1,413310   (bate na 6ª casa)
 #
-#   Reprodução linha a linha:
-#     (0,94793 + 0,01885) × 1,413308 × 304 kWh = 415,37  ✓ (fatura: 415,37)
-#     ICMS   24,00% de 415,37 =  99,69  ✓        PIS  1,23% de 315,68 =  3,88  ✓
-#     COFINS  5,67% de 315,68 =  17,90  ✓
-#     415,37 − 10,13 + 2,08 + 64,60 = 471,92  ✓ (TOTAL A PAGAR: 471,92)
+#   Agosto, 304 kWh — ICMS 24,00% · PIS 1,23% · COFINS 5,67% → fator 1,413308
+#     tarifa 0,96678 × fator = 1,36636 (o preço com tributos impresso)
+#     304 × 1,36636 = 415,37 · − 10,13 + 2,08 + 64,60 = 471,92  ✓ (total a pagar)
+#     ICMS 24,00% de 415,37 = 99,69 · PIS 1,23% de 315,68 = 3,88 · COFINS 17,90
 #
-#   ⚠️ A BANDEIRA está DENTRO da linha de energia. "Bandeira Amarela 8,10" é
-#      descrição do que ela contribuiu aos 415,37, não item somado à parte.
-#   ⚠️ A COSIP (64,60) é MUNICIPAL e NÃO escala com kWh. São 13,7% da conta.
-#      Modelo que só multiplica consumo × tarifa erra a fatura em R$ 56,55/mês.
+#   Outubro, 354 kWh — ICMS 24,00% · PIS 1,01% · COFINS 4,68% → fator 1,395175
+#     tarifa 0,96335 × fator = 1,34404 (impresso: 1,34405)
+#     354 × 1,34405 = 475,79 · + 2,08 + 64,60 = 542,47  (total a pagar: 542,46)
 #
-# -----------------------------------------------------------------------------
-# ONDE MORA CADA COISA — e por quê
-# -----------------------------------------------------------------------------
-#   Tarifas por kWh  → sensor `Tabela Tarifária`, como ATRIBUTOS literais.
-#     Motivo: a doc do HA fixa o step mínimo do input_number em 0,001
-#     ("step: Smallest value 0.001"). Guardar 0,947927 ali vira 0,948, e a
-#     conta deixa de bater na vírgula. Literal no YAML não tem esse limite.
-#
-#   Alíquotas e encargos → input_number. Aqui 0,01 é resolução de sobra
-#     (ICMS 24,00% · COSIP 64,60) e o ajuste pela interface é desejável.
+#   ⚠️ A BANDEIRA está DENTRO da tarifa unitária da conta. Aqui ela é deduzida:
+#      bandeira = tarifa unitária da conta − tarifa convencional da tabela.
+#   ⚠️ A iluminação pública é MUNICIPAL e NÃO escala com kWh.
+#   ⚠️ O ciclo da fatura vai de LEITURA a LEITURA, não do dia 1 ao dia 30. Por
+#      isso há um medidor só da fatura, zerado ao meio-dia da data de leitura
+#      que a conta informa. Os medidores diário e mensal seguem o calendário.
 #
 # -----------------------------------------------------------------------------
-# FONTES (lidas 2026-08-23)
+# FONTES DA TABELA — e o que NÃO está conferido
 # -----------------------------------------------------------------------------
-#   ANEEL — dados abertos, tarifas homologadas (atualização semanal declarada)
+#   A tabela abaixo só serve à SIMULAÇÃO da Tarifa Branca. O que se paga no
+#   Convencional sai do preço digitado da conta, não dela.
+#
+#   · Convencional 0,94793 — confere com a tarifa sem bandeira de duas faturas
+#     (ago e out/2026). É o valor do Despacho ANEEL 921/2026, restaurado pelo
+#     Despacho 2129/2026, que alterou o reajuste homologado pela REH 3.571/2026.
+#   · Ponta, intermediária e fora de ponta — transcritas de um ESPELHO de
+#     terceiros do mesmo despacho. NÃO conferidas em fonte primária. A proporção
+#     com a base aberta (1,0778 · 1,0770 · 1,0761) é coerente com a do
+#     convencional (1,0765), mas coerência não é prova.
+#   · A base de dados abertos da ANEEL publica a resolução HOMOLOGADA, não o
+#     regime do despacho: para esta distribuidora ela traz 0,88056 / 1,61431 /
+#     1,11884 / 0,77543 (lido em 2026-10-06). Não é atraso — é outra coisa.
 #     https://dadosabertos.aneel.gov.br/dataset/tarifas-distribuidoras-energia-eletrica
-#     resource_id fcf2906c-7c32-4b9b-a637-054e7a5234f4 · 324.629 registros
-#     filtros: NumCNPJDistribuidora + DscSubGrupo=B1 + DscClasse=Residencial
-#              + DscBaseTarifaria="Tarifa de Aplicação" + DscDetalhe="Não se aplica"
-#     tarifa = (VlrTUSD + VlrTE) ÷ 1000   (o CSV publica em R$/MWh, sem tributos)
+#   Detalhe e citações: docs/2026-10-06-1200-fonte-da-tarifa-de-energia.md
 #
-#   ANEEL — regra da Tarifa Branca e postos tarifários
+#   Regra da Tarifa Branca e dos postos (ANEEL):
 #     gov.br/aneel/pt-br/assuntos/tarifas/entenda-a-tarifa/postos-tarifarios
 #     · Ponta: "período diário de 3h consecutivas, com exceção feita aos
 #       sábados, domingos e feriados nacionais"
@@ -4172,29 +4186,33 @@ HAOS_PKG_ENERGIA=$(cat <<'FIM_EMB_PKG_ENERGIA'
 #
 #   Requer a integração `workday` (core, config flow) com país BR e a subdivisão
 #   do estado — é ela que conhece feriados nacionais e estaduais.
+#
+#   Cerca: tools/pacotes-arnes.sh sobe um Home Assistant e prova tudo isto.
 # =============================================================================
 
 template:
-  # ═══════════════════════════════════════════════════════════════════════════
-  # TABELA TARIFÁRIA — valores canônicos em R$/kWh LÍQUIDOS (sem tributos)
-  #
-  # ⚠️  ESTES VALORES REFLETEM OVERRIDE REGULATÓRIO, não o CSV bruto da ANEEL.
-  #       REH 3.571/2026 (base) → Despacho ANEEL 921/2026 alterou o reajuste
-  #       anual de 2026 → Despacho 2129/2026 restaurou os efeitos.
-  #     O CSV de dados abertos ainda publica 0,88056 para o convencional.
-  #     A diferença de 0,067367 R$/kWh foi confirmada contra fatura real.
-  #
-  #     → CONSEQUÊNCIA PARA O ATUALIZADOR AUTOMÁTICO: baixar o CSV e publicar
-  #       direto produz tarifa ERRADA. É obrigatória uma camada de override
-  #       que consulte atos posteriores antes de sobrescrever este bloco.
-  # ═══════════════════════════════════════════════════════════════════════════
   - sensor:
       # ── Fonte de kWh da casa: soma as fases da Shelly EM3, SEM nome fixo ──
-      # Pega da integração shelly todo sensor de energia acumulada que não
-      # seja "returned" (devolvida à rede) — numa casa com UM EM3 no quadro,
-      # isso é a energia importada total, seja qual for o nome do aparelho.
+      # Pega todo sensor de energia acumulada que pertença à integração shelly
+      # e não seja "returned" (devolvida à rede) — numa casa com UM EM3 no
+      # quadro, isso é a energia importada total, seja qual for o nome do
+      # aparelho.
       # ⚠️ Se a casa ganhar OUTROS Shelly medindo subcircuitos, eles entrariam
       #    na soma — aí este template precisa filtrar pelo device do EM3.
+      #
+      # ⚠️ SÓ EXISTE COM TODAS AS FASES RESPONDENDO. Fase sem valor não é zero:
+      #    somá-la como zero faz o total cair e voltar, e o medidor lê a volta
+      #    como consumo — a vida inteira do aparelho somada de novo a cada
+      #    queda de luz. Faltando uma, o total fica indisponível e o medidor
+      #    espera.
+      #
+      # ⚠️ A FASE É PROCURADA NO REGISTRO, não entre as entidades vivas.
+      #    `integration_entities('shelly')` só devolve entidade carregada: ao
+      #    recarregar a integração as fases saem dessa lista UMA A UMA, e a
+      #    soma das que sobram passaria por total. Aqui a fase continua
+      #    contando enquanto existir no registro — descarregada, ela aparece
+      #    sem valor e segura o total.
+      #    Limite: fase DESABILITADA pelo usuário some do estado e sai da soma.
       - name: "Energy Total"
         unique_id: energy_total
         unit_of_measurement: kWh
@@ -4203,19 +4221,36 @@ template:
         icon: mdi:transmission-tower
         state: >
           {% set ns = namespace(total=0) %}
-          {% for e in integration_entities('shelly') if e.startswith('sensor.') %}
-            {% set st = states[e] %}
-            {% if st is not none
-                  and st.attributes.device_class | default('') == 'energy'
-                  and st.attributes.state_class | default('') == 'total_increasing'
-                  and 'returned' not in e %}
+          {% for st in states.sensor
+               if st.attributes.device_class | default('') == 'energy'
+               and st.attributes.state_class | default('') == 'total_increasing'
+               and 'returned' not in st.entity_id %}
+            {% set ce = config_entry_id(st.entity_id) %}
+            {% if ce is not none and config_entry_attr(ce, 'domain') == 'shelly' %}
               {% set ns.total = ns.total + st.state | float(0) %}
             {% endif %}
           {% endfor %}
           {{ ns.total | round(3) }}
         availability: >
-          {{ integration_entities('shelly') | count > 0 }}
+          {% set ns = namespace(fases=0, sem_valor=0) %}
+          {% for st in states.sensor
+               if st.attributes.device_class | default('') == 'energy'
+               and st.attributes.state_class | default('') == 'total_increasing'
+               and 'returned' not in st.entity_id %}
+            {% set ce = config_entry_id(st.entity_id) %}
+            {% if ce is not none and config_entry_attr(ce, 'domain') == 'shelly' %}
+              {% set ns.fases = ns.fases + 1 %}
+              {% if not st.state | is_number %}
+                {% set ns.sem_valor = ns.sem_valor + 1 %}
+              {% endif %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.fases > 0 and ns.sem_valor == 0 }}
 
+      # ═════════════════════════════════════════════════════════════════════════
+      # TABELA TARIFÁRIA — R$/kWh LÍQUIDOS (sem tributos e sem bandeira).
+      # Serve à simulação da Tarifa Branca. Proveniência no cabeçalho.
+      # ═════════════════════════════════════════════════════════════════════════
       - name: "Tabela Tarifária"
         unique_id: tabela_tarifaria
         icon: mdi:table-large
@@ -4230,10 +4265,10 @@ template:
           ponta: 1.73992
           intermediaria: 1.20499
           fora_ponta: 0.83447
-          bandeira: 0.01885
-          bandeira_nome: "Amarela"
+          convencional_conferido: "duas faturas de 2026"
+          branca_conferida: "não — transcrição de espelho, sem fonte primária"
 
-      # ── Fator de tributos, DERIVADO das alíquotas
+      # ── Fator de tributos, DERIVADO das alíquotas digitadas da conta
       - name: "Fator de Tributos"
         unique_id: fator_tributos
         icon: mdi:calculator-variant
@@ -4244,34 +4279,59 @@ template:
           {% set d = 1 - i - (p + c) * (1 - i) %}
           {{ (1 / d) | round(6) if d > 0 else 0 }}
 
-      # ── Preço final por posto = (tarifa líquida + bandeira) × fator
+      # ── Bandeira do ciclo, deduzida da conta (já vem rateada pelos dias)
+      - name: "Bandeira Implícita"
+        unique_id: bandeira_implicita
+        unit_of_measurement: "BRL/kWh"
+        icon: mdi:flag-outline
+        state: >
+          {% set u = states('input_number.fatura_tarifa_unit')|float(0) %}
+          {% set c = state_attr('sensor.tabela_tarifaria', 'convencional')|float(0) %}
+          {{ (u - c) | round(5) if u > 0 else 0 }}
+
+      # ── O que se paga por kWh: o preço impresso na conta, sem recalcular
       - name: "Preço Convencional"
         unique_id: preco_convencional
         unit_of_measurement: "BRL/kWh"
         state: >
-          {% set t = states.sensor.tabela_tarifaria.attributes %}
-          {{ ((t.convencional|float(0) + t.bandeira|float(0)) * states('sensor.fator_tributos')|float(1)) | round(6) }}
+          {{ states('input_number.fatura_preco_com_tributos')|float(0) | round(6) }}
 
+      # ── Simulação da Branca: (tarifa do posto + bandeira da conta) × fator
       - name: "Preço Ponta"
         unique_id: preco_ponta
         unit_of_measurement: "BRL/kWh"
         state: >
-          {% set t = states.sensor.tabela_tarifaria.attributes %}
-          {{ ((t.ponta|float(0) + t.bandeira|float(0)) * states('sensor.fator_tributos')|float(1)) | round(6) }}
+          {{ ((state_attr('sensor.tabela_tarifaria', 'ponta')|float(0)
+               + states('sensor.bandeira_implicita')|float(0))
+              * states('sensor.fator_de_tributos')|float(0)) | round(6) }}
 
       - name: "Preço Intermediário"
         unique_id: preco_intermediario
         unit_of_measurement: "BRL/kWh"
         state: >
-          {% set t = states.sensor.tabela_tarifaria.attributes %}
-          {{ ((t.intermediaria|float(0) + t.bandeira|float(0)) * states('sensor.fator_tributos')|float(1)) | round(6) }}
+          {{ ((state_attr('sensor.tabela_tarifaria', 'intermediaria')|float(0)
+               + states('sensor.bandeira_implicita')|float(0))
+              * states('sensor.fator_de_tributos')|float(0)) | round(6) }}
 
       - name: "Preço Fora Ponta"
         unique_id: preco_fora_ponta
         unit_of_measurement: "BRL/kWh"
         state: >
-          {% set t = states.sensor.tabela_tarifaria.attributes %}
-          {{ ((t.fora_ponta|float(0) + t.bandeira|float(0)) * states('sensor.fator_tributos')|float(1)) | round(6) }}
+          {{ ((state_attr('sensor.tabela_tarifaria', 'fora_ponta')|float(0)
+               + states('sensor.bandeira_implicita')|float(0))
+              * states('sensor.fator_de_tributos')|float(0)) | round(6) }}
+
+      # ── Cerca dos números digitados: a tarifa × o fator dos três impostos
+      #    tem de dar o preço com tributos. Fora de zero, algum foi digitado
+      #    errado.
+      - name: "Conferência do Preço"
+        unique_id: conferencia_preco
+        unit_of_measurement: "BRL/kWh"
+        icon: mdi:scale-balance
+        state: >
+          {{ (states('input_number.fatura_preco_com_tributos')|float(0)
+              - states('input_number.fatura_tarifa_unit')|float(0)
+                * states('sensor.fator_de_tributos')|float(0)) | round(4) }}
 
       # ── Encargos fixos do mês (independem do consumo)
       - name: "Encargos Fixos do Mês"
@@ -4283,38 +4343,43 @@ template:
             + states('input_number.encargo_complementos')|float(0)
             - states('input_number.encargo_bonus')|float(0)) | round(2) }}
 
-      # ── Energia do mês em cada modalidade
+      # ── CICLO EM CURSO — da última leitura até agora
+      - name: "Consumo do Ciclo"
+        unique_id: consumo_ciclo
+        unit_of_measurement: kWh
+        icon: mdi:counter
+        state: >
+          {{ (states('sensor.fatura_energy_peak')|float(0)
+            + states('sensor.fatura_energy_shoulder')|float(0)
+            + states('sensor.fatura_energy_offpeak')|float(0)) | round(3) }}
+
       - name: "Energia Mensal Convencional"
         unique_id: energia_mensal_convencional
         unit_of_measurement: BRL
         device_class: monetary
         state: >
-          {% set p = states('sensor.monthly_energy_peak')|float(0) %}
-          {% set s = states('sensor.monthly_energy_shoulder')|float(0) %}
-          {% set o = states('sensor.monthly_energy_offpeak')|float(0) %}
-          {{ ((p + s + o) * states('sensor.preco_convencional')|float(0)) | round(2) }}
+          {{ (states('sensor.consumo_do_ciclo')|float(0)
+              * states('sensor.preco_convencional')|float(0)) | round(2) }}
 
       - name: "Energia Mensal Branca"
         unique_id: energia_mensal_branca
         unit_of_measurement: BRL
         device_class: monetary
         state: >
-          {% set p = states('sensor.monthly_energy_peak')|float(0) %}
-          {% set s = states('sensor.monthly_energy_shoulder')|float(0) %}
-          {% set o = states('sensor.monthly_energy_offpeak')|float(0) %}
-          {{ (p * states('sensor.preco_ponta')|float(0)
-            + s * states('sensor.preco_intermediario')|float(0)
-            + o * states('sensor.preco_fora_ponta')|float(0)) | round(2) }}
+          {{ (states('sensor.fatura_energy_peak')|float(0) * states('sensor.preco_ponta')|float(0)
+            + states('sensor.fatura_energy_shoulder')|float(0) * states('sensor.preco_intermediario')|float(0)
+            + states('sensor.fatura_energy_offpeak')|float(0) * states('sensor.preco_fora_ponta')|float(0)) | round(2) }}
 
-      # ── FATURA COMPLETA — é o que se paga
+      # ── A fatura se a leitura fosse agora
       - name: "Fatura Mensal Convencional"
         unique_id: fatura_mensal_convencional
         unit_of_measurement: BRL
         device_class: monetary
         icon: mdi:file-document-outline
         state: >
-          {{ (states('sensor.energia_mensal_convencional')|float(0)
-            + states('sensor.encargos_fixos_mes')|float(0)) | round(2) }}
+          {{ (states('sensor.consumo_do_ciclo')|float(0)
+              * states('sensor.preco_convencional')|float(0)
+            + states('sensor.encargos_fixos_do_mes')|float(0)) | round(2) }}
 
       - name: "Fatura Mensal Branca"
         unique_id: fatura_mensal_branca
@@ -4322,8 +4387,10 @@ template:
         device_class: monetary
         icon: mdi:file-document-outline
         state: >
-          {{ (states('sensor.energia_mensal_branca')|float(0)
-            + states('sensor.encargos_fixos_mes')|float(0)) | round(2) }}
+          {{ (states('sensor.fatura_energy_peak')|float(0) * states('sensor.preco_ponta')|float(0)
+            + states('sensor.fatura_energy_shoulder')|float(0) * states('sensor.preco_intermediario')|float(0)
+            + states('sensor.fatura_energy_offpeak')|float(0) * states('sensor.preco_fora_ponta')|float(0)
+            + states('sensor.encargos_fixos_do_mes')|float(0)) | round(2) }}
 
       # ── Veredito da simulação
       - name: "Economia com Tarifa Branca"
@@ -4340,14 +4407,77 @@ template:
                                 > states('sensor.fatura_mensal_branca')|float(0)
                else 'Convencional' }}
 
-      # ── Cerca do package: digite o total da fatura, isto deve ficar em zero
+      # ── CICLO FECHADO — o que o medidor guardou na última leitura.
+      #    É ESTE que se compara com a conta de papel. Antes do primeiro
+      #    fechamento não há o que comparar: os valores ficam indisponíveis.
+      - name: "Consumo do Ciclo Fechado"
+        unique_id: consumo_ciclo_fechado
+        unit_of_measurement: kWh
+        icon: mdi:counter
+        state: >
+          {{ (state_attr('sensor.fatura_energy_peak', 'last_period')|float(0)
+            + state_attr('sensor.fatura_energy_shoulder', 'last_period')|float(0)
+            + state_attr('sensor.fatura_energy_offpeak', 'last_period')|float(0)) | round(3) }}
+
+      - name: "Fatura do Ciclo Fechado"
+        unique_id: fatura_ciclo_fechado
+        unit_of_measurement: BRL
+        device_class: monetary
+        icon: mdi:file-document-check-outline
+        availability: >
+          {{ states('sensor.consumo_do_ciclo_fechado')|float(0) > 0 }}
+        state: >
+          {{ (states('sensor.consumo_do_ciclo_fechado')|float(0)
+              * states('sensor.preco_convencional')|float(0)
+            + states('sensor.encargos_fixos_do_mes')|float(0)) | round(2) }}
+
+      # ── Os três impostos em reais, como a conta os mostra
+      - name: "Fatura ICMS"
+        unique_id: fatura_icms
+        unit_of_measurement: BRL
+        device_class: monetary
+        availability: >
+          {{ states('sensor.consumo_do_ciclo_fechado')|float(0) > 0 }}
+        state: >
+          {% set e = states('sensor.consumo_do_ciclo_fechado')|float(0)
+                     * states('sensor.preco_convencional')|float(0) %}
+          {{ (e * states('input_number.aliquota_icms')|float(0) / 100) | round(2) }}
+
+      - name: "Fatura PIS"
+        unique_id: fatura_pis
+        unit_of_measurement: BRL
+        device_class: monetary
+        availability: >
+          {{ states('sensor.consumo_do_ciclo_fechado')|float(0) > 0 }}
+        state: >
+          {% set e = states('sensor.consumo_do_ciclo_fechado')|float(0)
+                     * states('sensor.preco_convencional')|float(0) %}
+          {% set base = e * (1 - states('input_number.aliquota_icms')|float(0) / 100) %}
+          {{ (base * states('input_number.aliquota_pis')|float(0) / 100) | round(2) }}
+
+      - name: "Fatura COFINS"
+        unique_id: fatura_cofins
+        unit_of_measurement: BRL
+        device_class: monetary
+        availability: >
+          {{ states('sensor.consumo_do_ciclo_fechado')|float(0) > 0 }}
+        state: >
+          {% set e = states('sensor.consumo_do_ciclo_fechado')|float(0)
+                     * states('sensor.preco_convencional')|float(0) %}
+          {% set base = e * (1 - states('input_number.aliquota_icms')|float(0) / 100) %}
+          {{ (base * states('input_number.aliquota_cofins')|float(0) / 100) | round(2) }}
+
+      # ── Cerca do package: digite o total da conta; isto mostra a diferença
+      #    entre o que o seu medidor fechou e o que a distribuidora cobrou.
       - name: "Desvio da Conferência"
         unique_id: desvio_conferencia
         unit_of_measurement: BRL
         device_class: monetary
         icon: mdi:scale-balance
+        availability: >
+          {{ states('sensor.consumo_do_ciclo_fechado')|float(0) > 0 }}
         state: >
-          {{ (states('sensor.fatura_mensal_convencional')|float(0)
+          {{ (states('sensor.fatura_do_ciclo_fechado')|float(0)
             - states('input_number.fatura_conferencia')|float(0)) | round(2) }}
 
       # ── Alerta de fim de vigência (a virada é conhecida, não é surpresa)
@@ -4366,11 +4496,28 @@ template:
           {% set m = states('select.monthly_energy') %}
           {{ {'peak':'Ponta','shoulder':'Intermediário','offpeak':'Fora Ponta'}.get(m, m) }}
 
+# ── Tudo aqui é copiado da conta. SEM `initial:` — com ele o Home Assistant
+#    descarta o que foi digitado a cada início.
 input_number:
-  # ── Alíquotas — copie do quadro "Tributo" da sua fatura
+  fatura_preco_com_tributos:
+    name: "Preço unitário com tributos (da fatura)"
+    min: 0
+    max: 10
+    step: 0.00001
+    unit_of_measurement: "BRL/kWh"
+    icon: mdi:cash
+    mode: box
+  fatura_tarifa_unit:
+    name: "Tarifa unitária sem tributos (da fatura)"
+    min: 0
+    max: 10
+    step: 0.00001
+    unit_of_measurement: "BRL/kWh"
+    icon: mdi:cash-minus
+    mode: box
+
   aliquota_icms:
     name: "Alíquota ICMS"
-    initial: 24.0
     min: 0
     max: 40
     step: 0.01
@@ -4379,7 +4526,6 @@ input_number:
     mode: box
   aliquota_pis:
     name: "Alíquota PIS/PASEP"
-    initial: 1.23
     min: 0
     max: 10
     step: 0.01
@@ -4388,7 +4534,6 @@ input_number:
     mode: box
   aliquota_cofins:
     name: "Alíquota COFINS"
-    initial: 5.67
     min: 0
     max: 20
     step: 0.01
@@ -4399,17 +4544,17 @@ input_number:
   # ── Encargos fixos do mês (R$) — NÃO escalam com consumo
   encargo_cosip:
     name: "Contrib. Custeio Iluminação Pública"
-    initial: 0
     min: 0
     max: 1000
     step: 0.01
     unit_of_measurement: "BRL"
     icon: mdi:lightbulb-on-outline
     mode: box
+  # (crédito vai no campo de bônus: sem `initial:`, um campo nasce no `min`,
+  #  e um mínimo negativo faria a instalação nova nascer com fatura negativa)
   encargo_complementos:
     name: "Complementos e outros débitos"
-    initial: 0
-    min: -1000
+    min: 0
     max: 1000
     step: 0.01
     unit_of_measurement: "BRL"
@@ -4417,7 +4562,6 @@ input_number:
     mode: box
   encargo_bonus:
     name: "Bônus e créditos (positivo, será subtraído)"
-    initial: 0
     min: 0
     max: 1000
     step: 0.01
@@ -4425,10 +4569,8 @@ input_number:
     icon: mdi:minus-box-outline
     mode: box
 
-  # ── Conferência — total da última fatura, para validar o modelo
   fatura_conferencia:
     name: "Total da última fatura (conferência)"
-    initial: 0
     min: 0
     max: 100000
     step: 0.01
@@ -4436,18 +4578,52 @@ input_number:
     icon: mdi:file-document-check-outline
     mode: box
 
+input_datetime:
+  fatura_proxima_leitura:
+    name: "Próxima leitura (da fatura)"
+    has_date: true
+    has_time: false
+    icon: mdi:calendar-arrow-right
+  # Gravada pela automação ao fechar o ciclo: é o que impede fechar duas vezes.
+  fatura_ultima_leitura:
+    name: "Última leitura fechada"
+    has_date: true
+    has_time: false
+    icon: mdi:calendar-check
+
 utility_meter:
   # Roda mesmo no Convencional: sem a quebra por posto não existe simulação.
   # A fonte é o sensor Energy Total definido acima (soma das fases da Shelly)
   # — nada a editar aqui.
+  #
+  # periodically_resetting: false → quando a fonte some e volta, a diferença é
+  #   contada a partir do último valor VÁLIDO: o consumo do intervalo entra e
+  #   nada é somado em dobro.
+  #   Exceção (é do Home Assistant, não deste arquivo): a cada troca de posto
+  #   e a cada início o medidor esquece esse último valor. Se a fonte ficar
+  #   fora ATRAVESSANDO uma troca ou um reinício, o consumo do intervalo não é
+  #   contado — perde-se, nunca se soma em dobro.
+  # always_available: true → o medidor continua mostrando o que acumulou
+  #   enquanto a fonte está fora, em vez de sumir do painel.
   daily_energy:
     source: sensor.energy_total
     cycle: daily
     tariffs: [peak, shoulder, offpeak]
+    periodically_resetting: false
+    always_available: true
   monthly_energy:
     source: sensor.energy_total
     cycle: monthly
     tariffs: [peak, shoulder, offpeak]
+    periodically_resetting: false
+    always_available: true
+  # O medidor DA FATURA: sem ciclo de calendário. Quem o zera é a automação
+  # de fechamento, na data de leitura informada.
+  fatura_energy:
+    source: sensor.energy_total
+    tariffs: [peak, shoulder, offpeak]
+    periodically_resetting: false
+    always_available: true
 
 automation:
   # ⚠️ AS JANELAS SÃO POR DISTRIBUIDORA, não universais.
@@ -4496,8 +4672,42 @@ automation:
           entity_id:
             - select.daily_energy
             - select.monthly_energy
+            - select.fatura_energy
         data:
           option: "{{ alvo | trim }}"
+
+  # Fecha o ciclo da fatura ao meio-dia da data de leitura informada — ou no
+  # primeiro início depois dela, se o Home Assistant estava parado na hora.
+  # Só fecha uma vez por data: grava a data fechada e exige que a próxima
+  # seja posterior a ela.
+  - id: energia_br_fecha_ciclo_fatura
+    alias: "Energia BR — fecha o ciclo da fatura"
+    description: >
+      Zera o medidor da fatura na data de leitura. O que ele tinha acumulado
+      fica guardado como ciclo fechado, para comparar com a conta.
+    mode: single
+    trigger:
+      - platform: time
+        at: "12:00:00"
+      - platform: homeassistant
+        event: start
+    condition:
+      - condition: template
+        value_template: >
+          {% set p = states('input_datetime.fatura_proxima_leitura') | as_datetime %}
+          {% set u = states('input_datetime.fatura_ultima_leitura') | as_datetime %}
+          {{ p is not none and u is not none and u.date() < p.date()
+             and (now().date() > p.date()
+                  or (now().date() == p.date() and now().hour >= 12)) }}
+    action:
+      - service: utility_meter.reset
+        target:
+          entity_id: select.fatura_energy
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.fatura_ultima_leitura
+        data:
+          date: "{{ states('input_datetime.fatura_proxima_leitura') }}"
 FIM_EMB_PKG_ENERGIA
 )
 # <<< PKG_ENERGIA EMBUTIDO <<<
@@ -4560,8 +4770,7 @@ HAOS_PKG_GAS=$(cat <<'FIM_EMB_PKG_GAS'
 template:
   # ═══════════════════════════════════════════════════════════════════════════
   # TABELA TARIFÁRIA — R$/m³ JÁ COM TRIBUTOS
-  # Literais no YAML e não input_number: o step mínimo do input_number é 0,001
-  # e a tarifa tem 4 casas decimais.
+  # Literais no YAML: a tabela muda por ato da agência, não a cada conta.
   #
   # Valores desta fatura (JUL/2026). O PDF vigente a partir de 01/08/2026 traz
   # 9,7235 e 12,6756 — a virada de tarifa está capturada aqui.
@@ -4610,8 +4819,8 @@ template:
         icon: mdi:gas-cylinder
         state: >
           {% set m = states('sensor.gas_consumo_medido')|float(0) %}
-          {% set f = states('input_number.gas_fator_correcao')|float(1) %}
-          {{ (m * f) | round(0) | int }}
+          {% set f = states('input_number.gas_fator_correcao')|float(0) %}
+          {{ (m * (f if f > 0 else 1)) | round(0) | int }}
         attributes:
           medido: "{{ states('sensor.gas_consumo_medido') }}"
           fator: "{{ states('input_number.gas_fator_correcao') }}"
@@ -4691,18 +4900,17 @@ template:
           {{ (states('sensor.gas_custo_fornecimento')|float(0)
             - states('input_number.gas_fatura_conferencia')|float(0)) | round(2) }}
 
+# SEM `initial:` — com ele o Home Assistant descarta o que foi digitado a cada
+# início. O exemplo validado (19 m³ × 1,03372 → 20 m³ → 229,01) está na cerca:
+# tools/pacotes-arnes.sh.
 input_number:
   # ── Fator de correção COMBINADO = P,T,Z × PCS, lido da sua fatura
-  #    Fatura JUL/2026: 1,02146 × 1,012 = 1,03372
-  #    ⚠️ step mínimo do input_number é 0,001, então guarda 1,034.
-  #       Verificado: 19 × 1,03372 = 19,6407 e 19 × 1,034 = 19,646 — os dois
-  #       arredondam para 20. A perda só importaria a ~0,05% de uma fronteira
-  #       de arredondamento. Se a sua fatura divergir, ajuste este valor.
+  #    Fatura JUL/2026: 1,02146 × 1,012 = 1,03372 — digite as cinco casas.
+  #    Enquanto não for digitado (zero), o volume medido passa sem correção.
   # ── Leitura do ciclo, em m³ (diferença das leituras da fatura) — alimenta
   #    o sensor Gás Consumo Medido acima
   gas_consumo_ciclo_m3:
     name: "Gás — leitura do ciclo"
-    initial: 19
     min: 0
     max: 500
     step: 1
@@ -4712,17 +4920,15 @@ input_number:
 
   gas_fator_correcao:
     name: "Gás — fator de correção (P,T,Z × PCS)"
-    initial: 1.034
-    min: 0.9
+    min: 0
     max: 1.2
-    step: 0.001
+    step: 0.00001
     icon: mdi:tune-variant
     mode: box
 
   # ── Conferência: total de fornecimento da última fatura
   gas_fatura_conferencia:
     name: "Gás — total da última fatura (conferência)"
-    initial: 229.01
     min: 0
     max: 100000
     step: 0.01
@@ -4884,15 +5090,15 @@ template:
         icon: mdi:scale-balance
         state: >
           {{ (states('input_number.agua_valor_condominio')|float(0)
-            - states('sensor.agua_esgoto_simulado')|float(0)) | round(2) }}
+            - states('sensor.agua_e_esgoto_simulado')|float(0)) | round(2) }}
         attributes:
           leitura: >
             {% set d = states('input_number.agua_valor_condominio')|float(0)
-                     - states('sensor.agua_esgoto_simulado')|float(0) %}
+                     - states('sensor.agua_e_esgoto_simulado')|float(0) %}
             {{ 'condomínio cobra A MAIS que a regra da concessionária' if d > 0
                else ('condomínio cobra A MENOS' if d < 0 else 'idêntico') }}
           percentual: >
-            {% set s = states('sensor.agua_esgoto_simulado')|float(0) %}
+            {% set s = states('sensor.agua_e_esgoto_simulado')|float(0) %}
             {% set c = states('input_number.agua_valor_condominio')|float(0) %}
             {{ ((c/s - 1) * 100) | round(1) if s > 0 else 0 }}
 
@@ -4910,7 +5116,7 @@ template:
         icon: mdi:currency-usd
         state: >
           {% set c = states('input_number.agua_consumo_m3')|float(0) %}
-          {{ (states('sensor.agua_esgoto_simulado')|float(0) / c) | round(4) if c > 0 else 0 }}
+          {{ (states('sensor.agua_e_esgoto_simulado')|float(0) / c) | round(4) if c > 0 else 0 }}
 
 input_select:
   agua_area:
@@ -4918,15 +5124,16 @@ input_select:
     options:
       - "Área A"
       - "Área B"
-    initial: "Área A"
     icon: mdi:map-marker-radius
 
+# SEM `initial:` — com ele o Home Assistant descarta o que foi digitado a cada
+# início. O exemplo validado (21 m³ na Área A, 356,39 do condomínio) está na
+# cerca: tools/pacotes-arnes.sh.
 input_number:
   # ── Consumo do ciclo, em m³. Da linha da fatura do condomínio:
   #    "Água - Esgoto - Individual M³: 4 219,0000(Jul) − 4 198,0000(Jun) = 21,0000"
   agua_consumo_m3:
     name: "Água — consumo do ciclo"
-    initial: 21
     min: 0
     max: 500
     step: 0.001
@@ -4937,7 +5144,6 @@ input_number:
   # ── O que o condomínio repassou, para a comparação
   agua_valor_condominio:
     name: "Água — valor repassado pelo condomínio"
-    initial: 356.39
     min: 0
     max: 100000
     step: 0.01
@@ -4981,23 +5187,77 @@ views:
     icon: mdi:cash-multiple
     cards:
       - type: entities
-        title: Energia — Convencional × Branca
+        title: Energia — da fatura
         entities:
+          - type: simple-entity
+            entity: input_number.fatura_preco_com_tributos
+            name: Preço unitário com tributos
+          - type: simple-entity
+            entity: input_number.fatura_tarifa_unit
+            name: Tarifa unitária sem tributos
+          - type: simple-entity
+            entity: input_number.aliquota_icms
+            name: ICMS
+          - type: simple-entity
+            entity: input_number.aliquota_pis
+            name: PIS/PASEP
+          - type: simple-entity
+            entity: input_number.aliquota_cofins
+            name: COFINS
+          - type: simple-entity
+            entity: input_number.encargo_cosip
+            name: Iluminação pública
+          - type: simple-entity
+            entity: input_number.encargo_complementos
+            name: Complementos
+          - type: simple-entity
+            entity: input_number.encargo_bonus
+            name: Bônus
+          - type: simple-entity
+            entity: input_number.fatura_conferencia
+            name: Total a pagar
+          - type: simple-entity
+            entity: input_datetime.fatura_proxima_leitura
+            name: Próxima leitura
+          - type: divider
+          - entity: sensor.conferencia_do_preco
+            name: Conferência do preço
+
+      - type: entities
+        title: Energia — ciclo fechado × conta
+        entities:
+          - entity: sensor.consumo_do_ciclo_fechado
+            name: Consumo medido
+          - entity: sensor.fatura_do_ciclo_fechado
+            name: Fatura pelo medidor
+          - entity: sensor.desvio_da_conferencia
+            name: Diferença para a conta
+          - type: divider
+          - entity: sensor.fatura_icms
+            name: ICMS
+          - entity: sensor.fatura_pis
+            name: PIS/PASEP
+          - entity: sensor.fatura_cofins
+            name: COFINS
+
+      - type: entities
+        title: Energia — ciclo em curso
+        entities:
+          - type: simple-entity
+            entity: input_datetime.fatura_ultima_leitura
+            name: Início do ciclo
+          - entity: sensor.consumo_do_ciclo
+            name: Consumo desde a leitura
           - entity: sensor.fatura_mensal_convencional
-            name: Fatura Convencional (o que pago)
+            name: Fatura Convencional até agora
           - entity: sensor.fatura_mensal_branca
             name: Fatura Branca (simulada)
           - entity: sensor.economia_com_tarifa_branca
             name: Economia se migrar
-          - type: divider
-          - entity: input_number.fatura_conferencia
-            name: Valor da conta do mês (conferência)
-          - entity: sensor.desvio_da_conferencia
-            name: Desvio vs conta real
-          - entity: sensor.dias_ate_reajuste_tarifario
-            name: Dias até o reajuste
           - entity: sensor.posto_tarifario_atual
             name: Posto tarifário agora
+          - entity: sensor.dias_ate_reajuste_tarifario
+            name: Dias até o reajuste
 
       - type: entities
         title: Energia — preços por posto (R$/kWh)
@@ -5006,6 +5266,8 @@ views:
           - sensor.preco_ponta
           - sensor.preco_intermediario
           - sensor.preco_fora_ponta
+          - sensor.bandeira_implicita
+          - sensor.fator_de_tributos
 
       - type: entities
         title: Gás canalizado

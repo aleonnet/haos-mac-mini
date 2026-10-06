@@ -5,6 +5,22 @@
 **Objetivo:** construir uma base tarifária rastreável e machine-readable para ser consumida por um LLM e, posteriormente, gerar/configurar YAML do Home Assistant.  
 **Princípio:** nenhum valor deve ser publicado sem fonte, vigência e contexto tarifário explícitos.
 
+> **Revisão de 2026-10-06 — leia antes de usar a parte de energia.** Dois pontos
+> deste documento foram revistos por
+> [2026-10-06-1200-fonte-da-tarifa-de-energia.md](2026-10-06-1200-fonte-da-tarifa-de-energia.md);
+> o restante segue como foi escrito.
+>
+> 1. **Light (linha do resumo em §3.3 e toda a §3.6).** Os quatro valores foram
+>    transcritos de um espelho de terceiros do despacho, não dos dados abertos
+>    nem do ato em fonte primária. O Convencional (0,94793) foi depois
+>    confirmado por duas faturas; **ponta, intermediária e fora de ponta
+>    continuam sem conferência em fonte primária.** O package de energia deixou
+>    de usar a tabela para o que se paga: o preço e os impostos vêm da fatura.
+> 2. **§11.3 — o passo mínimo do `input_number` não é 0,001.** No código do
+>    Home Assistant o passo aceita até 0,000000001. A afirmação errada levou os
+>    packages a guardar tarifas como constantes no arquivo; isso foi desfeito
+>    onde a fatura imprime o número.
+
 ---
 
 ## Sumário

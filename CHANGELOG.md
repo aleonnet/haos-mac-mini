@@ -6,7 +6,66 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
 
 ## [Unreleased]
 
+### Changed
+- 🔴 **Energia: o preço e os impostos passam a vir da fatura.** O painel não fechava com
+  a conta porque PIS, COFINS e bandeira mudam todo mês e estavam escritos como constantes,
+  e a tabela era atribuída aos dados abertos da ANEEL, que não a contêm (decisão e fontes em
+  `docs/2026-10-06-1200-fonte-da-tarifa-de-energia.md`). Agora o painel Custos tem um bloco
+  **da fatura** com dez campos copiados da conta: preço unitário com tributos, tarifa
+  unitária, ICMS, PIS, COFINS, iluminação pública, complementos, bônus, total a pagar e data
+  da próxima leitura. A tabela do arquivo serve só à simulação da Tarifa Branca.
+  **Quem atualiza precisa digitar esses campos uma vez** — até lá o custo aparece zerado.
+- **Energia: o ciclo da fatura vai de leitura a leitura.** Entra o medidor
+  `fatura_energy`, zerado ao meio-dia da data de leitura informada (ou no primeiro início
+  depois dela). O que ele tinha fica guardado como **ciclo fechado**, que é o que se compara
+  com a conta: consumo, fatura, ICMS, PIS e COFINS em reais, e a diferença para o total
+  digitado. Os medidores diário e mensal seguem o calendário, como antes.
+- **Painel Custos reorganizado** na parte de energia: da fatura · ciclo fechado × conta ·
+  ciclo em curso · preços por posto. O ciclo fechado fica indisponível até o primeiro
+  fechamento, em vez de mostrar só os encargos fixos. Os campos da fatura aparecem como
+  linhas simples, da mesma altura das demais: o clique abre a caixa para digitar.
+- **Energia: "Complementos e outros débitos" não aceita mais valor negativo** (crédito vai no
+  campo de bônus). Sem valor inicial um campo nasce no mínimo, e o mínimo era −1000.
+
+### Added
+- **`tools/pacotes-arnes.sh` + `contract/pacotes.py` — os packages provados contra um Home
+  Assistant de verdade.** O portão só conferia que o instalador *escreve* os packages; isto
+  confere que eles *fazem a conta*: toda entidade citada existe, o total da casa não é
+  publicado com fase sem valor, duas faturas reais saem com no máximo um centavo de diferença,
+  imposto digitado errado é
+  acusado, campo digitado sobrevive a reinício, o ciclo fecha na data certa e uma vez só, os
+  três medidores trocam de posto juntos e não perdem nem inventam consumo quando a fonte some
+  e volta, a energia devolvida à rede fica fora da soma, instalação nova
+  não nasce com número inventado, e água e gás devolvem os exemplos validados. Roda no CI na
+  versão fixada e na estável.
+- `docs/README.md` — o mapa dos documentos.
+
 ### Fixed
+- 🔴🔴 **Energia: cada queda do medidor somava a vida inteira dele de novo.** O total da
+  casa tratava fase sem resposta como zero: quando o Shelly sumia por segundos (queda de luz
+  ou perda de comunicação) o total caía fase a fase até zero e voltava, e o medidor lia a
+  volta como consumo. Medido em campo: um mês de 354 kWh aparecia como 348 mil kWh. Agora o
+  total só existe com **todas** as fases respondendo; faltando uma, fica indisponível e o
+  medidor espera. As fases passaram a ser procuradas no **registro** de entidades, não entre
+  as entidades vivas da integração: numa recarga da integração as vivas saem da lista uma a
+  uma, e a soma das que sobravam passaria por total. Os medidores passaram a contar a partir
+  do último valor válido (`periodically_resetting: false`) e a continuar visíveis durante a
+  falta (`always_available: true`) — com a ressalva de que o Home Assistant esquece esse
+  último valor a cada troca de posto e a cada início: falta que atravesse um dos dois perde o
+  consumo do intervalo (nunca soma em dobro).
+  ⚠️ O conserto vale daqui para a frente: o histórico já gravado com os saltos não se
+  corrige sozinho.
+- 🔴 **Três referências a entidades que não existem, escondidas por valor padrão.** O
+  identificador de um sensor de template nasce do **nome**, não da chave única, e três
+  templates liam o nome errado com um valor padrão por trás — então não davam erro, davam
+  número errado: o fator de tributos nunca era aplicado ao preço, os encargos fixos nunca
+  entravam na fatura, e a água comparava o condomínio com zero.
+- 🔴 **O que você digitava sumia a cada reinício.** Todo campo dos três packages tinha
+  `initial:`, e um `input_number` com valor inicial não restaura o último estado. Nenhum
+  campo do dono tem mais valor inicial; os exemplos validados migraram para a cerca.
+- **Gás: o fator de correção aceita as cinco casas da fatura.** O cabeçalho dizia que o
+  passo mínimo do `input_number` era 0,001 — não é (o código aceita até 0,000000001) — e o
+  fator era guardado arredondado. Enquanto não for digitado, o volume passa sem correção.
 - **Portão: o download do shellcheck não se recuperava de corte de rede.**
   `acha_shellcheck()` fazia `curl | tar` — um `Recv failure: Connection reset by peer`
   no meio do fluxo trunca a entrada do tar e não há como repetir. O CI de 29/08 ficou

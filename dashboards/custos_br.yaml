@@ -14,23 +14,77 @@ views:
     icon: mdi:cash-multiple
     cards:
       - type: entities
-        title: Energia — Convencional × Branca
+        title: Energia — da fatura
         entities:
+          - type: simple-entity
+            entity: input_number.fatura_preco_com_tributos
+            name: Preço unitário com tributos
+          - type: simple-entity
+            entity: input_number.fatura_tarifa_unit
+            name: Tarifa unitária sem tributos
+          - type: simple-entity
+            entity: input_number.aliquota_icms
+            name: ICMS
+          - type: simple-entity
+            entity: input_number.aliquota_pis
+            name: PIS/PASEP
+          - type: simple-entity
+            entity: input_number.aliquota_cofins
+            name: COFINS
+          - type: simple-entity
+            entity: input_number.encargo_cosip
+            name: Iluminação pública
+          - type: simple-entity
+            entity: input_number.encargo_complementos
+            name: Complementos
+          - type: simple-entity
+            entity: input_number.encargo_bonus
+            name: Bônus
+          - type: simple-entity
+            entity: input_number.fatura_conferencia
+            name: Total a pagar
+          - type: simple-entity
+            entity: input_datetime.fatura_proxima_leitura
+            name: Próxima leitura
+          - type: divider
+          - entity: sensor.conferencia_do_preco
+            name: Conferência do preço
+
+      - type: entities
+        title: Energia — ciclo fechado × conta
+        entities:
+          - entity: sensor.consumo_do_ciclo_fechado
+            name: Consumo medido
+          - entity: sensor.fatura_do_ciclo_fechado
+            name: Fatura pelo medidor
+          - entity: sensor.desvio_da_conferencia
+            name: Diferença para a conta
+          - type: divider
+          - entity: sensor.fatura_icms
+            name: ICMS
+          - entity: sensor.fatura_pis
+            name: PIS/PASEP
+          - entity: sensor.fatura_cofins
+            name: COFINS
+
+      - type: entities
+        title: Energia — ciclo em curso
+        entities:
+          - type: simple-entity
+            entity: input_datetime.fatura_ultima_leitura
+            name: Início do ciclo
+          - entity: sensor.consumo_do_ciclo
+            name: Consumo desde a leitura
           - entity: sensor.fatura_mensal_convencional
-            name: Fatura Convencional (o que pago)
+            name: Fatura Convencional até agora
           - entity: sensor.fatura_mensal_branca
             name: Fatura Branca (simulada)
           - entity: sensor.economia_com_tarifa_branca
             name: Economia se migrar
-          - type: divider
-          - entity: input_number.fatura_conferencia
-            name: Valor da conta do mês (conferência)
-          - entity: sensor.desvio_da_conferencia
-            name: Desvio vs conta real
-          - entity: sensor.dias_ate_reajuste_tarifario
-            name: Dias até o reajuste
           - entity: sensor.posto_tarifario_atual
             name: Posto tarifário agora
+          - entity: sensor.dias_ate_reajuste_tarifario
+            name: Dias até o reajuste
 
       - type: entities
         title: Energia — preços por posto (R$/kWh)
@@ -39,6 +93,8 @@ views:
           - sensor.preco_ponta
           - sensor.preco_intermediario
           - sensor.preco_fora_ponta
+          - sensor.bandeira_implicita
+          - sensor.fator_de_tributos
 
       - type: entities
         title: Gás canalizado

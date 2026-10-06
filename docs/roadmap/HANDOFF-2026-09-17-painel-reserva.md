@@ -1,6 +1,9 @@
 # HANDOFF — o painel dos no-breaks, e a caçada que veio junto · 2026-09-17
 
-> **LEIA-ME PRIMEIRO.** Porta de entrada da frente do instalador. Supersede
+> **SUPERADO por `HANDOFF-2026-10-06-energia-na-fatura.md`** — abra aquele. Este
+> fica como registro da frente do painel dos no-breaks.
+>
+> Porta de entrada da frente do instalador até 2026-10-06. Supersede
 > `HANDOFF-2026-08-25-a-algema-do-apfs.md`.
 
 ## 0. ESTADO — confira no git, não neste parágrafo

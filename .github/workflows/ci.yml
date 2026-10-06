@@ -139,3 +139,31 @@ jobs:
       - name: log do container em caso de falha
         if: failure()
         run: docker logs ha | tail -60
+
+  # ---------------------------------------------------------------------------
+  # O arnês dos PACKAGES contra Home Assistant de verdade. O job acima prova
+  # que a superfície do HA de que o instalador depende existe; este prova que
+  # os packages que ele entrega FAZEM A CONTA: referências que existem, soma
+  # que não publica valor parcial, fatura ao centavo, campo que sobrevive a
+  # reinício, ciclo que fecha na data da leitura.
+  # O mesmo comando que roda na máquina de quem desenvolve.
+  # ---------------------------------------------------------------------------
+  pacotes:
+    name: pacotes @ ${{ matrix.ha }}
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.ha == 'stable' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        ha: ["2026.8.3", "stable"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install --quiet pyyaml
+
+      - name: ./tools/pacotes-arnes.sh --ha ${{ matrix.ha }}
+        run: ./tools/pacotes-arnes.sh --ha ${{ matrix.ha }}
