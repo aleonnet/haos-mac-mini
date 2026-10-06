@@ -1,77 +1,51 @@
 # =============================================================================
 # energia_br.yaml — custo de energia elétrica no Brasil
-#                   Fecha com a fatura e simula Convencional × Branca
+#                   A fatura como função do medidor; simula Convencional × Branca
 #
 # Instalação: copie para /config/packages/ e no configuration.yaml:
 #               homeassistant:
 #                 packages: !include_dir_named packages
 #
 # -----------------------------------------------------------------------------
-# O QUE VEM DA FATURA — e é digitado a cada conta
+# O QUE ENTRA
 # -----------------------------------------------------------------------------
-#   Preço unitário COM tributos · tarifa unitária SEM tributos · ICMS · PIS ·
-#   COFINS · iluminação pública · complementos · bônus · total a pagar · data da
-#   próxima leitura.
+#   Só o consumo medido e as duas datas de leitura. Tarifa, bandeira, ICMS, PIS,
+#   COFINS e iluminação pública são CALCULADOS, de parâmetros com fonte.
 #
-#   Motivo: PIS, COFINS e bandeira mudam todo mês, e a bandeira vem rateada
-#   pelos dias do ciclo. Nenhuma tabela pública reproduz isso; a conta, sim.
-#   Nenhum desses campos tem valor de fábrica: o que você digita fica, inclusive
-#   depois de reiniciar (campo com `initial:` volta ao valor inicial a cada
-#   início do Home Assistant — foi defeito deste package até 2026-10).
+#   · Dado   tarifas/energia_light_rj.json — cada número com fonte, citação,
+#            data de conferência e grau de certeza. É a fonte da verdade.
+#   · Regra  docs/2026-10-06-1600-formulas-da-fatura-de-energia.md — fórmulas
+#            numeradas (F1…F13). tarifas/fatura.py é a mesma regra em Python.
+#   · Tela   este arquivo. O bloco "DADOS DA FATURA" e a automação dos postos
+#            são GERADOS do arquivo de dados por tools/tarifas-bloco.py.
 #
-# -----------------------------------------------------------------------------
-# COMO A FATURA SE COMPÕE — validado contra duas faturas Light (RJ) de 2026
-# -----------------------------------------------------------------------------
-#   Tributos são "por dentro": ICMS sobre o BRUTO, PIS/COFINS sobre o LÍQUIDO DE ICMS.
-#     fator = 1 / (1 − icms − (pis + cofins) × (1 − icms))
-#
-#   Agosto, 304 kWh — ICMS 24,00% · PIS 1,23% · COFINS 5,67% → fator 1,413308
-#     tarifa 0,96678 × fator = 1,36636 (o preço com tributos impresso)
-#     304 × 1,36636 = 415,37 · − 10,13 + 2,08 + 64,60 = 471,92  ✓ (total a pagar)
-#     ICMS 24,00% de 415,37 = 99,69 · PIS 1,23% de 315,68 = 3,88 · COFINS 17,90
-#
-#   Outubro, 354 kWh — ICMS 24,00% · PIS 1,01% · COFINS 4,68% → fator 1,395175
-#     tarifa 0,96335 × fator = 1,34404 (impresso: 1,34405)
-#     354 × 1,34405 = 475,79 · + 2,08 + 64,60 = 542,47  (total a pagar: 542,46)
-#
-#   ⚠️ A BANDEIRA está DENTRO da tarifa unitária da conta. Aqui ela é deduzida:
-#      bandeira = tarifa unitária da conta − tarifa convencional da tabela.
-#   ⚠️ A iluminação pública é MUNICIPAL e NÃO escala com kWh.
-#   ⚠️ O ciclo da fatura vai de LEITURA a LEITURA, não do dia 1 ao dia 30. Por
-#      isso há um medidor só da fatura, zerado ao meio-dia da data de leitura
-#      que a conta informa. Os medidores diário e mensal seguem o calendário.
+#   Outra distribuidora, outro município: troque o arquivo de dados e regenere.
 #
 # -----------------------------------------------------------------------------
-# FONTES DA TABELA — e o que NÃO está conferido
+# AJUSTE MANUAL
 # -----------------------------------------------------------------------------
-#   A tabela abaixo só serve à SIMULAÇÃO da Tarifa Branca. O que se paga no
-#   Convencional sai do preço digitado da conta, não dela.
+#   Cada parâmetro tem um campo de ajuste. VAZIO = vale o calculado.
+#   PREENCHIDO = vale o seu (ponto ou vírgula). Os ajustes valem para o ciclo
+#   em curso e para o fechado, até serem apagados.
+#   PIS e COFINS mudam todo mês e nenhuma fonte pública os traz: sem ajuste,
+#   vale o último mês conhecido do arquivo de dados.
+#   Nenhum campo tem `initial:` — com ele o Home Assistant descarta o que foi
+#   digitado a cada início.
 #
-#   · Convencional 0,94793 — confere com a tarifa sem bandeira de duas faturas
-#     (ago e out/2026). É o valor do Despacho ANEEL 921/2026, restaurado pelo
-#     Despacho 2129/2026, que alterou o reajuste homologado pela REH 3.571/2026.
-#   · Ponta, intermediária e fora de ponta — transcritas de um ESPELHO de
-#     terceiros do mesmo despacho. NÃO conferidas em fonte primária. A proporção
-#     com a base aberta (1,0778 · 1,0770 · 1,0761) é coerente com a do
-#     convencional (1,0765), mas coerência não é prova.
-#   · A base de dados abertos da ANEEL publica a resolução HOMOLOGADA, não o
-#     regime do despacho: para esta distribuidora ela traz 0,88056 / 1,61431 /
-#     1,11884 / 0,77543 (lido em 2026-10-06). Não é atraso — é outra coisa.
-#     https://dadosabertos.aneel.gov.br/dataset/tarifas-distribuidoras-energia-eletrica
-#   Detalhe e citações: docs/2026-10-06-1200-fonte-da-tarifa-de-energia.md
+# -----------------------------------------------------------------------------
+# O CICLO
+# -----------------------------------------------------------------------------
+#   Vai de leitura a leitura, em dias inteiros: fecha à 00:00 da data de
+#   leitura. Ao fechar, o consumo e as duas datas ficam guardados como ciclo
+#   fechado (é o que se compara com a conta) e a próxima leitura passa a ser
+#   assumida um mês depois — corrija a data quando a conta trouxer outra.
+#   Os medidores diário e mensal seguem o calendário.
 #
-#   Regra da Tarifa Branca e dos postos (ANEEL):
-#     gov.br/aneel/pt-br/assuntos/tarifas/entenda-a-tarifa/postos-tarifarios
-#     · Ponta: "período diário de 3h consecutivas, com exceção feita aos
-#       sábados, domingos e feriados nacionais"
-#     · Intermediário: "1h a 1h30 ANTES E DEPOIS do horário de ponta"
-#     · "Nos fins de semana e feriados nacionais, todas as horas são fora de ponta"
-#     · Janelas definidas POR DISTRIBUIDORA na revisão tarifária periódica
+#   Requer a integração `workday` (core, config flow) com país BR e a
+#   subdivisão do estado — é ela que conhece feriados nacionais e estaduais.
 #
-#   Requer a integração `workday` (core, config flow) com país BR e a subdivisão
-#   do estado — é ela que conhece feriados nacionais e estaduais.
-#
-#   Cerca: tools/pacotes-arnes.sh sobe um Home Assistant e prova tudo isto.
+#   Cerca: tools/pacotes-arnes.sh sobe um Home Assistant e compara cada número
+#   daqui com tarifas/fatura.py.
 # =============================================================================
 
 template:
@@ -132,102 +106,60 @@ template:
           {{ ns.fases > 0 and ns.sem_valor == 0 }}
 
       # ═════════════════════════════════════════════════════════════════════════
-      # TABELA TARIFÁRIA — R$/kWh LÍQUIDOS (sem tributos e sem bandeira).
-      # Serve à simulação da Tarifa Branca. Proveniência no cabeçalho.
+      # OS PARÂMETROS, com fonte. Tarifas em R$/kWh sem tributos e sem bandeira;
+      # adicional da bandeira e tarifa de referência da iluminação em R$/MWh;
+      # alíquotas em %.
       # ═════════════════════════════════════════════════════════════════════════
-      - name: "Tabela Tarifária"
-        unique_id: tabela_tarifaria
-        icon: mdi:table-large
-        state: "LIGHT SESA"
+      # >>> DADOS DA FATURA — gerado por tools/tarifas-bloco.py a partir de tarifas/energia_light_rj.json; não edite à mão >>>
+      - name: "Dados da Fatura"
+        unique_id: dados_da_fatura
+        icon: mdi:database-outline
+        state: "2026-10-06"
         attributes:
-          cnpj: "60444437000146"
-          subgrupo: "B1 Residencial"
-          vigencia_inicio: "2026-03-15"
+          distribuidora: "Light Serviços de Eletricidade S.A."
           vigencia_fim: "2027-03-14"
-          ato: "REH 3.571/2026 + Despacho 921/2026, restaurado por 2129/2026"
-          convencional: 0.94793
-          ponta: 1.73992
-          intermediaria: 1.20499
-          fora_ponta: 0.83447
-          convencional_conferido: "duas faturas de 2026"
-          branca_conferida: "não — transcrição de espelho, sem fonte primária"
+          tarifa_convencional: "{{ 0.94793 }}"
+          tarifa_ponta: "{{ 1.73992 }}"
+          tarifa_intermediaria: "{{ 1.20499 }}"
+          tarifa_fora_ponta: "{{ 0.83447 }}"
+          ip_teip: "{{ 684.41 }}"
+          ip_teto: "{{ 5195.0 }}"
+          bandeira_adicional: >-
+            {{ {'Verde': 0.0, 'Amarela': 18.85, 'Vermelha P1': 44.63, 'Vermelha P2': 78.77} }}
+          bandeira_acionada: >-
+            {{ {'2025-01': 'Verde', '2025-02': 'Verde', '2025-03': 'Verde', '2025-04': 'Verde',
+               '2025-05': 'Amarela', '2025-06': 'Vermelha P1', '2025-07': 'Vermelha P1',
+               '2025-08': 'Vermelha P2', '2025-09': 'Vermelha P2', '2025-10': 'Vermelha P1',
+               '2025-11': 'Vermelha P1', '2025-12': 'Amarela', '2026-01': 'Verde', '2026-02': 'Verde',
+               '2026-03': 'Verde', '2026-04': 'Verde', '2026-05': 'Amarela', '2026-06': 'Amarela',
+               '2026-07': 'Amarela', '2026-08': 'Amarela', '2026-09': 'Amarela', '2026-10': 'Verde'} }}
+          icms_faixas: >-
+            {{ [[50, 0.0], [300, 18.0], [None, 24.0]] }}
+          pis_cofins: >-
+            {{ {'2026-08': [1.23, 5.67], '2026-10': [1.01, 4.68]} }}
+          ip_faixas: >-
+            {{ [[120, 0.0, 0.0], [140, 2.75, 0.00572], [170, 4.13, 0.00857], [200, 6.44, 0.01602],
+               [250, 7.57, 0.01879], [300, 9.46, 0.02349], [350, 17.67, 0.04386], [400, 20.61, 0.05117],
+               [450, 23.54, 0.05839], [500, 26.49, 0.06568], [550, 29.41, 0.07298], [600, 32.35, 0.08028],
+               [650, 35.29, 0.08754], [700, 38.23, 0.09484], [750, 41.17, 0.10213], [800, 44.11, 0.10942],
+               [850, 47.05, 0.11672], [900, 49.99, 0.12401], [950, 52.93, 0.13131], [1000, 55.87, 0.1386],
+               [1500, 58.8, 0.14591], [2000, 88.2, 0.21887], [2500, 117.6, 0.29182],
+               [3000, 146.99, 0.36478], [3500, 176.4, 0.43766], [4000, 205.8, 0.5106],
+               [4500, 235.15, 0.58337], [5000, 264.55, 0.65629], [5500, 293.89, 0.72914],
+               [6000, 323.27, 0.80205], [6500, 352.61, 0.87495], [7000, 381.99, 0.94786],
+               [7500, 411.4, 1.02074], [8000, 440.78, 1.09365], [8500, 470.16, 1.1665],
+               [9000, 499.55, 1.2394], [9500, 528.88, 1.31233], [10000, 558.26, 1.38523],
+               [12500, 587.63, 1.45807], [15000, 734.55, 1.82259], [17500, 881.48, 2.18705],
+               [20000, 1028.4, 2.55156], [22500, 1175.31, 2.91607], [25000, 1322.22, 3.28058],
+               [27500, 1469.15, 3.64515], [30000, 1616.07, 4.00966], [32500, 1762.98, 4.37418],
+               [35000, 1909.9, 4.73869], [37500, 2056.81, 5.10321], [40000, 2203.72, 5.46772],
+               [42500, 2350.61, 5.83218], [45000, 2497.52, 6.19669], [47500, 2644.44, 6.5612],
+               [50000, 2791.35, 6.92572], [62500, 2938.25, 7.29031], [75000, 3672.81, 9.11289],
+               [87500, 4407.37, 10.93546], [100000, 5141.93, 12.75804], [150000, 5876.29, 14.58039],
+               [200000, 8814.43, 21.87059], [None, 11752.76, 29.16083]] }}
+      # <<< DADOS DA FATURA <<<
 
-      # ── Fator de tributos, DERIVADO das alíquotas digitadas da conta
-      - name: "Fator de Tributos"
-        unique_id: fator_tributos
-        icon: mdi:calculator-variant
-        state: >
-          {% set i = states('input_number.aliquota_icms')|float(0) / 100 %}
-          {% set p = states('input_number.aliquota_pis')|float(0) / 100 %}
-          {% set c = states('input_number.aliquota_cofins')|float(0) / 100 %}
-          {% set d = 1 - i - (p + c) * (1 - i) %}
-          {{ (1 / d) | round(6) if d > 0 else 0 }}
-
-      # ── Bandeira do ciclo, deduzida da conta (já vem rateada pelos dias)
-      - name: "Bandeira Implícita"
-        unique_id: bandeira_implicita
-        unit_of_measurement: "BRL/kWh"
-        icon: mdi:flag-outline
-        state: >
-          {% set u = states('input_number.fatura_tarifa_unit')|float(0) %}
-          {% set c = state_attr('sensor.tabela_tarifaria', 'convencional')|float(0) %}
-          {{ (u - c) | round(5) if u > 0 else 0 }}
-
-      # ── O que se paga por kWh: o preço impresso na conta, sem recalcular
-      - name: "Preço Convencional"
-        unique_id: preco_convencional
-        unit_of_measurement: "BRL/kWh"
-        state: >
-          {{ states('input_number.fatura_preco_com_tributos')|float(0) | round(6) }}
-
-      # ── Simulação da Branca: (tarifa do posto + bandeira da conta) × fator
-      - name: "Preço Ponta"
-        unique_id: preco_ponta
-        unit_of_measurement: "BRL/kWh"
-        state: >
-          {{ ((state_attr('sensor.tabela_tarifaria', 'ponta')|float(0)
-               + states('sensor.bandeira_implicita')|float(0))
-              * states('sensor.fator_de_tributos')|float(0)) | round(6) }}
-
-      - name: "Preço Intermediário"
-        unique_id: preco_intermediario
-        unit_of_measurement: "BRL/kWh"
-        state: >
-          {{ ((state_attr('sensor.tabela_tarifaria', 'intermediaria')|float(0)
-               + states('sensor.bandeira_implicita')|float(0))
-              * states('sensor.fator_de_tributos')|float(0)) | round(6) }}
-
-      - name: "Preço Fora Ponta"
-        unique_id: preco_fora_ponta
-        unit_of_measurement: "BRL/kWh"
-        state: >
-          {{ ((state_attr('sensor.tabela_tarifaria', 'fora_ponta')|float(0)
-               + states('sensor.bandeira_implicita')|float(0))
-              * states('sensor.fator_de_tributos')|float(0)) | round(6) }}
-
-      # ── Cerca dos números digitados: a tarifa × o fator dos três impostos
-      #    tem de dar o preço com tributos. Fora de zero, algum foi digitado
-      #    errado.
-      - name: "Conferência do Preço"
-        unique_id: conferencia_preco
-        unit_of_measurement: "BRL/kWh"
-        icon: mdi:scale-balance
-        state: >
-          {{ (states('input_number.fatura_preco_com_tributos')|float(0)
-              - states('input_number.fatura_tarifa_unit')|float(0)
-                * states('sensor.fator_de_tributos')|float(0)) | round(4) }}
-
-      # ── Encargos fixos do mês (independem do consumo)
-      - name: "Encargos Fixos do Mês"
-        unique_id: encargos_fixos_mes
-        unit_of_measurement: BRL
-        device_class: monetary
-        state: >
-          {{ (states('input_number.encargo_cosip')|float(0)
-            + states('input_number.encargo_complementos')|float(0)
-            - states('input_number.encargo_bonus')|float(0)) | round(2) }}
-
-      # ── CICLO EM CURSO — da última leitura até agora
+      # ── CONSUMO — ciclo em curso, ciclo fechado e o que o ciclo deve fechar
       - name: "Consumo do Ciclo"
         unique_id: consumo_ciclo
         unit_of_measurement: kWh
@@ -237,46 +169,324 @@ template:
             + states('sensor.fatura_energy_shoulder')|float(0)
             + states('sensor.fatura_energy_offpeak')|float(0)) | round(3) }}
 
+      # O que o medidor guardou ao fechar. É ESTE que se compara com a conta.
+      - name: "Consumo do Ciclo Fechado"
+        unique_id: consumo_ciclo_fechado
+        unit_of_measurement: kWh
+        icon: mdi:counter
+        state: >
+          {{ (state_attr('sensor.fatura_energy_peak', 'last_period')|float(0)
+            + state_attr('sensor.fatura_energy_shoulder', 'last_period')|float(0)
+            + state_attr('sensor.fatura_energy_offpeak', 'last_period')|float(0)) | round(3) }}
+
+      # F13 — só escolhe as FAIXAS (ICMS e iluminação) antes de o ciclo
+      # terminar. Com ciclo anterior: o já medido + a média diária do anterior
+      # × os dias que faltam. Sem ele: proporção dos dias (o primeiro dia conta
+      # inteiro). Ciclo encerrado ou sem datas: o próprio consumo.
+      - name: "Consumo Projetado do Ciclo"
+        unique_id: consumo_projetado_ciclo
+        unit_of_measurement: kWh
+        icon: mdi:chart-line
+        state: >
+          {% set kwh = states('sensor.consumo_do_ciclo') | float(0) %}
+          {% set ini = states('input_datetime.fatura_ultima_leitura') | as_datetime %}
+          {% set fim = states('input_datetime.fatura_proxima_leitura') | as_datetime %}
+          {% set fi = states('input_datetime.fatura_fechado_inicio') | as_datetime %}
+          {% set ff = states('input_datetime.fatura_fechado_fim') | as_datetime %}
+          {% set total = (fim - ini).days if ini is not none and fim is not none else 0 %}
+          {% set dec = (now() - ini | as_local).total_seconds() / 86400 if ini is not none else 0 %}
+          {% set fk = states('sensor.consumo_do_ciclo_fechado') | float(0) %}
+          {% set fd = (ff - fi).days if fi is not none and ff is not none else 0 %}
+          {% if total <= 0 or dec >= total %}
+            {{ kwh | round(3) }}
+          {% elif fk > 0 and fd > 0 %}
+            {{ (kwh + fk / fd * (total - [dec, 0] | max)) | round(3) }}
+          {% else %}
+            {{ (kwh * total / [dec, 1] | max) | round(3) }}
+          {% endif %}
+
+      # ═════════════════════════════════════════════════════════════════════════
+      # A REGRA — um texto só, usado duas vezes: no ciclo em curso (datas da
+      # última e da próxima leitura, consumo projetado) e no fechado (as duas
+      # datas guardadas, consumo real). O sensor sabe qual é pelo próprio nome.
+      # Publica um dicionário `p`; todo o resto do package lê dele.
+      #
+      #   F2  bandeira   média, pelos dias do ciclo (do dia seguinte à leitura
+      #                  anterior até o dia da leitura), do adicional do mês
+      #   F4  ICMS       pela faixa do consumo, em kWh inteiros
+      #   F5  PIS/COFINS os do mês da leitura
+      #   F6  fator      1 / ((1 − ICMS) × (1 − PIS − COFINS))
+      #   F7  preço      (tarifa + bandeira) × fator
+      #   F10 iluminação parcela fixa da faixa + arredonda(coeficiente ×
+      #                  (tarifa de referência + bandeira do mês anterior ao da
+      #                  leitura)), até o teto; a faixa é a da média informada
+      #                  ou, sem ela, a do consumo
+      #   Mês que o arquivo de dados não tem usa o último conhecido antes dele,
+      #   e `estimado` fica verdadeiro.
+      # ═════════════════════════════════════════════════════════════════════════
+      - name: "Parâmetros do Ciclo"
+        unique_id: parametros_ciclo
+        icon: mdi:tune-variant
+        state: "ok"
+        attributes:
+          p: &parametros >-
+            {%- set D = 'sensor.dados_da_fatura' -%}
+            {%- if state_attr(D, 'ip_faixas') is none -%}
+            {{ none }}
+            {%- else -%}
+            {%- set fechado = this.entity_id.endswith('_fechado') -%}
+            {%- set ini = states('input_datetime.fatura_fechado_inicio' if fechado else 'input_datetime.fatura_ultima_leitura') | as_datetime -%}
+            {%- set fim = states('input_datetime.fatura_fechado_fim' if fechado else 'input_datetime.fatura_proxima_leitura') | as_datetime -%}
+            {%- set kwh = states('sensor.consumo_do_ciclo_fechado' if fechado else 'sensor.consumo_projetado_do_ciclo') | float(0) -%}
+            {%- set media = states('input_number.cosip_media_kwh') | float(0) -%}
+            {%- set a_tarifa = states('input_text.ajuste_tarifa') | replace(',', '.') -%}
+            {%- set a_bandeira = states('input_text.ajuste_bandeira') | replace(',', '.') -%}
+            {%- set a_icms = states('input_text.ajuste_icms') | replace(',', '.') -%}
+            {%- set a_pis = states('input_text.ajuste_pis') | replace(',', '.') -%}
+            {%- set a_cofins = states('input_text.ajuste_cofins') | replace(',', '.') -%}
+            {%- set a_ilum = states('input_text.ajuste_iluminacao') | replace(',', '.') -%}
+            {%- set a_outros = states('input_text.ajuste_outros_debitos') | replace(',', '.') -%}
+            {%- set a_creditos = states('input_text.ajuste_creditos') | replace(',', '.') -%}
+            {%- set ac = state_attr(D, 'bandeira_acionada') -%}
+            {%- set ad = state_attr(D, 'bandeira_adicional') -%}
+            {%- set meses = ac.keys() | sort -%}
+            {#- F2: bandeira do ciclo -#}
+            {%- set n = (fim - ini).days if ini is not none and fim is not none else 0 -%}
+            {%- set b = namespace(soma=0.0, est=false) -%}
+            {%- for k in range(1, n + 1) -%}
+              {%- set mes = (ini + timedelta(days=k)).strftime('%Y-%m') -%}
+              {%- if mes not in ac -%}{%- set b.est = true -%}{%- endif -%}
+              {%- set antes = meses | select('le', mes) | list -%}
+              {%- set b.soma = b.soma + ad[ac[antes | last if antes else meses | first]] -%}
+            {%- endfor -%}
+            {%- if a_bandeira | is_number -%}
+              {%- set bandeira = a_bandeira | float -%}{%- set b.est = false -%}
+            {%- else -%}
+              {%- set bandeira = b.soma / n / 1000 if n > 0 else 0.0 -%}
+            {%- endif -%}
+            {#- F4: ICMS pela faixa do consumo -#}
+            {%- set i = namespace(v=none) -%}
+            {%- set inteiro = kwh | round(0) -%}
+            {%- for ate, aliquota in state_attr(D, 'icms_faixas') -%}
+              {%- if i.v is none and (ate is none or inteiro <= ate) -%}{%- set i.v = aliquota -%}{%- endif -%}
+            {%- endfor -%}
+            {%- set icms = a_icms | float if a_icms | is_number else i.v -%}
+            {#- F5: PIS e COFINS do mês da leitura -#}
+            {%- set pc = state_attr(D, 'pis_cofins') -%}
+            {%- set mp = pc.keys() | sort -%}
+            {%- set mes = fim.strftime('%Y-%m') if fim is not none else '' -%}
+            {%- set antes = mp | select('le', mes) | list -%}
+            {%- set par = pc[antes | last if antes else mp | first] -%}
+            {%- set pis = a_pis | float if a_pis | is_number else par[0] -%}
+            {%- set cofins = a_cofins | float if a_cofins | is_number else par[1] -%}
+            {%- set est_p = mes not in pc and not (a_pis | is_number and a_cofins | is_number) -%}
+            {#- F6 e F7: fator de tributos e preço -#}
+            {%- set den = (1 - icms / 100) * (1 - (pis + cofins) / 100) -%}
+            {%- set fator = 1 / den if den > 0 else 0.0 -%}
+            {%- set tarifa = a_tarifa | float if a_tarifa | is_number else state_attr(D, 'tarifa_convencional') -%}
+            {%- set preco = (tarifa + bandeira) * fator -%}
+            {#- F10: iluminação pública -#}
+            {%- set ante = (fim.replace(day=1) - timedelta(days=1)).strftime('%Y-%m') if fim is not none else '' -%}
+            {%- set antes = meses | select('le', ante) | list -%}
+            {%- set adicional = ad[ac[antes | last if antes else meses | first]] -%}
+            {%- set base = media if media > 0 else kwh -%}
+            {%- set l = namespace(v=none) -%}
+            {%- for ate, fixa, coef in state_attr(D, 'ip_faixas') -%}
+              {%- if l.v is none and (ate is none or base <= ate) -%}
+                {%- set l.v = 0.0 if fixa == 0 and coef == 0
+                      else [(fixa + (coef * (state_attr(D, 'ip_teip') + adicional)) | round(2)) | round(2),
+                            state_attr(D, 'ip_teto')] | min -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {%- set ilum = a_ilum | float if a_ilum | is_number else l.v -%}
+            {%- set est_i = ante not in ac and not a_ilum | is_number -%}
+            {{ {'dias': n, 'tarifa': tarifa, 'bandeira': bandeira, 'icms': icms, 'pis': pis,
+                'cofins': cofins, 'fator': fator, 'preco': preco, 'iluminacao': ilum,
+                'outros': a_outros | float if a_outros | is_number else 0.0,
+                'creditos': a_creditos | float if a_creditos | is_number else 0.0,
+                'estimado': b.est or est_p or est_i,
+                'ajustes': [a_tarifa, a_bandeira, a_icms, a_pis, a_cofins, a_ilum, a_outros, a_creditos]
+                           | select('is_number') | list | count} }}
+            {%- endif -%}
+
+      - name: "Parâmetros do Ciclo Fechado"
+        unique_id: parametros_ciclo_fechado
+        icon: mdi:tune-variant
+        state: "ok"
+        attributes:
+          p: *parametros
+
+      # ── Os parâmetros do ciclo em curso, um por linha de painel
+      - name: "Preço Convencional"
+        unique_id: preco_convencional
+        unit_of_measurement: "BRL/kWh"
+        availability: &em_curso >-
+          {{ state_attr('sensor.parametros_do_ciclo', 'p') is mapping }}
+        state: >
+          {% set p = state_attr('sensor.parametros_do_ciclo', 'p') %}
+          {{ p.preco | round(6) if p is mapping else 0 }}
+
+      - name: "Bandeira do Ciclo"
+        unique_id: bandeira_ciclo
+        unit_of_measurement: "BRL/kWh"
+        icon: mdi:flag-outline
+        availability: *em_curso
+        state: >
+          {% set p = state_attr('sensor.parametros_do_ciclo', 'p') %}
+          {{ p.bandeira | round(6) if p is mapping else 0 }}
+
+      - name: "ICMS do Ciclo"
+        unique_id: icms_ciclo
+        unit_of_measurement: "%"
+        icon: mdi:percent
+        availability: *em_curso
+        state: >
+          {% set p = state_attr('sensor.parametros_do_ciclo', 'p') %}
+          {{ p.icms if p is mapping else 0 }}
+
+      - name: "PIS do Ciclo"
+        unique_id: pis_ciclo
+        unit_of_measurement: "%"
+        icon: mdi:percent
+        availability: *em_curso
+        state: >
+          {% set p = state_attr('sensor.parametros_do_ciclo', 'p') %}
+          {{ p.pis if p is mapping else 0 }}
+
+      - name: "COFINS do Ciclo"
+        unique_id: cofins_ciclo
+        unit_of_measurement: "%"
+        icon: mdi:percent
+        availability: *em_curso
+        state: >
+          {% set p = state_attr('sensor.parametros_do_ciclo', 'p') %}
+          {{ p.cofins if p is mapping else 0 }}
+
+      - name: "Fator de Tributos"
+        unique_id: fator_tributos
+        icon: mdi:calculator-variant
+        availability: *em_curso
+        state: >
+          {% set p = state_attr('sensor.parametros_do_ciclo', 'p') %}
+          {{ p.fator | round(6) if p is mapping else 0 }}
+
+      - name: "Iluminação Pública do Ciclo"
+        unique_id: iluminacao_publica_ciclo
+        unit_of_measurement: BRL
+        device_class: monetary
+        icon: mdi:lightbulb-on-outline
+        availability: *em_curso
+        state: >
+          {% set p = state_attr('sensor.parametros_do_ciclo', 'p') %}
+          {{ p.iluminacao | round(2) if p is mapping else 0 }}
+
+      # Iluminação + outros débitos − créditos: o que não escala com o consumo
+      - name: "Encargos Fixos do Mês"
+        unique_id: encargos_fixos_mes
+        unit_of_measurement: BRL
+        device_class: monetary
+        availability: *em_curso
+        state: >
+          {% set p = state_attr('sensor.parametros_do_ciclo', 'p') %}
+          {{ (p.iluminacao + p.outros - p.creditos) | round(2) if p is mapping else 0 }}
+
+      - name: "Ajustes Ativos"
+        unique_id: ajustes_ativos
+        icon: mdi:pencil-outline
+        availability: *em_curso
+        state: >
+          {% set p = state_attr('sensor.parametros_do_ciclo', 'p') %}
+          {{ p.ajustes if p is mapping else 0 }}
+
+      # ── F12 — simulação da Branca: troca só a tarifa de cada posto
+      - name: "Preço Ponta"
+        unique_id: preco_ponta
+        unit_of_measurement: "BRL/kWh"
+        availability: *em_curso
+        state: >
+          {% set p = state_attr('sensor.parametros_do_ciclo', 'p') %}
+          {{ ((state_attr('sensor.dados_da_fatura', 'tarifa_ponta') + p.bandeira) * p.fator) | round(6)
+             if p is mapping else 0 }}
+
+      - name: "Preço Intermediário"
+        unique_id: preco_intermediario
+        unit_of_measurement: "BRL/kWh"
+        availability: *em_curso
+        state: >
+          {% set p = state_attr('sensor.parametros_do_ciclo', 'p') %}
+          {{ ((state_attr('sensor.dados_da_fatura', 'tarifa_intermediaria') + p.bandeira) * p.fator) | round(6)
+             if p is mapping else 0 }}
+
+      - name: "Preço Fora Ponta"
+        unique_id: preco_fora_ponta
+        unit_of_measurement: "BRL/kWh"
+        availability: *em_curso
+        state: >
+          {% set p = state_attr('sensor.parametros_do_ciclo', 'p') %}
+          {{ ((state_attr('sensor.dados_da_fatura', 'tarifa_fora_ponta') + p.bandeira) * p.fator) | round(6)
+             if p is mapping else 0 }}
+
+      # ── CICLO EM CURSO — F8 e F11
       - name: "Energia Mensal Convencional"
         unique_id: energia_mensal_convencional
         unit_of_measurement: BRL
         device_class: monetary
+        availability: *em_curso
         state: >
-          {{ (states('sensor.consumo_do_ciclo')|float(0)
-              * states('sensor.preco_convencional')|float(0)) | round(2) }}
+          {% set p = state_attr('sensor.parametros_do_ciclo', 'p') %}
+          {{ (states('sensor.consumo_do_ciclo')|float(0) * p.preco) | round(2) if p is mapping else 0 }}
 
       - name: "Energia Mensal Branca"
         unique_id: energia_mensal_branca
         unit_of_measurement: BRL
         device_class: monetary
+        availability: *em_curso
         state: >
-          {{ (states('sensor.fatura_energy_peak')|float(0) * states('sensor.preco_ponta')|float(0)
-            + states('sensor.fatura_energy_shoulder')|float(0) * states('sensor.preco_intermediario')|float(0)
-            + states('sensor.fatura_energy_offpeak')|float(0) * states('sensor.preco_fora_ponta')|float(0)) | round(2) }}
+          {% set p = state_attr('sensor.parametros_do_ciclo', 'p') %}
+          {% set D = 'sensor.dados_da_fatura' %}
+          {{ ((states('sensor.fatura_energy_peak')|float(0) * (state_attr(D, 'tarifa_ponta') + p.bandeira)
+             + states('sensor.fatura_energy_shoulder')|float(0) * (state_attr(D, 'tarifa_intermediaria') + p.bandeira)
+             + states('sensor.fatura_energy_offpeak')|float(0) * (state_attr(D, 'tarifa_fora_ponta') + p.bandeira))
+             * p.fator) | round(2) if p is mapping else 0 }}
 
-      # ── A fatura se a leitura fosse agora
+      # A fatura se a leitura fosse agora
       - name: "Fatura Mensal Convencional"
         unique_id: fatura_mensal_convencional
         unit_of_measurement: BRL
         device_class: monetary
         icon: mdi:file-document-outline
+        availability: *em_curso
         state: >
-          {{ (states('sensor.consumo_do_ciclo')|float(0)
-              * states('sensor.preco_convencional')|float(0)
-            + states('sensor.encargos_fixos_do_mes')|float(0)) | round(2) }}
+          {% set p = state_attr('sensor.parametros_do_ciclo', 'p') %}
+          {{ (states('sensor.consumo_do_ciclo')|float(0) * p.preco
+              + (p.iluminacao + p.outros - p.creditos)) | round(2) if p is mapping else 0 }}
 
       - name: "Fatura Mensal Branca"
         unique_id: fatura_mensal_branca
         unit_of_measurement: BRL
         device_class: monetary
         icon: mdi:file-document-outline
+        availability: *em_curso
         state: >
-          {{ (states('sensor.fatura_energy_peak')|float(0) * states('sensor.preco_ponta')|float(0)
-            + states('sensor.fatura_energy_shoulder')|float(0) * states('sensor.preco_intermediario')|float(0)
-            + states('sensor.fatura_energy_offpeak')|float(0) * states('sensor.preco_fora_ponta')|float(0)
-            + states('sensor.encargos_fixos_do_mes')|float(0)) | round(2) }}
+          {% set p = state_attr('sensor.parametros_do_ciclo', 'p') %}
+          {% set D = 'sensor.dados_da_fatura' %}
+          {{ ((states('sensor.fatura_energy_peak')|float(0) * (state_attr(D, 'tarifa_ponta') + p.bandeira)
+             + states('sensor.fatura_energy_shoulder')|float(0) * (state_attr(D, 'tarifa_intermediaria') + p.bandeira)
+             + states('sensor.fatura_energy_offpeak')|float(0) * (state_attr(D, 'tarifa_fora_ponta') + p.bandeira))
+             * p.fator + (p.iluminacao + p.outros - p.creditos)) | round(2) if p is mapping else 0 }}
 
-      # ── Veredito da simulação
+      # A fatura que o ciclo deve fechar
+      - name: "Fatura Projetada do Ciclo"
+        unique_id: fatura_projetada_ciclo
+        unit_of_measurement: BRL
+        device_class: monetary
+        icon: mdi:file-document-arrow-right-outline
+        availability: *em_curso
+        state: >
+          {% set p = state_attr('sensor.parametros_do_ciclo', 'p') %}
+          {{ (states('sensor.consumo_projetado_do_ciclo')|float(0) * p.preco
+              + (p.iluminacao + p.outros - p.creditos)) | round(2) if p is mapping else 0 }}
+
       - name: "Economia com Tarifa Branca"
         unique_id: economia_tarifa_branca
         unit_of_measurement: BRL
@@ -291,87 +501,92 @@ template:
                                 > states('sensor.fatura_mensal_branca')|float(0)
                else 'Convencional' }}
 
-      # ── CICLO FECHADO — o que o medidor guardou na última leitura.
-      #    É ESTE que se compara com a conta de papel. Antes do primeiro
-      #    fechamento não há o que comparar: os valores ficam indisponíveis.
-      - name: "Consumo do Ciclo Fechado"
-        unique_id: consumo_ciclo_fechado
-        unit_of_measurement: kWh
-        icon: mdi:counter
+      # ── CICLO FECHADO — é este que se compara com a conta de papel. Antes do
+      #    primeiro fechamento não há o que comparar: fica indisponível.
+      - name: "Preço do Ciclo Fechado"
+        unique_id: preco_ciclo_fechado
+        unit_of_measurement: "BRL/kWh"
+        availability: &fechado >-
+          {{ states('sensor.consumo_do_ciclo_fechado')|float(0) > 0
+             and state_attr('sensor.parametros_do_ciclo_fechado', 'p') is mapping }}
         state: >
-          {{ (state_attr('sensor.fatura_energy_peak', 'last_period')|float(0)
-            + state_attr('sensor.fatura_energy_shoulder', 'last_period')|float(0)
-            + state_attr('sensor.fatura_energy_offpeak', 'last_period')|float(0)) | round(3) }}
+          {% set p = state_attr('sensor.parametros_do_ciclo_fechado', 'p') %}
+          {{ p.preco | round(6) if p is mapping else 0 }}
 
       - name: "Fatura do Ciclo Fechado"
         unique_id: fatura_ciclo_fechado
         unit_of_measurement: BRL
         device_class: monetary
         icon: mdi:file-document-check-outline
-        availability: >
-          {{ states('sensor.consumo_do_ciclo_fechado')|float(0) > 0 }}
+        availability: *fechado
         state: >
-          {{ (states('sensor.consumo_do_ciclo_fechado')|float(0)
-              * states('sensor.preco_convencional')|float(0)
-            + states('sensor.encargos_fixos_do_mes')|float(0)) | round(2) }}
+          {% set p = state_attr('sensor.parametros_do_ciclo_fechado', 'p') %}
+          {{ (states('sensor.consumo_do_ciclo_fechado')|float(0) * p.preco
+              + (p.iluminacao + p.outros - p.creditos)) | round(2) if p is mapping else 0 }}
 
-      # ── Os três impostos em reais, como a conta os mostra
+      # F9 — os três impostos em reais, como a conta os mostra
       - name: "Fatura ICMS"
         unique_id: fatura_icms
         unit_of_measurement: BRL
         device_class: monetary
-        availability: >
-          {{ states('sensor.consumo_do_ciclo_fechado')|float(0) > 0 }}
+        availability: *fechado
         state: >
-          {% set e = states('sensor.consumo_do_ciclo_fechado')|float(0)
-                     * states('sensor.preco_convencional')|float(0) %}
-          {{ (e * states('input_number.aliquota_icms')|float(0) / 100) | round(2) }}
+          {% set p = state_attr('sensor.parametros_do_ciclo_fechado', 'p') %}
+          {% set e = states('sensor.consumo_do_ciclo_fechado')|float(0) * (p.preco if p is mapping else 0) %}
+          {{ (e * p.icms / 100) | round(2) if p is mapping else 0 }}
 
       - name: "Fatura PIS"
         unique_id: fatura_pis
         unit_of_measurement: BRL
         device_class: monetary
-        availability: >
-          {{ states('sensor.consumo_do_ciclo_fechado')|float(0) > 0 }}
+        availability: *fechado
         state: >
-          {% set e = states('sensor.consumo_do_ciclo_fechado')|float(0)
-                     * states('sensor.preco_convencional')|float(0) %}
-          {% set base = e * (1 - states('input_number.aliquota_icms')|float(0) / 100) %}
-          {{ (base * states('input_number.aliquota_pis')|float(0) / 100) | round(2) }}
+          {% set p = state_attr('sensor.parametros_do_ciclo_fechado', 'p') %}
+          {% set e = states('sensor.consumo_do_ciclo_fechado')|float(0) * (p.preco if p is mapping else 0) %}
+          {{ ((e - e * p.icms / 100) * p.pis / 100) | round(2) if p is mapping else 0 }}
 
       - name: "Fatura COFINS"
         unique_id: fatura_cofins
         unit_of_measurement: BRL
         device_class: monetary
-        availability: >
-          {{ states('sensor.consumo_do_ciclo_fechado')|float(0) > 0 }}
+        availability: *fechado
         state: >
-          {% set e = states('sensor.consumo_do_ciclo_fechado')|float(0)
-                     * states('sensor.preco_convencional')|float(0) %}
-          {% set base = e * (1 - states('input_number.aliquota_icms')|float(0) / 100) %}
-          {{ (base * states('input_number.aliquota_cofins')|float(0) / 100) | round(2) }}
+          {% set p = state_attr('sensor.parametros_do_ciclo_fechado', 'p') %}
+          {% set e = states('sensor.consumo_do_ciclo_fechado')|float(0) * (p.preco if p is mapping else 0) %}
+          {{ ((e - e * p.icms / 100) * p.cofins / 100) | round(2) if p is mapping else 0 }}
 
-      # ── Cerca do package: digite o total da conta; isto mostra a diferença
-      #    entre o que o seu medidor fechou e o que a distribuidora cobrou.
+      # Digite o total da conta; isto mostra a diferença entre o que o seu
+      # medidor fechou e o que a distribuidora cobrou.
       - name: "Desvio da Conferência"
         unique_id: desvio_conferencia
         unit_of_measurement: BRL
         device_class: monetary
         icon: mdi:scale-balance
-        availability: >
-          {{ states('sensor.consumo_do_ciclo_fechado')|float(0) > 0 }}
+        availability: *fechado
         state: >
           {{ (states('sensor.fatura_do_ciclo_fechado')|float(0)
             - states('input_number.fatura_conferencia')|float(0)) | round(2) }}
 
-      # ── Alerta de fim de vigência (a virada é conhecida, não é surpresa)
+      # "sim" = algum mês do ciclo fechado não está no arquivo de dados e valeu
+      # o último conhecido. Confira PIS e COFINS na conta e preencha o ajuste.
+      - name: "Ciclo Fechado com Estimativa"
+        unique_id: ciclo_fechado_estimado
+        icon: mdi:help-circle-outline
+        availability: *fechado
+        state: >
+          {% set p = state_attr('sensor.parametros_do_ciclo_fechado', 'p') %}
+          {{ 'sim' if p is mapping and p.estimado else 'não' }}
+
+      # ── Alerta de fim de vigência da tarifa (a virada é conhecida)
       - name: "Dias até Reajuste Tarifário"
         unique_id: dias_ate_reajuste
         unit_of_measurement: d
         icon: mdi:calendar-clock
+        availability: >-
+          {{ state_attr('sensor.dados_da_fatura', 'vigencia_fim') is not none }}
         state: >
-          {% set fim = states.sensor.tabela_tarifaria.attributes.vigencia_fim %}
-          {{ ((fim | as_datetime).date() - now().date()).days }}
+          {% set fim = state_attr('sensor.dados_da_fatura', 'vigencia_fim') | as_datetime %}
+          {{ (fim.date() - now().date()).days if fim is not none else 0 }}
 
       - name: "Posto Tarifário Atual"
         unique_id: posto_tarifario_atual
@@ -380,100 +595,94 @@ template:
           {% set m = states('select.monthly_energy') %}
           {{ {'peak':'Ponta','shoulder':'Intermediário','offpeak':'Fora Ponta'}.get(m, m) }}
 
-# ── Tudo aqui é copiado da conta. SEM `initial:` — com ele o Home Assistant
-#    descarta o que foi digitado a cada início.
-input_number:
-  fatura_preco_com_tributos:
-    name: "Preço unitário com tributos (da fatura)"
-    min: 0
-    max: 10
-    step: 0.00001
-    unit_of_measurement: "BRL/kWh"
-    icon: mdi:cash
-    mode: box
-  fatura_tarifa_unit:
-    name: "Tarifa unitária sem tributos (da fatura)"
-    min: 0
-    max: 10
-    step: 0.00001
-    unit_of_measurement: "BRL/kWh"
+# ── AJUSTES MANUAIS. Vazio = vale o calculado. Sem `initial:`.
+input_text:
+  ajuste_tarifa:
+    name: "Ajuste: tarifa sem tributos (R$/kWh)"
+    max: 12
+    pattern: "^[0-9]*[.,]?[0-9]*$"
     icon: mdi:cash-minus
-    mode: box
+  ajuste_bandeira:
+    name: "Ajuste: bandeira do ciclo (R$/kWh)"
+    max: 12
+    pattern: "^[0-9]*[.,]?[0-9]*$"
+    icon: mdi:flag-outline
+  ajuste_icms:
+    name: "Ajuste: ICMS (%)"
+    max: 12
+    pattern: "^[0-9]*[.,]?[0-9]*$"
+    icon: mdi:percent
+  ajuste_pis:
+    name: "Ajuste: PIS/PASEP (%)"
+    max: 12
+    pattern: "^[0-9]*[.,]?[0-9]*$"
+    icon: mdi:percent
+  ajuste_cofins:
+    name: "Ajuste: COFINS (%)"
+    max: 12
+    pattern: "^[0-9]*[.,]?[0-9]*$"
+    icon: mdi:percent
+  ajuste_iluminacao:
+    name: "Ajuste: iluminação pública (R$)"
+    max: 12
+    pattern: "^[0-9]*[.,]?[0-9]*$"
+    icon: mdi:lightbulb-on-outline
+  ajuste_outros_debitos:
+    name: "Outros débitos da conta (R$)"
+    max: 12
+    pattern: "^[0-9]*[.,]?[0-9]*$"
+    icon: mdi:plus-box-outline
+  ajuste_creditos:
+    name: "Créditos da conta (R$, positivo; será subtraído)"
+    max: 12
+    pattern: "^[0-9]*[.,]?[0-9]*$"
+    icon: mdi:minus-box-outline
 
-  aliquota_icms:
-    name: "Alíquota ICMS"
+input_number:
+  # A faixa da iluminação pública é a da média de consumo que a prefeitura
+  # usou (está na sua conta ou no histórico de consumo). Zero = usa o consumo
+  # do próprio ciclo, que é a regra para quem não tem histórico.
+  cosip_media_kwh:
+    name: "Média de consumo da faixa da iluminação pública (0 = consumo do ciclo)"
     min: 0
-    max: 40
-    step: 0.01
-    unit_of_measurement: "%"
-    icon: mdi:percent
-    mode: box
-  aliquota_pis:
-    name: "Alíquota PIS/PASEP"
-    min: 0
-    max: 10
-    step: 0.01
-    unit_of_measurement: "%"
-    icon: mdi:percent
-    mode: box
-  aliquota_cofins:
-    name: "Alíquota COFINS"
-    min: 0
-    max: 20
-    step: 0.01
-    unit_of_measurement: "%"
-    icon: mdi:percent
-    mode: box
-
-  # ── Encargos fixos do mês (R$) — NÃO escalam com consumo
-  encargo_cosip:
-    name: "Contrib. Custeio Iluminação Pública"
-    min: 0
-    max: 1000
-    step: 0.01
-    unit_of_measurement: "BRL"
+    max: 1000000
+    step: 1
+    unit_of_measurement: "kWh"
     icon: mdi:lightbulb-on-outline
     mode: box
-  # (crédito vai no campo de bônus: sem `initial:`, um campo nasce no `min`,
-  #  e um mínimo negativo faria a instalação nova nascer com fatura negativa)
-  encargo_complementos:
-    name: "Complementos e outros débitos"
-    min: 0
-    max: 1000
-    step: 0.01
-    unit_of_measurement: "BRL"
-    icon: mdi:plus-box-outline
-    mode: box
-  encargo_bonus:
-    name: "Bônus e créditos (positivo, será subtraído)"
-    min: 0
-    max: 1000
-    step: 0.01
-    unit_of_measurement: "BRL"
-    icon: mdi:minus-box-outline
-    mode: box
-
   fatura_conferencia:
     name: "Total da última fatura (conferência)"
     min: 0
-    max: 100000
+    max: 1000000
     step: 0.01
     unit_of_measurement: "BRL"
     icon: mdi:file-document-check-outline
     mode: box
 
 input_datetime:
-  fatura_proxima_leitura:
-    name: "Próxima leitura (da fatura)"
-    has_date: true
-    has_time: false
-    icon: mdi:calendar-arrow-right
-  # Gravada pela automação ao fechar o ciclo: é o que impede fechar duas vezes.
+  # As duas datas do ciclo EM CURSO. A última é gravada ao fechar; a próxima é
+  # assumida um mês depois e pode ser corrigida.
   fatura_ultima_leitura:
-    name: "Última leitura fechada"
+    name: "Última leitura"
     has_date: true
     has_time: false
     icon: mdi:calendar-check
+  fatura_proxima_leitura:
+    name: "Próxima leitura"
+    has_date: true
+    has_time: false
+    icon: mdi:calendar-arrow-right
+  # As duas datas do ciclo FECHADO, gravadas ao fechar.
+  fatura_fechado_inicio:
+    name: "Ciclo fechado: leitura anterior"
+    has_date: true
+    has_time: false
+    icon: mdi:calendar-start
+  fatura_fechado_fim:
+    name: "Ciclo fechado: leitura"
+    has_date: true
+    has_time: false
+    icon: mdi:calendar-end
 
 utility_meter:
   # Roda mesmo no Convencional: sem a quebra por posto não existe simulação.
@@ -502,7 +711,7 @@ utility_meter:
     periodically_resetting: false
     always_available: true
   # O medidor DA FATURA: sem ciclo de calendário. Quem o zera é a automação
-  # de fechamento, na data de leitura informada.
+  # de fechamento, à 00:00 da data de leitura.
   fatura_energy:
     source: sensor.energy_total
     tariffs: [peak, shoulder, offpeak]
@@ -510,21 +719,16 @@ utility_meter:
     always_available: true
 
 automation:
-  # ⚠️ AS JANELAS SÃO POR DISTRIBUIDORA, não universais.
-  #    A ANEEL fixa a ESTRUTURA (ponta 3h; intermediário 1h–1h30 antes E depois);
-  #    as janelas saem da revisão tarifária de cada distribuidora. Os horários
-  #    abaixo são exemplo coerente com a regra — confirme na sua antes de usar.
+  # ⚠️ OS HORÁRIOS SÃO DA DISTRIBUIDORA e vêm do arquivo de dados (`postos`).
+  # >>> POSTOS TARIFARIOS — gerado por tools/tarifas-bloco.py a partir de tarifas/energia_light_rj.json; não edite à mão >>>
   - id: energia_br_posto_tarifario
     alias: "Energia BR — seleciona o posto tarifário"
     description: >
-      Chaveia o utility_meter entre os postos. Em dia não útil força fora ponta
-      o dia inteiro, conforme regra da ANEEL. Recalcula no start do HA e quando
-      o workday muda, para não ficar preso no posto errado após reinício.
+      Troca o posto dos três medidores nos horários da distribuidora. Em dia
+      não útil tudo é fora de ponta. Recalcula no início do Home Assistant e
+      quando o dia útil muda, para não ficar preso no posto errado.
     mode: single
     trigger:
-      - platform: time
-        at: "16:30:00"
-        variables: {posto: shoulder}
       - platform: time
         at: "17:30:00"
         variables: {posto: peak}
@@ -532,7 +736,7 @@ automation:
         at: "20:30:00"
         variables: {posto: shoulder}
       - platform: time
-        at: "21:30:00"
+        at: "22:30:00"
         variables: {posto: offpeak}
       - platform: state
         entity_id: binary_sensor.workday_sensor
@@ -548,7 +752,7 @@ automation:
             {% if not util %}offpeak
             {% elif posto != 'recalcular' %}{{ posto }}
             {% elif '17:30' <= agora < '20:30' %}peak
-            {% elif '16:30' <= agora < '17:30' or '20:30' <= agora < '21:30' %}shoulder
+            {% elif '20:30' <= agora < '22:30' %}shoulder
             {% else %}offpeak
             {% endif %}
       - service: select.select_option
@@ -559,11 +763,13 @@ automation:
             - select.fatura_energy
         data:
           option: "{{ alvo | trim }}"
+  # <<< POSTOS TARIFARIOS <<<
 
-  # Fecha o ciclo da fatura ao meio-dia da data de leitura informada — ou no
-  # primeiro início depois dela, se o Home Assistant estava parado na hora.
-  # Só fecha uma vez por data: grava a data fechada e exige que a próxima
-  # seja posterior a ela.
+  # Fecha o ciclo da fatura à 00:00 da data de leitura — ou no primeiro início
+  # depois dela, se o Home Assistant estava parado na hora. Guarda as duas
+  # datas do ciclo que fechou, zera o medidor da fatura e avança as datas: a
+  # leitura que fechou vira a última, e a próxima passa a um mês depois (o
+  # mesmo dia; mês mais curto, o último dia). Avançada a data, não fecha de novo.
   - id: energia_br_fecha_ciclo_fatura
     alias: "Energia BR — fecha o ciclo da fatura"
     description: >
@@ -572,7 +778,7 @@ automation:
     mode: single
     trigger:
       - platform: time
-        at: "12:00:00"
+        at: "00:00:00"
       - platform: homeassistant
         event: start
     condition:
@@ -581,9 +787,28 @@ automation:
           {% set p = states('input_datetime.fatura_proxima_leitura') | as_datetime %}
           {% set u = states('input_datetime.fatura_ultima_leitura') | as_datetime %}
           {{ p is not none and u is not none and u.date() < p.date()
-             and (now().date() > p.date()
-                  or (now().date() == p.date() and now().hour >= 12)) }}
+             and now().date() >= p.date() }}
     action:
+      - variables:
+          anterior: "{{ states('input_datetime.fatura_ultima_leitura') }}"
+          leitura: "{{ states('input_datetime.fatura_proxima_leitura') }}"
+          seguinte: >
+            {% set d = states('input_datetime.fatura_proxima_leitura') | as_datetime %}
+            {% set a = d.year + 1 if d.month == 12 else d.year %}
+            {% set m = 1 if d.month == 12 else d.month + 1 %}
+            {% set fim_do_mes = (('%04d-%02d-01' % (a + 1 if m == 12 else a, m % 12 + 1))
+                                 | as_datetime - timedelta(days=1)).day %}
+            {{ '%04d-%02d-%02d' % (a, m, [d.day, fim_do_mes] | min) }}
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.fatura_fechado_inicio
+        data:
+          date: "{{ anterior }}"
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.fatura_fechado_fim
+        data:
+          date: "{{ leitura }}"
       - service: utility_meter.reset
         target:
           entity_id: select.fatura_energy
@@ -591,4 +816,9 @@ automation:
         target:
           entity_id: input_datetime.fatura_ultima_leitura
         data:
-          date: "{{ states('input_datetime.fatura_proxima_leitura') }}"
+          date: "{{ leitura }}"
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.fatura_proxima_leitura
+        data:
+          date: "{{ seguinte }}"

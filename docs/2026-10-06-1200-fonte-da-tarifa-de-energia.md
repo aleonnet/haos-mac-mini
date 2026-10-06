@@ -1,5 +1,5 @@
 ---
-status: aceito
+status: superado por 2026-10-06-1600-fatura-como-funcao-do-medidor.md
 date: 2026-10-06
 decisores: dono do repositório
 ---

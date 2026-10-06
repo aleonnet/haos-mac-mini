@@ -1,7 +1,10 @@
 # HANDOFF — a energia volta a fechar com a conta · 2026-10-06
 
-> **LEIA-ME PRIMEIRO.** Porta de entrada da frente do instalador. Supersede
-> `HANDOFF-2026-09-17-painel-reserva.md`.
+> **SUPERADO por `HANDOFF-2026-10-06-fatura-funcao-do-medidor.md`** (2026-10-06,
+> tarde): o preço e os impostos deixaram de ser digitados da conta e passaram a
+> ser calculados do consumo. O que está abaixo é o registro da manhã.
+>
+> Supersede `HANDOFF-2026-09-17-painel-reserva.md`.
 
 ## 0. ESTADO — confira no git, não neste parágrafo
 

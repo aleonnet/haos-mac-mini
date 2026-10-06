@@ -165,5 +165,8 @@ jobs:
 
       - run: pip install --quiet pyyaml
 
+      - name: python3 tarifas/fatura.py --confere
+        run: python3 tarifas/fatura.py --confere
+
       - name: ./tools/pacotes-arnes.sh --ha ${{ matrix.ha }}
         run: ./tools/pacotes-arnes.sh --ha ${{ matrix.ha }}

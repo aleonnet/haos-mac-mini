@@ -7,37 +7,59 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
 ## [Unreleased]
 
 ### Changed
-- 🔴 **Energia: o preço e os impostos passam a vir da fatura.** O painel não fechava com
-  a conta porque PIS, COFINS e bandeira mudam todo mês e estavam escritos como constantes,
-  e a tabela era atribuída aos dados abertos da ANEEL, que não a contêm (decisão e fontes em
-  `docs/2026-10-06-1200-fonte-da-tarifa-de-energia.md`). Agora o painel Custos tem um bloco
-  **da fatura** com dez campos copiados da conta: preço unitário com tributos, tarifa
-  unitária, ICMS, PIS, COFINS, iluminação pública, complementos, bônus, total a pagar e data
-  da próxima leitura. A tabela do arquivo serve só à simulação da Tarifa Branca.
-  **Quem atualiza precisa digitar esses campos uma vez** — até lá o custo aparece zerado.
-- **Energia: o ciclo da fatura vai de leitura a leitura.** Entra o medidor
-  `fatura_energy`, zerado ao meio-dia da data de leitura informada (ou no primeiro início
-  depois dela). O que ele tinha fica guardado como **ciclo fechado**, que é o que se compara
-  com a conta: consumo, fatura, ICMS, PIS e COFINS em reais, e a diferença para o total
-  digitado. Os medidores diário e mensal seguem o calendário, como antes.
-- **Painel Custos reorganizado** na parte de energia: da fatura · ciclo fechado × conta ·
-  ciclo em curso · preços por posto. O ciclo fechado fica indisponível até o primeiro
-  fechamento, em vez de mostrar só os encargos fixos. Os campos da fatura aparecem como
-  linhas simples, da mesma altura das demais: o clique abre a caixa para digitar.
-- **Energia: "Complementos e outros débitos" não aceita mais valor negativo** (crédito vai no
-  campo de bônus). Sem valor inicial um campo nasce no mínimo, e o mínimo era −1000.
+- 🔴 **Energia: a fatura passa a ser calculada do consumo medido.** Só o medidor e as duas
+  datas de leitura entram; tarifa, bandeira do ciclo, ICMS (pela faixa do consumo), PIS,
+  COFINS e iluminação pública são calculados de parâmetros com fonte. O painel não fechava com
+  a conta porque impostos e bandeira estavam escritos como constantes e a tabela era atribuída
+  aos dados abertos da ANEEL, que não a contêm. Decisão em
+  `docs/2026-10-06-1600-fatura-como-funcao-do-medidor.md`; fórmulas numeradas, cada uma ligada
+  ao dado, ao código e à cerca, em `docs/2026-10-06-1600-formulas-da-fatura-de-energia.md`.
+  Duas contas reais saem ao centavo só com consumo e datas.
+  **Quem atualiza:** os campos `aliquota_*`, `encargo_*` e a tabela escrita no package deixam
+  de existir; informe as duas datas de leitura no painel Custos.
+- **Energia: ajuste manual por parâmetro.** Cada parâmetro calculado tem um campo de ajuste no
+  painel Custos: vazio vale o calculado, preenchido vale o seu (ponto ou vírgula). PIS e
+  COFINS mudam todo mês e nenhuma fonte pública os traz separados — sem ajuste vale o último
+  mês conhecido, e o ciclo fechado avisa que usou estimativa. Débitos e créditos sem regra
+  (parcelamentos, complementos, bônus) também entram por ali.
+- **Energia: o ciclo da fatura vai de leitura a leitura, em dias inteiros.** Entra o medidor
+  `fatura_energy`, zerado à 00:00 da data de leitura (ou no primeiro início depois dela). O
+  que ele tinha fica guardado como **ciclo fechado**, com as duas datas dele — é o que se
+  compara com a conta: consumo, preço, fatura, ICMS, PIS e COFINS em reais, e a diferença para
+  o total digitado. Fechado o ciclo, a próxima leitura passa a ser assumida um mês depois e
+  pode ser corrigida. Os medidores diário e mensal seguem o calendário, como antes.
+- **Energia: o preço do ciclo em curso usa o consumo projetado** para escolher a faixa do
+  ICMS e a da iluminação pública — o já medido mais a média diária do ciclo anterior nos dias
+  que faltam. Sem isso as primeiras horas de cada ciclo teriam o preço de quem é isento.
+- **Energia: os horários dos postos são os da distribuidora do arquivo de dados** (ponta
+  17h30–20h30, intermediário só depois da ponta, até 22h30). O package trazia uma janela de
+  exemplo com intermediário antes e depois. O que já foi contado por posto não é reescrito.
+- **Painel Custos reorganizado** na parte de energia: ciclo em curso · ciclo fechado × conta ·
+  parâmetros em vigor · ajustes manuais. O ciclo fechado fica indisponível até o primeiro
+  fechamento. Os campos aparecem como linhas simples, da mesma altura das demais: o clique
+  abre a caixa para digitar.
 
 ### Added
+- **`tarifas/energia_light_rj.json` — os parâmetros da fatura, cada um com fonte.** Valor,
+  unidade, endereço da fonte, citação literal, data da conferência e grau de certeza (lido na
+  fonte · deduzido de fatura · sem fonte). É a fonte da verdade: dois blocos do package são
+  gerados dele por `tools/tarifas-bloco.py`, e `./tools/embed.sh --check` reprova se
+  divergirem. Outra distribuidora é outro arquivo, com a mesma forma.
+- **`tarifas/fatura.py` — a calculadora de referência**, só biblioteca padrão. Recebe consumo e
+  datas e devolve a fatura decomposta. `--confere` refaz duas contas reais e os três preços
+  com tributos que a distribuidora publica (um por faixa de ICMS), e reprova parâmetro sem
+  fonte.
 - **`tools/pacotes-arnes.sh` + `contract/pacotes.py` — os packages provados contra um Home
   Assistant de verdade.** O portão só conferia que o instalador *escreve* os packages; isto
-  confere que eles *fazem a conta*: toda entidade citada existe, o total da casa não é
-  publicado com fase sem valor, duas faturas reais saem com no máximo um centavo de diferença,
-  imposto digitado errado é
-  acusado, campo digitado sobrevive a reinício, o ciclo fecha na data certa e uma vez só, os
-  três medidores trocam de posto juntos e não perdem nem inventam consumo quando a fonte some
-  e volta, a energia devolvida à rede fica fora da soma, instalação nova
-  não nasce com número inventado, e água e gás devolvem os exemplos validados. Roda no CI na
-  versão fixada e na estável.
+  confere que eles *fazem a conta*: toda entidade citada existe; o total da casa não é
+  publicado com fase sem valor; numa grade de nove ciclos (as três faixas do ICMS e as bordas,
+  bandeira trocando no meio do ciclo, mês sem PIS conhecido, isenção e teto da iluminação)
+  cada número do Home Assistant é o da calculadora de referência, em curso e fechado; o
+  ajuste manual vale e, apagado, volta o calculado; campo digitado sobrevive a reinício; o
+  ciclo fecha à meia-noite da data, uma vez, e guarda as datas; os três medidores trocam de
+  posto juntos e não perdem nem inventam consumo quando a fonte some e volta; instalação nova
+  não nasce com número inventado; o registro do Core não traz erro de template; e água e gás
+  devolvem os exemplos validados. Roda no CI na versão fixada e na estável.
 - `docs/README.md` — o mapa dos documentos.
 
 ### Fixed
@@ -66,6 +88,10 @@ release público ainda; as versões abaixo marcam os fechamentos de fase.
 - **Gás: o fator de correção aceita as cinco casas da fatura.** O cabeçalho dizia que o
   passo mínimo do `input_number` era 0,001 — não é (o código aceita até 0,000000001) — e o
   fator era guardado arredondado. Enquanto não for digitado, o volume passa sem correção.
+- **`tools/embed.sh --check` saía com o código errado ao achar divergência.** A linha que
+  mostra a diferença (`diff | head`) falha por desenho quando há diferença, e sob `pipefail`
+  com `errexit` isso encerrava o roteiro ali, com 1: os blocos seguintes não eram conferidos
+  e o `exit 3` documentado nunca chegava. Achado pela contraprova da cerca nova.
 - **Portão: o download do shellcheck não se recuperava de corte de rede.**
   `acha_shellcheck()` fazia `curl | tar` — um `Recv failure: Connection reset by peer`
   no meio do fluxo trunca a entrada do tar e não há como repetir. O CI de 29/08 ficou

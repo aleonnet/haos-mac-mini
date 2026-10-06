@@ -1,0 +1,585 @@
+{
+ "esquema": 1,
+ "o_que_e": "Parâmetros para calcular a fatura de energia a partir do consumo medido. Fonte da verdade: o package e a calculadora leem daqui. Fórmulas em docs/2026-10-06-1600-formulas-da-fatura-de-energia.md.",
+ "atualizado_em": "2026-10-06",
+ "distribuidora": {
+  "nome": "Light Serviços de Eletricidade S.A.",
+  "cnpj": "60444437000146",
+  "subgrupo": "B1",
+  "classe": "Residencial",
+  "municipio": "Rio de Janeiro",
+  "uf": "RJ"
+ },
+ "tarifa": {
+  "unidade": "BRL/kWh",
+  "sem_tributos": true,
+  "sem_bandeira": true,
+  "convencional": 0.94793,
+  "branca": {
+   "ponta": 1.73992,
+   "intermediaria": 1.20499,
+   "fora_ponta": 0.83447
+  },
+  "vigencia_fim": "2027-03-14",
+  "fonte": {
+   "documento": "Light — Tarifas de Baixa Tensão e Tarifa Branca, edição Setembro/2026",
+   "url": "https://www.light.com.br/Documentos%20Compartilhados/Entenda-Conta-Casa-Arquivos-Relacionados/Tarifas%20Baixa%20Tens%C3%A3o.pdf",
+   "url_branca": "https://www.light.com.br/Documentos%20Compartilhados/Entenda-Conta-Casa-Arquivos-Relacionados/BAIXA%20TENS%C3%83O%20-%20TARIFA%20BRANCA.pdf",
+   "citacao": "Residencial 1,00833 1,22967 1,32675 - - 0,94793",
+   "formato": "PDF com texto extraível; endereço fixo, arquivo sobrescrito a cada edição",
+   "conferido_em": "2026-10-06",
+   "certeza": "lido na fonte",
+   "nota": "O convencional também sai de duas faturas (ago e out/2026). A base de dados abertos da ANEEL traz 0,88056 para a mesma vigência: publica a resolução homologada (REH 3.571/2026), não o valor que passou a valer com os Despachos ANEEL 921/2026 e 2.129/2026."
+  }
+ },
+ "postos": {
+  "ponta_inicio": "17:30",
+  "ponta_fim": "20:30",
+  "intermediario_fim": "22:30",
+  "regra": "Ponta e intermediário só em dia útil; o intermediário é depois da ponta. Fim de semana e feriado nacional: tudo fora de ponta.",
+  "fonte": {
+   "documento": "Resolução Homologatória ANEEL nº 3.014/2022, art. 11",
+   "url": "https://www.light.com.br/Documentos%20Compartilhados/Legislacao-Resolucoes-da-Aneel/reh20223014ti.pdf",
+   "citacao": "O horário de ponta para a área de concessão da Light compreende o período entre as 17 horas e 30 minutos e as 20 horas e 29 minutos.",
+   "conferido_em": "2026-10-06",
+   "certeza": "lido na fonte",
+   "nota": "Fonte de 2022; não conferido se a REH 3.571/2026 repete os horários."
+  }
+ },
+ "bandeira": {
+  "unidade": "BRL/MWh",
+  "adicional": {
+   "Verde": 0.0,
+   "Amarela": 18.85,
+   "Vermelha P1": 44.63,
+   "Vermelha P2": 78.77
+  },
+  "acionada": {
+   "2025-01": "Verde",
+   "2025-02": "Verde",
+   "2025-03": "Verde",
+   "2025-04": "Verde",
+   "2025-05": "Amarela",
+   "2025-06": "Vermelha P1",
+   "2025-07": "Vermelha P1",
+   "2025-08": "Vermelha P2",
+   "2025-09": "Vermelha P2",
+   "2025-10": "Vermelha P1",
+   "2025-11": "Vermelha P1",
+   "2025-12": "Amarela",
+   "2026-01": "Verde",
+   "2026-02": "Verde",
+   "2026-03": "Verde",
+   "2026-04": "Verde",
+   "2026-05": "Amarela",
+   "2026-06": "Amarela",
+   "2026-07": "Amarela",
+   "2026-08": "Amarela",
+   "2026-09": "Amarela",
+   "2026-10": "Verde"
+  },
+  "sem_dado": "mês que ainda não está na tabela usa o último mês conhecido",
+  "rateio": {
+   "regra": "Média do adicional de cada dia do ciclo; contam os dias do dia seguinte à leitura anterior até o dia da leitura atual, inclusive.",
+   "fonte": {
+    "documento": "REN ANEEL nº 1.000/2021, art. 307 (rateio por dias) e fatura de out/2026 (quais dias contam)",
+    "url": "https://www.in.gov.br/en/web/dou/-/resolucao-normativa-aneel-n-1.000-de-7-de-dezembro-de-2021-368359651",
+    "citacao": "A distribuidora deve aplicar as bandeiras tarifárias sobre o consumo faturado da unidade consumidora, utilizando uma tarifa proporcional aos dias de vigência de cada bandeira.",
+    "conferido_em": "2026-10-06",
+    "certeza": "deduzido de fatura",
+    "nota": "A norma não diz qual ponta do ciclo entra. A fatura de 03/09 a 06/10/2026 fecha com 27 dias de setembro e 6 de outubro: 0,01885 × 27/33 = 0,015423; com 28 e 5 não fecha."
+   }
+  },
+  "tributos": "A bandeira soma na tarifa antes dos tributos.",
+  "fonte": {
+   "documento": "ANEEL — dados abertos, Bandeiras Tarifárias (acionamento gerado em 2026-10-05; adicional pela REH nº 3.306/2024)",
+   "url": "https://dadosabertos.aneel.gov.br/api/3/action/datastore_search?resource_id=0591b8f6-fe54-437b-b72b-1aa2efd46e42&sort=DatCompetencia%20desc",
+   "url_adicional": "https://dadosabertos.aneel.gov.br/api/3/action/datastore_search?resource_id=5879ca80-b3bd-45b1-a135-d9b77c1d5b36",
+   "citacao": "serão de 18,85 R$/MWh, quando da vigência da bandeira tarifária amarela, 44,63 R$/MWh, quando da vigência do patamar 1 da bandeira tarifária vermelha e de 78,77 R$/MWh",
+   "formato": "JSON, sem chave; atualização mensal",
+   "conferido_em": "2026-10-06",
+   "certeza": "lido na fonte"
+  }
+ },
+ "icms": {
+  "unidade": "%",
+  "faixas": [
+   [
+    50,
+    0.0
+   ],
+   [
+    300,
+    18.0
+   ],
+   [
+    null,
+    24.0
+   ]
+  ],
+  "regra": "Pela faixa do consumo do ciclo, em kWh inteiros; a alíquota vale sobre o consumo todo, não só sobre o excedente.",
+  "fonte": {
+   "documento": "Light — Tarifas de Baixa Tensão, edição Setembro/2026 (cabeçalhos das colunas); LC estadual RJ 210/2023",
+   "url": "https://www.light.com.br/Documentos%20Compartilhados/Entenda-Conta-Casa-Arquivos-Relacionados/Tarifas%20Baixa%20Tens%C3%A3o.pdf",
+   "citacao": "Até 50 kWh (isento de ICMS) · A partir de 51 kWh a 300 kWh (ICMS de 18%) · A partir de 301 kWh (ICMS de 20%) + (FECP de 4%)",
+   "conferido_em": "2026-10-06",
+   "certeza": "lido na fonte",
+   "nota": "As três colunas do PDF conferem pela conta: 0.94793 ÷ ((1 − ICMS) × (1 − 0,0599)) = 1.00833, 1.22967 e 1.32675. Não conferido: se a faixa usa o kWh faturado ou normalizado para 30 dias."
+  }
+ },
+ "pis_cofins": {
+  "unidade": "%",
+  "por_mes": {
+   "2026-08": [
+    1.23,
+    5.67
+   ],
+   "2026-10": [
+    1.01,
+    4.68
+   ]
+  },
+  "regra": "Valem os do mês da leitura; mês sem dado usa o último mês conhecido antes dele.",
+  "fonte": {
+   "documento": "Faturas de ago/2026 e out/2026 (quadro de tributos)",
+   "url": null,
+   "citacao": "PIS/PASEP 1,01 · COFINS 4,68 (out/2026); PIS/PASEP 1,23 · COFINS 5,67 (ago/2026)",
+   "conferido_em": "2026-10-06",
+   "certeza": "deduzido de fatura",
+   "nota": "A Light não publica as duas alíquotas mensais; o site remete à área logada. O PDF de tarifas só permite deduzir a soma, com atraso (set/2026: 5,99 %)."
+  }
+ },
+ "iluminacao_publica": {
+  "unidade": "BRL",
+  "teip_brl_mwh": 684.41,
+  "teto": 5195.0,
+  "faixas": [
+   [
+    120,
+    0.0,
+    0.0
+   ],
+   [
+    140,
+    2.75,
+    0.00572
+   ],
+   [
+    170,
+    4.13,
+    0.00857
+   ],
+   [
+    200,
+    6.44,
+    0.01602
+   ],
+   [
+    250,
+    7.57,
+    0.01879
+   ],
+   [
+    300,
+    9.46,
+    0.02349
+   ],
+   [
+    350,
+    17.67,
+    0.04386
+   ],
+   [
+    400,
+    20.61,
+    0.05117
+   ],
+   [
+    450,
+    23.54,
+    0.05839
+   ],
+   [
+    500,
+    26.49,
+    0.06568
+   ],
+   [
+    550,
+    29.41,
+    0.07298
+   ],
+   [
+    600,
+    32.35,
+    0.08028
+   ],
+   [
+    650,
+    35.29,
+    0.08754
+   ],
+   [
+    700,
+    38.23,
+    0.09484
+   ],
+   [
+    750,
+    41.17,
+    0.10213
+   ],
+   [
+    800,
+    44.11,
+    0.10942
+   ],
+   [
+    850,
+    47.05,
+    0.11672
+   ],
+   [
+    900,
+    49.99,
+    0.12401
+   ],
+   [
+    950,
+    52.93,
+    0.13131
+   ],
+   [
+    1000,
+    55.87,
+    0.1386
+   ],
+   [
+    1500,
+    58.8,
+    0.14591
+   ],
+   [
+    2000,
+    88.2,
+    0.21887
+   ],
+   [
+    2500,
+    117.6,
+    0.29182
+   ],
+   [
+    3000,
+    146.99,
+    0.36478
+   ],
+   [
+    3500,
+    176.4,
+    0.43766
+   ],
+   [
+    4000,
+    205.8,
+    0.5106
+   ],
+   [
+    4500,
+    235.15,
+    0.58337
+   ],
+   [
+    5000,
+    264.55,
+    0.65629
+   ],
+   [
+    5500,
+    293.89,
+    0.72914
+   ],
+   [
+    6000,
+    323.27,
+    0.80205
+   ],
+   [
+    6500,
+    352.61,
+    0.87495
+   ],
+   [
+    7000,
+    381.99,
+    0.94786
+   ],
+   [
+    7500,
+    411.4,
+    1.02074
+   ],
+   [
+    8000,
+    440.78,
+    1.09365
+   ],
+   [
+    8500,
+    470.16,
+    1.1665
+   ],
+   [
+    9000,
+    499.55,
+    1.2394
+   ],
+   [
+    9500,
+    528.88,
+    1.31233
+   ],
+   [
+    10000,
+    558.26,
+    1.38523
+   ],
+   [
+    12500,
+    587.63,
+    1.45807
+   ],
+   [
+    15000,
+    734.55,
+    1.82259
+   ],
+   [
+    17500,
+    881.48,
+    2.18705
+   ],
+   [
+    20000,
+    1028.4,
+    2.55156
+   ],
+   [
+    22500,
+    1175.31,
+    2.91607
+   ],
+   [
+    25000,
+    1322.22,
+    3.28058
+   ],
+   [
+    27500,
+    1469.15,
+    3.64515
+   ],
+   [
+    30000,
+    1616.07,
+    4.00966
+   ],
+   [
+    32500,
+    1762.98,
+    4.37418
+   ],
+   [
+    35000,
+    1909.9,
+    4.73869
+   ],
+   [
+    37500,
+    2056.81,
+    5.10321
+   ],
+   [
+    40000,
+    2203.72,
+    5.46772
+   ],
+   [
+    42500,
+    2350.61,
+    5.83218
+   ],
+   [
+    45000,
+    2497.52,
+    6.19669
+   ],
+   [
+    47500,
+    2644.44,
+    6.5612
+   ],
+   [
+    50000,
+    2791.35,
+    6.92572
+   ],
+   [
+    62500,
+    2938.25,
+    7.29031
+   ],
+   [
+    75000,
+    3672.81,
+    9.11289
+   ],
+   [
+    87500,
+    4407.37,
+    10.93546
+   ],
+   [
+    100000,
+    5141.93,
+    12.75804
+   ],
+   [
+    150000,
+    5876.29,
+    14.58039
+   ],
+   [
+    200000,
+    8814.43,
+    21.87059
+   ],
+   [
+    null,
+    11752.76,
+    29.16083
+   ]
+  ],
+  "colunas_das_faixas": [
+   "até kWh (null = sem limite)",
+   "parcela fixa em R$",
+   "coeficiente"
+  ],
+  "regra": "parcela fixa + arredonda(coeficiente × (TEIP + adicional da bandeira), 2 casas), limitado ao teto. A bandeira é a do mês anterior ao da leitura (o mês do consumo). A faixa é a da média de consumo dos 12 ciclos anteriores ao reajuste, congelada até o reajuste seguinte; sem histórico, vale o consumo do próprio ciclo.",
+  "fonte": {
+   "documento": "Lei municipal RJ nº 5.132/2009 com a redação da Lei nº 9.049/2025 (art. 4º); Decreto Rio nº 57.472/2025; tabelas mensais da Secretaria Municipal de Fazenda; PDF da Light com as fórmulas",
+   "url": "https://fazenda.prefeitura.rio/cosip/2026-2/",
+   "url_formulas": "https://www.light.com.br/Documentos%20Compartilhados/Contribuicao-Iluminacao-Publica/Rio%20de%20Janeiro.pdf",
+   "url_lei": "https://www.legisweb.com.br/legislacao/?id=483417",
+   "citacao": "a faixa de consumo de cada unidade será redefinida pela média do consumo mensal de energia elétrica da referida unidade consumidora apurada nos 12 (doze) meses anteriores",
+   "formato": "PDF (dois meses de 2026 em DOCX); o endereço do arquivo muda todo mês",
+   "conferido_em": "2026-10-06",
+   "certeza": "lido na fonte",
+   "nota": "As 61 faixas reproduzem, linha a linha, as tabelas da Fazenda de maio, agosto, setembro e outubro de 2026. A parcela fixa já está corrigida pelo índice anual (3,90 % em 2026). A regra de arredondamento é empírica. A TEIP é com tributos e fica fixa até o reajuste de 2027."
+  }
+ },
+ "sem_fonte": {
+  "complemento_cosip_jan_2026": {
+   "o_que_se_sabe": "Linha 'Complemento COSIP RJ - Jan/26 - Lei 9049' de R$ 2,08 nas faturas de ago e out/2026.",
+   "hipotese": "Diferença entre a tabela antiga, ainda aplicada em janeiro/2026, e a lei nova em vigor desde 01/01/2026, cobrada em parcelas. Os números são coerentes (cerca de 24 a 25 parcelas) mas nenhuma conta fecha exatamente em 2,08.",
+   "tratamento": "ajuste manual (outros débitos)",
+   "conferido_em": "2026-10-06",
+   "certeza": "sem fonte"
+  }
+ },
+ "casos_de_conferencia": [
+  {
+   "nome": "fatura de agosto/2026",
+   "leitura_anterior": "2026-07-03",
+   "leitura": "2026-08-05",
+   "datas": "deduzidas do número de dias de cada ciclo impresso na fatura de outubro",
+   "kwh": 304,
+   "cosip_media_kwh": 425,
+   "outros_debitos": 2.08,
+   "creditos": 10.13,
+   "esperado": {
+    "tarifa_com_bandeira": 0.96678,
+    "preco": 1.36636,
+    "energia": 415.37,
+    "icms_valor": 99.69,
+    "pis_valor": 3.88,
+    "cofins_valor": 17.9,
+    "iluminacao": 64.6,
+    "total": 471.92
+   }
+  },
+  {
+   "nome": "fatura de outubro/2026",
+   "leitura_anterior": "2026-09-03",
+   "leitura": "2026-10-06",
+   "datas": "impressas na fatura",
+   "kwh": 354,
+   "cosip_media_kwh": 425,
+   "outros_debitos": 2.08,
+   "creditos": 0.0,
+   "esperado": {
+    "tarifa_com_bandeira": 0.96335,
+    "preco": 1.34405,
+    "energia": 475.78,
+    "icms_valor": 114.19,
+    "pis_valor": 3.65,
+    "cofins_valor": 16.92,
+    "iluminacao": 64.6,
+    "total": 542.46
+   }
+  }
+ ],
+ "casos_de_preco": {
+  "o_que_e": "Os três preços com tributos que a distribuidora publica, um por faixa de ICMS. Ancoram as faixas do ICMS e o fator de tributos em fonte que não é a calculadora nem uma fatura.",
+  "fonte": {
+   "documento": "Light — Tarifas de Baixa Tensão, edição Setembro/2026 (linha Residencial, três colunas com tributos)",
+   "url": "https://www.light.com.br/Documentos%20Compartilhados/Entenda-Conta-Casa-Arquivos-Relacionados/Tarifas%20Baixa%20Tens%C3%A3o.pdf",
+   "citacao": "Residencial 1,00833 1,22967 1,32675 - - 0,94793",
+   "conferido_em": "2026-10-06",
+   "certeza": "lido na fonte",
+   "nota": "O PDF não traz PIS e COFINS separados; a soma que reproduz as três colunas é 5,99 %. Entra aqui como ajuste (0 e 5,99), com a bandeira em zero: o preço publicado é sem bandeira."
+  },
+  "ajustes": {
+   "bandeira": 0.0,
+   "pis": 0.0,
+   "cofins": 5.99
+  },
+  "casos": [
+   {
+    "nome": "até 50 kWh (isento de ICMS)",
+    "kwh": 40,
+    "preco": 1.00833
+   },
+   {
+    "nome": "de 51 a 300 kWh (ICMS de 18 %)",
+    "kwh": 288,
+    "preco": 1.22967
+   },
+   {
+    "nome": "a partir de 301 kWh (ICMS de 24 %)",
+    "kwh": 354,
+    "preco": 1.32675
+   },
+   {
+    "nome": "borda: 50 kWh ainda é isento",
+    "kwh": 50,
+    "preco": 1.00833
+   },
+   {
+    "nome": "borda: 51 kWh já paga 18 %",
+    "kwh": 51,
+    "preco": 1.22967
+   },
+   {
+    "nome": "borda: 300 kWh ainda paga 18 %",
+    "kwh": 300,
+    "preco": 1.22967
+   },
+   {
+    "nome": "borda: 301 kWh já paga 24 %",
+    "kwh": 301,
+    "preco": 1.32675
+   }
+  ]
+ }
+}

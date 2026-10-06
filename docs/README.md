@@ -3,7 +3,7 @@
 Primeiro arquivo a abrir ao retomar trabalho neste repositório.
 
 **O estado vivo da frente** é o HANDOFF mais novo de [`roadmap/`](roadmap/) —
-hoje [HANDOFF-2026-10-06-energia-na-fatura.md](roadmap/HANDOFF-2026-10-06-energia-na-fatura.md).
+hoje [HANDOFF-2026-10-06-fatura-funcao-do-medidor.md](roadmap/HANDOFF-2026-10-06-fatura-funcao-do-medidor.md).
 Handoff antigo traz no cabeçalho por qual foi superado.
 
 ## Convenções
@@ -20,12 +20,14 @@ Handoff antigo traz no cabeçalho por qual foi superado.
 
 | Documento | Status | O que decide |
 |---|---|---|
-| [2026-10-06-1200-fonte-da-tarifa-de-energia.md](2026-10-06-1200-fonte-da-tarifa-de-energia.md) | aceito | O preço e os impostos da energia vêm da fatura; a tabela fica só para simular a Tarifa Branca |
+| [2026-10-06-1600-fatura-como-funcao-do-medidor.md](2026-10-06-1600-fatura-como-funcao-do-medidor.md) | aceito | A fatura de energia é calculada do consumo medido e das datas de leitura; cada parâmetro tem fonte e ajuste manual |
+| [2026-10-06-1200-fonte-da-tarifa-de-energia.md](2026-10-06-1200-fonte-da-tarifa-de-energia.md) | superado pela de cima | O preço e os impostos da energia vinham digitados da fatura |
 
 ## Referência
 
 | Documento | O que é |
 |---|---|
+| [2026-10-06-1600-formulas-da-fatura-de-energia.md](2026-10-06-1600-formulas-da-fatura-de-energia.md) | As fórmulas da fatura de energia, numeradas, cada uma ligada ao dado, à calculadora, ao sensor e à cerca — o documento para revisar o cálculo |
 | [API-REFERENCE_20260823_verificado.md](API-REFERENCE_20260823_verificado.md) | O contrato de API do instalador com o Home Assistant — vigente |
 | [API-REFERENCE.md](API-REFERENCE.md) | A versão anterior do contrato — superada pela de cima |
 | [ACHADOS-VERIFICADOS.md](ACHADOS-VERIFICADOS.md) | Fatos medidos que custam caro se esquecidos |

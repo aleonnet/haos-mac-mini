@@ -14,49 +14,48 @@ views:
     icon: mdi:cash-multiple
     cards:
       - type: entities
-        title: Energia — da fatura
+        title: Energia — ciclo em curso
         entities:
           - type: simple-entity
-            entity: input_number.fatura_preco_com_tributos
-            name: Preço unitário com tributos
-          - type: simple-entity
-            entity: input_number.fatura_tarifa_unit
-            name: Tarifa unitária sem tributos
-          - type: simple-entity
-            entity: input_number.aliquota_icms
-            name: ICMS
-          - type: simple-entity
-            entity: input_number.aliquota_pis
-            name: PIS/PASEP
-          - type: simple-entity
-            entity: input_number.aliquota_cofins
-            name: COFINS
-          - type: simple-entity
-            entity: input_number.encargo_cosip
-            name: Iluminação pública
-          - type: simple-entity
-            entity: input_number.encargo_complementos
-            name: Complementos
-          - type: simple-entity
-            entity: input_number.encargo_bonus
-            name: Bônus
-          - type: simple-entity
-            entity: input_number.fatura_conferencia
-            name: Total a pagar
+            entity: input_datetime.fatura_ultima_leitura
+            name: Última leitura
           - type: simple-entity
             entity: input_datetime.fatura_proxima_leitura
             name: Próxima leitura
+          - entity: sensor.consumo_do_ciclo
+            name: Consumo desde a leitura
+          - entity: sensor.consumo_projetado_do_ciclo
+            name: Consumo projetado
+          - entity: sensor.fatura_mensal_convencional
+            name: Fatura até agora
+          - entity: sensor.fatura_projetada_do_ciclo
+            name: Fatura projetada
           - type: divider
-          - entity: sensor.conferencia_do_preco
-            name: Conferência do preço
+          - entity: sensor.fatura_mensal_branca
+            name: Fatura Branca (simulada)
+          - entity: sensor.economia_com_tarifa_branca
+            name: Economia se migrar
+          - entity: sensor.posto_tarifario_atual
+            name: Posto tarifário agora
 
       - type: entities
         title: Energia — ciclo fechado × conta
         entities:
+          - type: simple-entity
+            entity: input_datetime.fatura_fechado_inicio
+            name: Leitura anterior
+          - type: simple-entity
+            entity: input_datetime.fatura_fechado_fim
+            name: Leitura
           - entity: sensor.consumo_do_ciclo_fechado
             name: Consumo medido
+          - entity: sensor.preco_do_ciclo_fechado
+            name: Preço do kWh
           - entity: sensor.fatura_do_ciclo_fechado
             name: Fatura pelo medidor
+          - type: simple-entity
+            entity: input_number.fatura_conferencia
+            name: Total da conta
           - entity: sensor.desvio_da_conferencia
             name: Diferença para a conta
           - type: divider
@@ -66,35 +65,74 @@ views:
             name: PIS/PASEP
           - entity: sensor.fatura_cofins
             name: COFINS
+          - entity: sensor.ciclo_fechado_com_estimativa
+            name: Usou valor estimado
 
       - type: entities
-        title: Energia — ciclo em curso
+        title: Energia — parâmetros em vigor
         entities:
-          - type: simple-entity
-            entity: input_datetime.fatura_ultima_leitura
-            name: Início do ciclo
-          - entity: sensor.consumo_do_ciclo
-            name: Consumo desde a leitura
-          - entity: sensor.fatura_mensal_convencional
-            name: Fatura Convencional até agora
-          - entity: sensor.fatura_mensal_branca
-            name: Fatura Branca (simulada)
-          - entity: sensor.economia_com_tarifa_branca
-            name: Economia se migrar
-          - entity: sensor.posto_tarifario_atual
-            name: Posto tarifário agora
+          - entity: sensor.preco_convencional
+            name: Preço do kWh
+          - entity: sensor.bandeira_do_ciclo
+            name: Bandeira do ciclo
+          - entity: sensor.icms_do_ciclo
+            name: ICMS
+          - entity: sensor.pis_do_ciclo
+            name: PIS/PASEP
+          - entity: sensor.cofins_do_ciclo
+            name: COFINS
+          - entity: sensor.fator_de_tributos
+            name: Fator de tributos
+          - entity: sensor.iluminacao_publica_do_ciclo
+            name: Iluminação pública
+          - entity: sensor.encargos_fixos_do_mes
+            name: Encargos fixos
+          - type: divider
+          - entity: sensor.preco_ponta
+            name: Branca — ponta
+          - entity: sensor.preco_intermediario
+            name: Branca — intermediário
+          - entity: sensor.preco_fora_ponta
+            name: Branca — fora de ponta
+          - type: divider
+          - entity: sensor.dados_da_fatura
+            name: Dados atualizados em
           - entity: sensor.dias_ate_reajuste_tarifario
             name: Dias até o reajuste
 
       - type: entities
-        title: Energia — preços por posto (R$/kWh)
+        title: Energia — ajustes manuais
         entities:
-          - sensor.preco_convencional
-          - sensor.preco_ponta
-          - sensor.preco_intermediario
-          - sensor.preco_fora_ponta
-          - sensor.bandeira_implicita
-          - sensor.fator_de_tributos
+          - type: simple-entity
+            entity: input_text.ajuste_tarifa
+            name: Tarifa sem tributos (R$/kWh)
+          - type: simple-entity
+            entity: input_text.ajuste_bandeira
+            name: Bandeira do ciclo (R$/kWh)
+          - type: simple-entity
+            entity: input_text.ajuste_icms
+            name: ICMS (%)
+          - type: simple-entity
+            entity: input_text.ajuste_pis
+            name: PIS/PASEP (%)
+          - type: simple-entity
+            entity: input_text.ajuste_cofins
+            name: COFINS (%)
+          - type: simple-entity
+            entity: input_text.ajuste_iluminacao
+            name: Iluminação pública (R$)
+          - type: simple-entity
+            entity: input_text.ajuste_outros_debitos
+            name: Outros débitos (R$)
+          - type: simple-entity
+            entity: input_text.ajuste_creditos
+            name: Créditos (R$)
+          - type: simple-entity
+            entity: input_number.cosip_media_kwh
+            name: Média da faixa da iluminação
+          - type: divider
+          - entity: sensor.ajustes_ativos
+            name: Ajustes preenchidos
 
       - type: entities
         title: Gás canalizado

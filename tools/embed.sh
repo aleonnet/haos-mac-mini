@@ -12,6 +12,11 @@
 #
 #   ./tools/embed.sh           embute
 #   ./tools/embed.sh --check   só confere, não escreve (exit 3 se divergir)
+#
+# O package de energia tem, por sua vez, dois blocos GERADOS do arquivo de dados
+# da tarifa (tools/tarifas-bloco.py). É a mesma cadeia — dado → package →
+# instalador —, então os dois sentidos passam por aqui: embutir regenera esses
+# blocos antes de copiar, e conferir reprova se eles divergem do arquivo de dados.
 # =============================================================================
 set -Eeuo pipefail
 
@@ -26,6 +31,13 @@ INSTALADOR="$RAIZ/haos-install.sh"
 BLOCOS="CATALOGO|catalog/catalog.bash UI|lib/haos-ui.sh HELPER|lib/ha-api.py|var:HAOS_HELPER_PY PKG_ENERGIA|packages/energia_br.yaml|var:HAOS_PKG_ENERGIA PKG_GAS|packages/gas_br.yaml|var:HAOS_PKG_GAS PKG_AGUA|packages/agua_br.yaml|var:HAOS_PKG_AGUA DASH_CUSTOS|dashboards/custos_br.yaml|var:HAOS_DASH_CUSTOS DASH_MONITOR|dashboards/monitor_haos.yaml|var:HAOS_DASH_MONITOR"
 
 [ -f "$INSTALADOR" ] || { echo "[ERRO] instalador ausente: $INSTALADOR" >&2; exit 4; }
+
+falhou=0
+if [ "${1:-}" = "--check" ]; then
+    python3 "$RAIZ/tools/tarifas-bloco.py" --check || falhou=1
+else
+    python3 "$RAIZ/tools/tarifas-bloco.py"
+fi
 
 # Completude: um packages/*.yaml novo SEM bloco viajaria fora do instalador em
 # silêncio — cerca da banca.
@@ -51,7 +63,6 @@ prepara() {
     fi
 }
 
-falhou=0
 for bloco in $BLOCOS; do
     nome="${bloco%%|*}"; resto="${bloco#*|}"
     rel="${resto%%|*}"
@@ -72,7 +83,9 @@ for bloco in $BLOCOS; do
             echo "[OK] $nome embutido idêntico a $rel"
         else
             echo "[ERRO] $nome embutido DIVERGE de $rel — rode ./tools/embed.sh" >&2
-            diff "$tmp_b" "$tmp_a" | head -12 >&2
+            # `|| true`: o diff sai com 1 quando há diferença; sob pipefail e
+            # errexit isso encerrava aqui com 1, antes dos outros blocos e do exit 3.
+            diff "$tmp_b" "$tmp_a" | head -12 >&2 || true
             falhou=1
         fi
         continue
