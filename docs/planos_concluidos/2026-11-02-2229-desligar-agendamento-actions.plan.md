@@ -1,7 +1,7 @@
 # Parar o gasto de armazenamento do GitHub Actions e desligar o que roda sozinho
 
 project: ~/Development/ABHOME-infra/ABHOME-haos-macmini
-status: proposed
+status: aceito
 
 ## Context
 
