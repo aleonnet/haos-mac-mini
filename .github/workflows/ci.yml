@@ -4,11 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-  schedule:
-    # Diário. O ponto não é o nosso código mudar — é o Home Assistant mudar.
-    # O arnês contra `stable` fica vermelho no dia em que o HA publica algo que
-    # quebra a superfície de que dependemos, em vez de quando um usuário reclama.
-    - cron: "17 6 * * *"
 
 jobs:
 
